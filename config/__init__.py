@@ -29,3 +29,10 @@ PG_PASSWORD = os.getenv("PG_PASSWORD", "password")
 # ── LLM ────────────────────────────────────────────────────────────────────
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 LLM_MODEL      = os.getenv("LLM_MODEL", "gpt-4o")
+
+# ── Internal Semantic Search API ───────────────────────────────────────────
+# Only reachable within the company network.
+SEMANTIC_SEARCH_URL = os.getenv(
+    "SEMANTIC_SEARCH_URL",
+    "https://pm-copilot-macro-gcl-osdp-gsd-gsd-delivery-staging.aibi-americas-002.dyn.nesc.nokia.net",
+)

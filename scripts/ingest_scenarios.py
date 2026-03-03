@@ -31,7 +31,7 @@ import config
 EXCEL_PATH = os.path.join(_PROJECT_ROOT, "Copy of Nokia Scenario.xlsx")
 SHEET_NAME = "Simulator Samples"
 TABLE = "pwc_semantic_information_schema.semantics_simulation"
-EMBEDDING_MODEL = "text-embedding-3-small"
+EMBEDDING_MODEL = "text-embedding-ada-002"
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────

@@ -17,7 +17,7 @@ from langgraph.prebuilt import create_react_agent
 from config.settings import config
 from models.state import SimulationState, ToolCallRecord
 from tools.langchain_tools import get_all_tools
-from prompts.agent_prompts import TRAVERSAL_SYSTEM
+from prompts.traversal_prompt import TRAVERSAL_SYSTEM
 from services.semantic_service import SemanticService
 
 logger = logging.getLogger(__name__)
@@ -196,27 +196,33 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
     # Build system prompt with KG schema injected
     kg_schema = state.get("kg_schema", "Schema not available")
 
-    # ── Semantic search: find matching scenario guidance ──────────────────
-    scenario_context = ""
+    # ── Semantic search: KPI + Question Bank + Simulation context ─────────
+    semantic_context = ""
     simulation_guidance = ""
     try:
         semantic = SemanticService()
-        matched = semantic.search_similar_scenarios(state["user_query"])
-        if matched:
-            scenario_context = semantic.format_scenario_context(matched)
-            simulation_guidance = semantic.format_simulation_guidance(matched)
+        context_data = semantic.get_all_context(state["user_query"])
+
+        kpi_hits = len(context_data.get("kpi", []))
+        qb_hits  = len(context_data.get("question_bank", []))
+        sim_hits = len(context_data.get("simulation", []))
+        total    = kpi_hits + qb_hits + sim_hits
+
+        if total:
+            semantic_context   = semantic.format_traversal_context(context_data)
+            simulation_guidance = semantic.format_simulation_guidance(context_data)
             print(
-                f"\n{_GREEN}  🎯 Semantic match: {len(matched)} scenario(s) above 70% threshold "
-                f"(best: {matched[0]['similarity_score'] * 100:.1f}%){_RESET}"
+                f"\n{_GREEN}  🎯 Semantic context: "
+                f"{kpi_hits} KPI · {qb_hits} Q&A · {sim_hits} scenario result(s){_RESET}"
             )
         else:
-            print(f"\n{_DIM}  ℹ  No semantic scenario match above 70% threshold.{_RESET}")
+            print(f"\n{_DIM}  ℹ  No semantic context retrieved (API may be unreachable).{_RESET}")
     except Exception as e:
         logger.warning("Semantic search failed (non-fatal): %s", e)
 
     system_prompt = TRAVERSAL_SYSTEM.format(
         kg_schema=kg_schema,
-        scenario_context=scenario_context,
+        semantic_context=semantic_context,
     )
 
     max_steps = state.get("max_traversal_steps", DEFAULT_MAX_STEPS)

@@ -1,257 +1,258 @@
 """
-Semantic similarity service for matching user questions to pre-defined scenarios.
+Semantic search service — calls the internal PM Copilot semantic search API
+to retrieve relevant context from KPI, question_bank, and simulation tables.
 
-Uses OpenAI text-embedding-3-small to create embeddings and cosine similarity
-to find matching scenarios from pwc_semantic_information_schema.semantics_simulation.
+API endpoint: POST /api/v1/semantic/search
+Note: Only accessible within the company network.
 
-Threshold: 70% cosine similarity (configurable via SIMILARITY_THRESHOLD).
+Request body:
+    { "query": str, "table": "kpi"|"question_bank"|"simulation", "top_k": int }
+
+Response (200):
+    {
+        "query": str,
+        "total_results": int,
+        "results": [
+            { "table": str, "id": int, "content": {...}, "similarity_score": float }
+        ]
+    }
 """
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any
 
-import numpy as np
-import psycopg2
+import requests
 
 import config
 
 logger = logging.getLogger(__name__)
 
-EMBEDDING_MODEL = "text-embedding-3-small"
-SIMILARITY_THRESHOLD = 0.70  # 70% threshold
-_TABLE = "pwc_semantic_information_schema.semantics_simulation"
+_TABLES = ("kpi", "question_bank", "simulation")
+_DEFAULT_TOP_K = 3
+_REQUEST_TIMEOUT = 15  # seconds
+
+# Known structured keys inside the simulation table's content dict
+_SIMULATION_CONTENT_KEYS: dict[str, str] = {
+    "scenario":                "Scenario Description",
+    "data_phase_questions":    "Data Phase Questions",
+    "data_phase_steps":        "Data Phase Steps",
+    "calculation_phase_steps": "Calculation Phase Steps",
+    "simulator_phase_steps":   "Simulator Phase Steps",
+    "simulation_methodology":  "Simulation Methodology",
+}
 
 
 class SemanticService:
     """
-    Handles embedding creation and semantic similarity search against the
-    scenario knowledge base stored in PostgreSQL.
+    Client for the internal PM Copilot semantic search API.
+
+    Queries kpi, question_bank, and simulation tables and formats
+    the results as structured context strings for the traversal and
+    response agents. Gracefully degrades when the API is unreachable
+    (e.g., outside the company network).
     """
 
     def __init__(self):
-        self._conn: Optional[psycopg2.extensions.connection] = None
-        self._openai_client = None
+        self._base_url = config.SEMANTIC_SEARCH_URL.rstrip("/")
+        self._session = requests.Session()
+        self._session.headers.update({
+            "accept": "application/json",
+            "Content-Type": "application/json",
+        })
 
-    # ── OpenAI client ──────────────────────────────────────────────────────
+    # ── Low-level API call ─────────────────────────────────────────────────
 
-    def _get_client(self):
-        if self._openai_client is None:
-            from openai import OpenAI
-            self._openai_client = OpenAI(api_key=config.OPENAI_API_KEY)
-        return self._openai_client
-
-    # ── PostgreSQL connection ──────────────────────────────────────────────
-
-    def _get_conn(self) -> psycopg2.extensions.connection:
-        if self._conn is None or self._conn.closed:
-            self._conn = psycopg2.connect(
-                host=config.PG_HOST,
-                port=config.PG_PORT,
-                database=config.PG_DATABASE,
-                user=config.PG_USER,
-                password=config.PG_PASSWORD,
-            )
-        return self._conn
-
-    # ── Embedding ──────────────────────────────────────────────────────────
-
-    def create_embedding(self, text: str) -> list[float]:
-        """Create an embedding vector for the given text using text-embedding-3-small."""
-        response = self._get_client().embeddings.create(
-            model=EMBEDDING_MODEL,
-            input=text.strip(),
-        )
-        return response.data[0].embedding
-
-    # ── Cosine similarity ──────────────────────────────────────────────────
-
-    @staticmethod
-    def _cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
-        """Compute cosine similarity between two vectors. Returns value in [0, 1]."""
-        a = np.array(vec1, dtype=np.float64)
-        b = np.array(vec2, dtype=np.float64)
-        norm_a = np.linalg.norm(a)
-        norm_b = np.linalg.norm(b)
-        if norm_a == 0.0 or norm_b == 0.0:
-            return 0.0
-        return float(np.dot(a, b) / (norm_a * norm_b))
-
-    # ── Semantic search ────────────────────────────────────────────────────
-
-    def search_similar_scenarios(
-        self,
-        question: str,
-        threshold: float = SIMILARITY_THRESHOLD,
-    ) -> list[dict]:
+    def _search(self, query: str, table: str, top_k: int = _DEFAULT_TOP_K) -> list[dict]:
         """
-        Search for scenarios similar to the given question.
+        Call the semantic search API for a single table.
+        Returns an empty list on any error so the agent can proceed without context.
+        """
+        url = f"{self._base_url}/api/v1/semantic/search"
+        payload = {"query": query, "table": table, "top_k": top_k}
 
-        Embeds the question, compares against all stored scenario embeddings
-        using cosine similarity, and returns rows with similarity >= threshold.
+        try:
+            resp = self._session.post(url, json=payload, timeout=_REQUEST_TIMEOUT)
+            resp.raise_for_status()
+            results: list[dict] = resp.json().get("results", [])
+            logger.info(
+                "Semantic search [%s]: %d result(s) for query: %.80s",
+                table, len(results), query,
+            )
+            return results
+
+        except requests.exceptions.ConnectionError:
+            logger.warning(
+                "Semantic search [%s]: Cannot reach %s — are you on the company network?",
+                table, self._base_url,
+            )
+        except requests.exceptions.Timeout:
+            logger.warning(
+                "Semantic search [%s]: Request timed out after %ds", table, _REQUEST_TIMEOUT
+            )
+        except requests.exceptions.HTTPError as exc:
+            logger.warning("Semantic search [%s]: HTTP error — %s", table, exc)
+        except Exception as exc:
+            logger.warning("Semantic search [%s]: Unexpected error — %s", table, exc)
+
+        return []
+
+    # ── High-level: query all tables ───────────────────────────────────────
+
+    def get_all_context(
+        self,
+        query: str,
+        top_k: int = _DEFAULT_TOP_K,
+    ) -> dict[str, list[dict]]:
+        """
+        Query kpi, question_bank, and simulation tables for the given query.
 
         Returns:
-            List of matching scenario dicts sorted by similarity (highest first).
-            Each dict contains: scenario_id, scenario, data_phase_steps,
-            data_phase_questions, calculation_phase_steps, simulator_phase_steps,
-            simulation_methodology, similarity_score.
+            {
+                "kpi":           [...],
+                "question_bank": [...],
+                "simulation":    [...],
+            }
+        Each list contains result dicts from the API (may be empty on error).
         """
-        try:
-            query_embedding = self.create_embedding(question)
-        except Exception as e:
-            logger.error("Failed to create embedding for question: %s", e)
-            return []
-
-        try:
-            conn = self._get_conn()
-            cur = conn.cursor()
-            cur.execute(f"""
-                SELECT scenario_id, scenario,
-                       data_phase_steps, data_phase_questions,
-                       calculation_phase_steps, simulator_phase_steps,
-                       simulation_methodology, embedding
-                FROM {_TABLE}
-                WHERE embedding IS NOT NULL
-            """)
-            rows = cur.fetchall()
-            cur.close()
-        except Exception as e:
-            logger.error("Failed to fetch scenarios from DB: %s", e)
-            return []
-
-        matches = []
-        for row in rows:
-            stored_emb = row[7]
-            if not stored_emb:
-                continue
-            sim = self._cosine_similarity(query_embedding, list(stored_emb))
-            if sim >= threshold:
-                matches.append({
-                    "scenario_id": row[0],
-                    "scenario": row[1] or "",
-                    "data_phase_steps": row[2] or [],
-                    "data_phase_questions": row[3] or [],
-                    "calculation_phase_steps": row[4] or [],
-                    "simulator_phase_steps": row[5] or [],
-                    "simulation_methodology": row[6] or "",
-                    "similarity_score": round(sim, 4),
-                })
-
-        matches.sort(key=lambda x: x["similarity_score"], reverse=True)
-
-        logger.info(
-            "Semantic search: %d/%d scenarios above %.0f%% threshold for query: %.80s",
-            len(matches), len(rows), threshold * 100, question,
-        )
-        return matches
+        return {table: self._search(query, table, top_k) for table in _TABLES}
 
     # ── Context formatting ─────────────────────────────────────────────────
 
-    def format_scenario_context(self, scenarios: list[dict]) -> str:
+    def format_traversal_context(self, context: dict[str, list[dict]]) -> str:
         """
-        Format matched scenario rows into a structured context string
-        to be injected into the traversal agent's system prompt.
+        Format all semantic search results into a structured context block
+        to be injected into the Traversal Agent's system prompt.
+
+        Sections: KPI context → Question Bank examples → Simulation scenarios.
+        Returns an empty string when no results are available.
         """
-        if not scenarios:
+        kpi_results = context.get("kpi", [])
+        qb_results  = context.get("question_bank", [])
+        sim_results = context.get("simulation", [])
+
+        if not any([kpi_results, qb_results, sim_results]):
             return ""
 
-        lines = [
-            "## Matched Scenario Guidance (from Semantic Knowledge Base)",
-            "",
-            "The following pre-defined scenario(s) closely match the user's question.",
-            "Use the Data Phase Steps and Questions below to guide your data retrieval,",
-            "the Calculation Phase Steps to plan computations, and the Simulation",
-            "Methodology to structure your final output.",
+        lines: list[str] = [
+            "## Semantic Context (from Internal Knowledge Base)",
+            "The following was retrieved via semantic similarity search against "
+            "the user's query. Use it to guide your data retrieval strategy.",
             "",
         ]
 
-        for i, s in enumerate(scenarios, 1):
+        # ── KPI section ──
+        if kpi_results:
+            lines.append("### Relevant KPIs")
+            for r in kpi_results:
+                score = f"{r.get('similarity_score', 0) * 100:.1f}%"
+                lines.append(f"**KPI #{r.get('id', '?')}** (similarity: {score})")
+                for k, v in (r.get("content") or {}).items():
+                    if v:
+                        lines.append(f"  - **{k}**: {v}")
+                lines.append("")
+
+        # ── Question Bank section ──
+        if qb_results:
+            lines.append("### Relevant Questions from Knowledge Base")
             lines.append(
-                f"### Scenario {i} — ID {s['scenario_id']} "
-                f"(Similarity: {s['similarity_score'] * 100:.1f}%)"
+                "These pre-answered questions are semantically similar to the user's query. "
+                "Use them to understand expected data shape and calculations."
             )
-            lines.append(f"**Scenario**: {s['scenario']}")
             lines.append("")
-
-            if s["data_phase_questions"]:
-                lines.append("**Data Phase Questions** (key questions to answer in order):")
-                for q in s["data_phase_questions"]:
-                    if q and q.strip():
-                        lines.append(f"  - {q.strip()}")
+            for r in qb_results:
+                score = f"{r.get('similarity_score', 0) * 100:.1f}%"
+                lines.append(f"**Q&A #{r.get('id', '?')}** (similarity: {score})")
+                for k, v in (r.get("content") or {}).items():
+                    if v:
+                        lines.append(f"  - **{k}**: {v}")
                 lines.append("")
 
-            if s["data_phase_steps"]:
-                lines.append("**Data Phase Steps** (how to retrieve the required data):")
-                for step in s["data_phase_steps"]:
-                    if step and step.strip():
-                        lines.append(f"  - {step.strip()}")
-                lines.append("")
-
-            if s["calculation_phase_steps"]:
-                lines.append("**Calculation Phase Steps** (computations to perform):")
-                for step in s["calculation_phase_steps"]:
-                    if step and step.strip():
-                        lines.append(f"  - {step.strip()}")
-                lines.append("")
-
-            if s["simulator_phase_steps"]:
-                lines.append("**Simulator Phase Steps** (simulation plan):")
-                for step in s["simulator_phase_steps"]:
-                    if step and step.strip():
-                        lines.append(f"  - {step.strip()}")
-                lines.append("")
-
-            if s["simulation_methodology"]:
+        # ── Simulation Scenario section ──
+        if sim_results:
+            lines.append("### Matched Simulation Scenarios")
+            lines.append(
+                "These pre-defined scenarios closely match the query. "
+                "Follow the Data Phase Questions/Steps as your primary retrieval roadmap "
+                "before exploring freely."
+            )
+            lines.append("")
+            for i, r in enumerate(sim_results, 1):
+                score = f"{r.get('similarity_score', 0) * 100:.1f}%"
                 lines.append(
-                    f"**Expected Output Format / Methodology**: {s['simulation_methodology']}"
+                    f"**Scenario {i} — ID {r.get('id', '?')}** (similarity: {score})"
                 )
+                content: dict[str, Any] = r.get("content") or {}
+                rendered: set[str] = set()
+
+                # Render known structured keys in a logical order
+                for key, label in _SIMULATION_CONTENT_KEYS.items():
+                    val = content.get(key)
+                    if not val:
+                        continue
+                    rendered.add(key)
+                    if isinstance(val, list):
+                        lines.append(f"  **{label}**:")
+                        for item in val:
+                            if str(item).strip():
+                                lines.append(f"    - {item}")
+                    else:
+                        lines.append(f"  **{label}**: {val}")
+
+                # Any remaining keys not in the known set
+                for k, v in content.items():
+                    if k not in rendered and v:
+                        lines.append(f"  **{k}**: {v}")
+
                 lines.append("")
 
-            lines.append("─" * 60)
-            lines.append("")
-
+        lines.append("─" * 60)
         return "\n".join(lines)
 
-    def format_simulation_guidance(self, scenarios: list[dict]) -> str:
+    def format_simulation_guidance(self, context: dict[str, list[dict]]) -> str:
         """
-        Format the simulation-side guidance from the best-matched scenario:
-        Calculation Phase Steps, Simulator Phase Steps, and Simulation Methodology.
+        Extract simulation guidance (calculation steps, simulator steps, methodology)
+        from the best-matched simulation scenario result.
 
-        This is passed to the Response Agent (not the Traversal Agent) so it
-        understands how to structure calculations and the final output view.
-        Uses only the top-scoring match.
+        This is passed to the Response Agent so it knows how to structure
+        calculations and the final output. Returns empty string if no match.
         """
-        if not scenarios:
+        sim_results = context.get("simulation", [])
+        if not sim_results:
             return ""
 
-        s = scenarios[3]  # best match only
-        lines = [
+        best    = sim_results[0]  # highest similarity
+        content = best.get("content") or {}
+        score   = f"{best.get('similarity_score', 0) * 100:.1f}%"
+
+        lines: list[str] = [
             "## Matched Scenario — Simulation Guidance (Reference Only)",
-            f"*Scenario ID {s['scenario_id']} · Similarity {s['similarity_score'] * 100:.1f}%*",
-            f"*Scenario: {s['scenario']}*",
+            f"*Scenario ID {best.get('id', '?')} · Similarity {score}*",
+            f"*Scenario: {content.get('scenario', 'N/A')}*",
             "",
         ]
 
-        if s["calculation_phase_steps"]:
+        calc_steps: list = content.get("calculation_phase_steps", [])
+        if calc_steps:
             lines.append("### Calculation Phase Steps")
-            lines.append("*(How the data should be computed — adapt to what was actually retrieved)*")
-            for step in s["calculation_phase_steps"]:
-                if step and step.strip():
-                    lines.append(f"- {step.strip()}")
+            lines.append("*(Adapt to what was actually retrieved)*")
+            for step in calc_steps:
+                if str(step).strip():
+                    lines.append(f"- {step}")
             lines.append("")
 
-        if s["simulator_phase_steps"]:
+        sim_steps: list = content.get("simulator_phase_steps", [])
+        if sim_steps:
             lines.append("### Simulator Phase Steps")
-            lines.append("*(The simulation plan this type of query typically follows)*")
-            for step in s["simulator_phase_steps"]:
-                if step and step.strip():
-                    lines.append(f"- {step.strip()}")
+            for step in sim_steps:
+                if str(step).strip():
+                    lines.append(f"- {step}")
             lines.append("")
 
-        if s["simulation_methodology"]:
+        methodology: str = content.get("simulation_methodology", "")
+        if methodology:
             lines.append("### Expected Output Methodology")
-            lines.append("*(The format and structure the final response should follow)*")
-            lines.append(s["simulation_methodology"])
+            lines.append(methodology)
             lines.append("")
 
         return "\n".join(lines)

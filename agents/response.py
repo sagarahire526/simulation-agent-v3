@@ -14,7 +14,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from config.settings import config
 from models.state import SimulationState
 from tools.python_sandbox import execute_python
-from prompts.agent_prompts import RESPONSE_SYSTEM
+from prompts.response_prompt import RESPONSE_SYSTEM
 
 logger = logging.getLogger(__name__)
 
