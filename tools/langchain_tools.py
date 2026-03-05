@@ -119,8 +119,22 @@ def run_python(code: str) -> str:
     Print statements will be captured as 'output'.
     Use this for arithmetic, aggregations, data transformations, or any computation
     that should not be done in your head.
+
+    ON FAILURE: The result will contain 'status': 'error' and an 'error' field with the
+    exception message. Analyse the error, fix the code, and call this tool again with
+    the corrected version. Do NOT give up after a single failure.
     """
-    result = execute_python(code)
+    try:
+        result = execute_python(code)
+    except Exception as exc:
+        result = {"status": "error", "error": str(exc), "output": ""}
+
+    if result.get("status") == "error":
+        # Augment error response with explicit retry instruction for the LLM
+        result["retry_instruction"] = (
+            "Execution failed. Read the 'error' field, fix the code, "
+            "and call run_python again with the corrected code."
+        )
     return json.dumps(result, default=str)
 
 
@@ -132,9 +146,24 @@ def run_sql_python(code: str, timeout_seconds: int = 30) -> str:
     Set result = {...} to return data. DataFrames are auto-converted to records.
     Use this when you need to query PostgreSQL for actual operational data
     (as opposed to the Neo4j Knowledge Graph which describes the data model).
+
+    ON FAILURE: The result will contain 'status': 'error' and an 'error' field.
+    Analyse the error, fix the SQL or Python, and call this tool again.
+    Common fixes: wrong column name → check get_table_schema first;
+    syntax error → fix the Python/SQL; connection error → simplify the query.
+    Do NOT give up after a single failure.
     """
-    sandbox = PythonSandbox()
-    result = sandbox.execute(code, timeout_seconds)
+    try:
+        sandbox = PythonSandbox()
+        result = sandbox.execute(code, timeout_seconds)
+    except Exception as exc:
+        result = {"status": "error", "error": str(exc), "output": ""}
+
+    if result.get("status") == "error":
+        result["retry_instruction"] = (
+            "Execution failed. Read the 'error' field, fix the code, "
+            "and call run_sql_python again with the corrected code."
+        )
     return json.dumps(result, default=str)
 
 

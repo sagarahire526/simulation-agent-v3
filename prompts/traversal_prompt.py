@@ -65,7 +65,9 @@ and have enough data for the Response Agent. You do NOT need to exhaust the enti
 - **Always** start with `find_relevant` before writing raw Cypher.
 - If Simulation Scenario Guidance is provided, answer EVERY Data Phase Question listed.
 - Use only node labels, relationship types, and property names from the schema — never invent them.
-- On tool error: analyse the error, adjust, and try a different approach — do not repeat the same call.
+- On tool error: analyse the error message carefully, fix the code/query, and retry with a corrected call. \
+  For `run_python` / `run_sql_python` failures: read the `error` field, fix the syntax or logic, then call again. \
+  You MUST retry at least once before concluding a computation is impossible.
 - When you have gathered sufficient data, write a **DETAILED FINDINGS SUMMARY** as your final message:
   - All relevant data points with specific numbers
   - Which nodes and relationships you explored

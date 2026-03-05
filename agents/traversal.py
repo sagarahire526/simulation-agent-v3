@@ -220,9 +220,13 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
     except Exception as e:
         logger.warning("Semantic search failed (non-fatal): %s", e)
 
+    # Escape literal { } in dynamic content to avoid str.format() KeyError
+    safe_kg_schema = kg_schema.replace("{", "{{").replace("}", "}}")
+    safe_semantic  = semantic_context.replace("{", "{{").replace("}", "}}")
+
     system_prompt = TRAVERSAL_SYSTEM.format(
-        kg_schema=kg_schema,
-        semantic_context=semantic_context,
+        kg_schema=safe_kg_schema,
+        semantic_context=safe_semantic,
     )
 
     max_steps = state.get("max_traversal_steps", DEFAULT_MAX_STEPS)

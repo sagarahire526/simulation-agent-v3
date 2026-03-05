@@ -59,3 +59,4 @@ logs/
 # ── LangGraph / LangSmith ────────────────────────────────────────────────────
 .langgraph/
 langgraph.json
+mock_semantic_server.py

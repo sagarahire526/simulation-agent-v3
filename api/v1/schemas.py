@@ -14,33 +14,68 @@ from pydantic import BaseModel
 
 class SimulateRequest(BaseModel):
     query: str
+    thread_id: Optional[str] = None  # Caller-supplied conversation ID for HITL
 
     model_config = {
         "json_schema_extra": {
-            "example": {"query": "How many active GC sites are in Chicago?"}
+            "example": {
+                "query": "How many active GC sites are in Chicago?",
+                "thread_id": "session-abc-123",
+            }
         }
     }
 
 
+class ClarificationPayload(BaseModel):
+    """Payload returned when the query refiner pauses for user input."""
+    type: str
+    original_query: str
+    questions: list[str]
+    assumptions_if_skipped: list[str]
+    message: str
+
+
 class SimulateResponse(BaseModel):
+    status: str                        # "complete" | "clarification_needed"
+    thread_id: str                     # Echo back so caller can resume
     final_response: str
-    data_summary:   dict[str, Any]
-    calculations:   str
-    errors:         list[str]
-    messages:       list[dict[str, Any]]
+    data_summary: dict[str, Any]
+    calculations: str
+    errors: list[str]
+    messages: list[dict[str, Any]]
     traversal_steps: int
+    routing_decision: str              # "greeting" | "traversal" | "simulation"
+    planning_rationale: str            # Business-intent rationale for the plan (simulation route)
+    planner_steps: list[str]
+    clarification: Optional[ClarificationPayload] = None
+
+
+# ── Resume (HITL) ─────────────────────────────────────────────────────────────
+
+class ResumeRequest(BaseModel):
+    thread_id: str
+    clarification: str
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "thread_id": "session-abc-123",
+                "clarification": "Chicago market, target is 300 sites by end of next week.",
+            }
+        }
+    }
 
 
 # ── BKG ───────────────────────────────────────────────────────────────────────
 
 class BKGQueryRequest(BaseModel):
-    mode:       str
-    node_id:    Optional[str] = None
-    metric_id:  Optional[str] = None
-    question:   Optional[str] = None
-    start:      Optional[str] = None
-    depth:      Optional[int] = 2
-    rel_type:   Optional[str] = None
+    mode: str
+    node_id: Optional[str] = None
+    metric_id: Optional[str] = None
+    question: Optional[str] = None
+    start: Optional[str] = None
+    depth: Optional[int] = 2
+    rel_type: Optional[str] = None
     table_name: Optional[str] = None
 
     model_config = {
@@ -81,7 +116,7 @@ class ScenarioMatch(BaseModel):
     simulator_phase_steps: list[str]
     simulation_methodology: str
     similarity_score: float
-    similarity_pct: str  # e.g. "76.4%"
+    similarity_pct: str
 
 
 class SemanticRetrieveResponse(BaseModel):
@@ -95,7 +130,7 @@ class SemanticRetrieveResponse(BaseModel):
 # ── Sandbox ───────────────────────────────────────────────────────────────────
 
 class SandboxRequest(BaseModel):
-    code:            str
+    code: str
     timeout_seconds: int = 30
 
     model_config = {

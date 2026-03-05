@@ -33,11 +33,22 @@ class SimulationState(TypedDict):
     """
     # ── Input ──
     user_query: str
+    refined_query: str           # Finalized query after query_refiner validation
 
     # ── Phase tracking ──
     current_phase: Literal[
-        "discovery", "traversal", "response", "complete", "error"
+        "query_refinement", "orchestration", "discovery",
+        "planning", "traversal", "response", "complete", "error"
     ]
+
+    # ── Orchestrator routing ──
+    routing_decision: str        # "greeting" | "simulation" | "traversal"
+    routing_context: str         # For greeting: direct response text set by orchestrator
+
+    # ── Planner Agent ──
+    planning_rationale: str                                     # Business-intent rationale for the plan
+    planner_steps: list[str]                                    # Ordered steps created by planner
+    planner_step_results: Annotated[list[dict], operator.add]  # Results from parallel traversals
 
     # ── Knowledge Graph Schema (discovered once) ──
     kg_schema: str  # Node labels, relationships, properties
@@ -48,9 +59,7 @@ class SimulationState(TypedDict):
     traversal_steps_taken: int  # Number of tool invocations
     max_traversal_steps: int  # Safety ceiling (default 15)
 
-    # ── Semantic Scenario Guidance (traversal → response) ──
-    # Calculation Phase Steps + Simulator Phase Steps + Methodology from the
-    # best-matched scenario; written by traversal_node, consumed by response_node.
+    # ── Semantic Scenario Guidance (traversal/planner → response) ──
     scenario_simulation_guidance: str
 
     # ── Response Agent ──
