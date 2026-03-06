@@ -282,3 +282,23 @@ POST /simulate/stream/resume { thread_id, clarification }
 | Per-operation DB connections | DB errors are logged but never raised — DB failures never block the agent response |
 | `ThreadPoolExecutor` for parallel traversal | Planner's N sub-queries run concurrently — reduces total latency |
 | Semantic context injection | KPI definitions, question bank, and past simulation scenarios are retrieved and injected into Planner and Traversal prompts |
+
+Sequence of Information Flow
+1. User submits question in chat interface
+2. Query refinement extracts parameters
+3. System checks for missing information
+4. Orchestrator classifies question type
+5. Knowledge graph schema is analyzed
+6. Planner breaks question into sub-queries
+7. Sub-queries run in parallel
+8. Data retrieved from graph + databases
+9. Results aggregated
+10. Natural language response generated
+11. Final answer returned to user
+
+User → Chat Interface → Query Parser → Orchestrator
+Orchestrator → Knowledge Graph
+Orchestrator → SQL/Python Tools
+Tools → Results
+Results → Response Generator
+Response Generator → User
