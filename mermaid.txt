@@ -1,0 +1,107 @@
+flowchart TB
+
+%% USER
+A[User via Chat Interface\n\nExample:\nCan Chicago complete 300 sites in 2 weeks?]
+
+%% QUERY REFINER
+B[Query Refiner\n\nChecks:\n1. Market/City\n2. Timeline\n3. Quantity]
+
+C{Query Complete?}
+
+D[Pause\nAsk User For Missing Info\nResume After Input]
+
+%% ORCHESTRATOR
+E[Orchestrator\n\nClassifies Question Type]
+
+F{Question Type}
+
+G[Greeting\nReturn Direct Answer]
+
+%% SHARED COMPONENT
+H[Discover Schema\n\nReads Neo4j Knowledge Graph\nUnderstands Data Model]
+
+%% FAST TRACK
+I[Traversal Node\nSingle Execution]
+
+%% SIMULATION PATH
+J[Planner\nBreak Question Into Sub Queries]
+
+K1[Sub Query 1\nActive Crew Count]
+K2[Sub Query 2\nCrew Productivity]
+K3[Sub Query 3\nRemaining Sites]
+K4[Sub Query 4\nTimeline Calculation]
+
+L[Parallel Traversal Runs\nExecute All Sub Queries]
+
+%% TOOL EXECUTION
+T[Traversal Tool Executor\nAgent selects tools sequentially]
+
+%% RESPONSE
+O[Response Node\nAggregate Results\nGenerate Plain English Answer]
+
+P[User Receives Final Answer]
+
+%% =========================
+%% KNOWLEDGE GRAPH TOOLS
+%% =========================
+subgraph KG["Knowledge Graph Tools (Neo4j)"]
+direction TB
+M1[find_relevant\nSearch Knowledge Graph]
+M2[get_node\nFetch Node Details]
+M3[traverse_graph\nExplore Connections]
+M4[get_diagnostic\nUnderstand KPI Logic]
+M5[get_table_schema\nInspect Schema]
+M6[run_cypher\nExecute Cypher Query]
+end
+
+%% =========================
+%% DATA / CALCULATION TOOLS
+%% =========================
+subgraph DATA["Data & Calculation Tools"]
+direction TB
+N1[run_sql_python\nQuery PostgreSQL Data]
+N2[run_python\nPerform Math & Date Logic]
+end
+
+%% FLOW
+
+A --> B
+B --> C
+
+C -->|Complete| E
+C -->|Missing| D
+D --> B
+
+E --> F
+
+F -->|Greeting| G
+F -->|Traversal| H
+F -->|Simulation| H
+
+%% SHARED SCHEMA
+H --> I
+H --> J
+
+%% FAST TRACK
+I --> T
+
+%% SIMULATION
+J --> K1
+J --> K2
+J --> K3
+J --> K4
+
+K1 --> L
+K2 --> L
+K3 --> L
+K4 --> L
+
+L --> T
+
+%% TOOL EXECUTION CONNECTIONS
+T --> KG
+T --> DATA
+
+%% RESPONSE
+T --> O
+O --> P
