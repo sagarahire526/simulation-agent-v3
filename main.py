@@ -41,9 +41,19 @@ Run:
 Swagger UI:  http://localhost:8000/docs
 ReDoc:       http://localhost:8000/redoc
 """
+from contextlib import asynccontextmanager
 from api.v1.router import router as v1_router
+import services.db_service as db_svc
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    db_svc.ensure_tables()
+    yield
+
 
 app = FastAPI(
+    lifespan=lifespan,
     title="Simulation Agent API",
     description=(
         "LangGraph multi-agent system backed by Neo4j (BKG) and PostgreSQL.\n\n"

@@ -35,6 +35,8 @@ if "thread_id" not in st.session_state:
     st.session_state.thread_id = str(uuid.uuid4())
 if "pending_clarification" not in st.session_state:
     st.session_state.pending_clarification = None  # Set when HITL is paused
+if "user_id" not in st.session_state:
+    st.session_state.user_id = ""
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -55,7 +57,11 @@ def _fetch_health() -> dict | None:
 def _run_simulation(query: str) -> dict:
     r = requests.post(
         f"{API_BASE}/simulate",
-        json={"query": query, "thread_id": st.session_state.thread_id},
+        json={
+            "user_id": st.session_state.user_id,
+            "query": query,
+            "thread_id": st.session_state.thread_id,
+        },
         timeout=300,
     )
     r.raise_for_status()
@@ -181,6 +187,17 @@ with st.sidebar:
     st.caption("Powered by LangGraph · Neo4j · PostgreSQL · OpenAI")
     st.divider()
 
+    st.markdown("**User ID**")
+    user_id_input = st.text_input(
+        "User ID",
+        value=st.session_state.user_id,
+        placeholder="e.g. user-001",
+        label_visibility="collapsed",
+    )
+    if user_id_input != st.session_state.user_id:
+        st.session_state.user_id = user_id_input
+    st.divider()
+
     if not st.session_state.health_checked:
         st.session_state.health_data = _fetch_health()
         st.session_state.health_checked = True
@@ -280,7 +297,10 @@ if st.session_state.pending_clarification:
 
 
 # ── Normal chat input ─────────────────────────────────────────────────────────
-elif prompt := st.chat_input("Ask about site delivery, crews, prerequisites, schedules…"):
+elif prompt := st.chat_input(
+    "Ask about site delivery, crews, prerequisites, schedules…",
+    disabled=not st.session_state.user_id,
+):
 
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):

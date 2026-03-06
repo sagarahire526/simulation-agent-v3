@@ -60,3 +60,4 @@ logs/
 .langgraph/
 langgraph.json
 mock_semantic_server.py
+test_sse.html

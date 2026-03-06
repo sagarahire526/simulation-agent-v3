@@ -200,6 +200,111 @@ def resume_simulation(
     return final_state
 
 
+# ─────────────────────────────────────────────
+# SSE streaming helpers
+# ─────────────────────────────────────────────
+
+_NODE_TO_EVENT: dict[str, str] = {
+    "query_refiner":   "query_refiner_complete",
+    "orchestrator":    "orchestrator_complete",
+    "discover_schema": "schema_complete",
+    "planner":         "planner_complete",
+    "traversal":       "traversal_complete",
+    "response":        "response_complete",
+}
+
+
+def _emit_node_event(query_id: str, node_name: str, state_delta: dict, mgr) -> None:
+    """Map a LangGraph node update to an SSE event and push it via sse_manager."""
+    event_name = _NODE_TO_EVENT.get(node_name)
+    if not event_name:
+        return
+
+    data: dict = {}
+    if node_name == "query_refiner":
+        data = {"refined_query": state_delta.get("refined_query", "")}
+    elif node_name == "orchestrator":
+        data = {"routing_decision": state_delta.get("routing_decision", "")}
+    elif node_name == "planner":
+        data = {"planner_steps": state_delta.get("planner_steps", [])}
+    elif node_name == "traversal":
+        data = {"traversal_steps": state_delta.get("traversal_steps_taken", 0)}
+    elif node_name == "response":
+        data = {"final_response": state_delta.get("final_response", "")}
+
+    mgr.put_sync(query_id, event_name, data)
+
+
+def stream_simulation(
+    query: str,
+    query_id: str,
+    thread_id: str,
+    mgr,                 # SSEManager instance — passed in to avoid circular import
+    max_steps: int = 15,
+    on_hitl=None,        # optional callable(payload) invoked just before .wait()
+) -> dict:
+    """
+    Stream the simulation graph end-to-end, pushing SSE events via mgr.put_sync().
+
+    HITL handling (Option B — same stream stays open):
+      1. Phase 1 streams until query_refiner calls interrupt().
+      2. on_hitl(payload) is called (for DB writes from caller).
+      3. A threading.Event is created and waited on — this blocks the executor
+         thread but never touches the asyncio event loop.
+      4. The resume endpoint calls mgr.signal_resume() which sets the event.
+      5. Phase 2 streams the resumed graph to completion.
+
+    Returns the final LangGraph state values dict.
+    """
+    thread_config = {"configurable": {"thread_id": thread_id}}
+    initial_state = _make_initial_state(query, max_steps)
+
+    logger.info(
+        "Streaming simulation [thread=%s query=%s]: %.80s",
+        thread_id, query_id, query,
+    )
+
+    # ── Phase 1: initial run ──────────────────────────────────────────────────
+    for chunk in _graph.stream(initial_state, config=thread_config, stream_mode="updates"):
+        for node_name, state_delta in chunk.items():
+            _emit_node_event(query_id, node_name, state_delta, mgr)
+
+    # ── Check for HITL interrupt ──────────────────────────────────────────────
+    graph_state = _graph.get_state(thread_config)
+    interrupt_payload = None
+    for task in graph_state.tasks:
+        if task.interrupts:
+            interrupt_payload = task.interrupts[0].value
+            break
+
+    if interrupt_payload:
+        if on_hitl:
+            on_hitl(interrupt_payload)   # caller does DB writes here
+        mgr.put_sync(query_id, "hitl_start", interrupt_payload)
+
+        hitl_event = mgr.create_hitl_event(thread_id)
+        logger.info("HITL pause — blocking stream thread [thread=%s]", thread_id)
+        hitl_event.wait()                # blocks executor thread; event loop is free
+        logger.info("HITL unblocked [thread=%s]", thread_id)
+
+        answer = mgr.get_resume_answer(thread_id)
+        mgr.put_sync(query_id, "hitl_complete", {"answer": answer})
+
+        # ── Phase 2: resume ───────────────────────────────────────────────────
+        from langgraph.types import Command
+        for chunk in _graph.stream(
+            Command(resume=answer),
+            config=thread_config,
+            stream_mode="updates",
+        ):
+            for node_name, state_delta in chunk.items():
+                _emit_node_event(query_id, node_name, state_delta, mgr)
+
+    final_state = dict(_graph.get_state(thread_config).values)
+    logger.info("Streaming complete [thread=%s query=%s]", thread_id, query_id)
+    return final_state
+
+
 def get_pending_interrupt(thread_id: str) -> dict | None:
     """
     Check whether a given thread is currently paused at a HITL interrupt.

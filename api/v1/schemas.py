@@ -13,12 +13,14 @@ from pydantic import BaseModel
 # ── Simulate ──────────────────────────────────────────────────────────────────
 
 class SimulateRequest(BaseModel):
+    user_id: str                       # Supplied via Swagger for now; passed by frontend later
     query: str
     thread_id: Optional[str] = None  # Caller-supplied conversation ID for HITL
 
     model_config = {
         "json_schema_extra": {
             "example": {
+                "user_id": "user-001",
                 "query": "How many active GC sites are in Chicago?",
                 "thread_id": "session-abc-123",
             }
@@ -125,6 +127,41 @@ class SemanticRetrieveResponse(BaseModel):
     total_scenarios_searched: int
     matches_found: int
     matches: list[ScenarioMatch]
+
+
+# ── Threads ───────────────────────────────────────────────────────────────────
+
+class ThreadSummary(BaseModel):
+    thread_id: str
+    user_id: str
+    created_at: Any
+    last_active_at: Any
+    status: str
+    total_queries: int
+
+
+class MessageRecord(BaseModel):
+    query_id: str
+    thread_id: str
+    user_id: str
+    original_query: str
+    refined_query: Optional[str] = None
+    routing_decision: Optional[str] = None
+    planning_rationale: Optional[Any] = None   # JSON array of planner steps
+    final_response: Optional[str] = None
+    started_at: Any
+    completed_at: Optional[Any] = None
+    duration_ms: Optional[float] = None
+    status: str
+
+
+class ClarificationStatus(BaseModel):
+    is_paused: bool
+    clarification_id: Optional[str] = None
+    query_id: Optional[str] = None
+    questions_asked: Optional[list[str]] = None
+    assumptions_offered: Optional[list[str]] = None
+    asked_at: Optional[Any] = None
 
 
 # ── Sandbox ───────────────────────────────────────────────────────────────────
