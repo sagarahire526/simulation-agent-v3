@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SSE Stream Tester</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    h1 { font-size: 1.4rem; font-weight: 600; margin-bottom: 4px; }
+    .subtitle { font-size: 0.82rem; color: #718096; margin-bottom: 24px; }
+
+    .card {
+      background: #1a1d27;
+      border: 1px solid #2d3148;
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+
+    label { display: block; font-size: 0.78rem; color: #a0aec0; margin-bottom: 6px; }
+
+    input, textarea {
+      width: 100%;
+      background: #0f1117;
+      border: 1px solid #2d3148;
+      border-radius: 6px;
+      color: #e2e8f0;
+      font-size: 0.9rem;
+      padding: 9px 12px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input:focus, textarea:focus { border-color: #4f5eff; }
+    textarea { resize: vertical; min-height: 70px; font-family: inherit; }
+
+    .row { display: grid; grid-template-columns: 1fr 2fr; gap: 12px; }
+
+    button {
+      cursor: pointer;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.88rem;
+      font-weight: 500;
+      padding: 9px 18px;
+      transition: opacity 0.15s;
+    }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.primary   { background: #4f5eff; color: #fff; }
+    button.secondary { background: #2d3148; color: #e2e8f0; }
+    button.success   { background: #2f855a; color: #fff; }
+    button:not(:disabled):hover { opacity: 0.85; }
+
+    .btn-row { display: flex; gap: 10px; margin-top: 14px; }
+
+    /* Event log */
+    #log {
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 0.82rem;
+      line-height: 1.7;
+      max-height: 380px;
+      overflow-y: auto;
+      background: #0f1117;
+      border: 1px solid #2d3148;
+      border-radius: 8px;
+      padding: 14px;
+    }
+    #log:empty::before { content: "Events will appear here…"; color: #4a5568; }
+
+    .event-line { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
+
+    .badge {
+      flex-shrink: 0;
+      font-size: 0.72rem;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-top: 2px;
+    }
+    .badge-stream_started        { background:#2d3748; color:#a0aec0; }
+    .badge-query_refiner_complete{ background:#2a4365; color:#90cdf4; }
+    .badge-orchestrator_complete { background:#322659; color:#d6bcfa; }
+    .badge-schema_complete       { background:#234e52; color:#81e6d9; }
+    .badge-planner_complete      { background:#1a365d; color:#63b3ed; }
+    .badge-traversal_complete    { background:#1c4532; color:#68d391; }
+    .badge-response_complete     { background:#285e61; color:#81e6d9; }
+    .badge-hitl_start            { background:#7b341e; color:#fbd38d; }
+    .badge-hitl_complete         { background:#276749; color:#9ae6b4; }
+    .badge-complete              { background:#276749; color:#9ae6b4; }
+    .badge-error                 { background:#742a2a; color:#fc8181; }
+
+    .event-data { color: #a0aec0; word-break: break-word; }
+    .event-data strong { color: #e2e8f0; }
+
+    /* HITL panel */
+    #hitl-panel {
+      display: none;
+      border: 1px solid #c05621;
+      background: #1a1208;
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    #hitl-panel.visible { display: block; }
+    #hitl-panel h3 { color: #fbd38d; font-size: 0.95rem; margin-bottom: 10px; }
+    #hitl-questions { list-style: decimal; padding-left: 18px; margin-bottom: 14px; }
+    #hitl-questions li { margin-bottom: 5px; font-size: 0.88rem; color: #e2e8f0; }
+    #hitl-assumptions { font-size: 0.8rem; color: #a0aec0; margin-bottom: 14px; }
+
+    /* Final response */
+    #response-panel {
+      display: none;
+      border: 1px solid #276749;
+      background: #0d1f16;
+      border-radius: 10px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    #response-panel.visible { display: block; }
+    #response-panel h3 { color: #68d391; font-size: 0.95rem; margin-bottom: 12px; }
+    #response-text {
+      font-size: 0.88rem;
+      line-height: 1.7;
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: #e2e8f0;
+    }
+
+    /* Status bar */
+    #status-bar {
+      font-size: 0.78rem;
+      color: #718096;
+      margin-bottom: 12px;
+      height: 18px;
+    }
+    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+    .dot.green  { background: #48bb78; animation: pulse 1.2s infinite; }
+    .dot.grey   { background: #4a5568; }
+    .dot.red    { background: #fc8181; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  </style>
+</head>
+<body>
+
+<h1>SSE Stream Tester</h1>
+<p class="subtitle">GET /api/v1/simulate/stream &nbsp;·&nbsp; POST /api/v1/simulate/stream/resume</p>
+
+<!-- Input card -->
+<div class="card">
+  <div class="row">
+    <div>
+      <label for="user-id">User ID</label>
+      <input id="user-id" type="text" value="user-001" placeholder="e.g. user-001" />
+    </div>
+    <div>
+      <label for="thread-id">Thread ID <span style="color:#4a5568">(leave blank to auto-generate)</span></label>
+      <input id="thread-id" type="text" placeholder="auto" />
+    </div>
+  </div>
+  <div style="margin-top:12px">
+    <label for="query-input">Query</label>
+    <textarea id="query-input" placeholder="Ask about sites, crews, schedules…">How many active GC sites are in Chicago?</textarea>
+  </div>
+  <div class="btn-row">
+    <button class="primary" id="start-btn" onclick="startStream()">Start Stream</button>
+    <button class="secondary" id="stop-btn" onclick="stopStream()" disabled>Stop</button>
+    <button class="secondary" onclick="clearAll()">Clear</button>
+  </div>
+</div>
+
+<!-- Status bar -->
+<div id="status-bar"><span class="dot grey"></span>Idle</div>
+
+<!-- HITL clarification panel -->
+<div id="hitl-panel">
+  <h3>Agent needs clarification</h3>
+  <ul id="hitl-questions"></ul>
+  <div id="hitl-assumptions"></div>
+  <label for="hitl-answer">Your answer (leave blank to accept assumptions):</label>
+  <textarea id="hitl-answer" placeholder="e.g. Chicago market, 300 sites, end of next week" style="margin-top:8px"></textarea>
+  <div class="btn-row" style="margin-top:10px">
+    <button class="success" onclick="sendResume()">Submit &amp; Continue</button>
+    <button class="secondary" onclick="skipHitl()">Accept Assumptions</button>
+  </div>
+</div>
+
+<!-- Final response panel -->
+<div id="response-panel">
+  <h3>Final Response</h3>
+  <pre id="response-text"></pre>
+</div>
+
+<!-- Event log -->
+<div class="card" style="padding:16px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <span style="font-size:0.82rem;color:#a0aec0">Event Log</span>
+    <button class="secondary" style="padding:4px 10px;font-size:0.75rem" onclick="document.getElementById('log').innerHTML=''">Clear log</button>
+  </div>
+  <div id="log"></div>
+</div>
+
+
+<script>
+  const API = "http://localhost:8000/api/v1";
+  let evtSource = null;
+  let currentThreadId = null;
+
+  // ── Helpers ──────────────────────────────────────────────────────────────────
+
+  function setStatus(state, text) {
+    const bar = document.getElementById("status-bar");
+    bar.innerHTML = `<span class="dot ${state}"></span>${text}`;
+  }
+
+  function log(eventName, data) {
+    const el   = document.getElementById("log");
+    const line = document.createElement("div");
+    line.className = "event-line";
+
+    const badge = document.createElement("span");
+    badge.className = `badge badge-${eventName}`;
+    badge.textContent = eventName.replace(/_/g, " ");
+
+    const content = document.createElement("span");
+    content.className = "event-data";
+
+    // Pretty-print interesting fields
+    const pretty = [];
+    if (data.refined_query)    pretty.push(`<strong>refined:</strong> ${esc(data.refined_query)}`);
+    if (data.routing_decision) pretty.push(`<strong>route:</strong> ${esc(data.routing_decision)}`);
+    if (data.planner_steps?.length) pretty.push(`<strong>steps:</strong> ${data.planner_steps.length}`);
+    if (data.traversal_steps)  pretty.push(`<strong>tool calls:</strong> ${data.traversal_steps}`);
+    if (data.answer)           pretty.push(`<strong>answer:</strong> ${esc(data.answer)}`);
+    if (data.query_id)         pretty.push(`<strong>query_id:</strong> ${esc(data.query_id)}`);
+    if (data.thread_id)        pretty.push(`<strong>thread_id:</strong> ${esc(data.thread_id)}`);
+    if (data.message)          pretty.push(`<strong>error:</strong> ${esc(data.message)}`);
+
+    content.innerHTML = pretty.length ? pretty.join("  ·  ") : JSON.stringify(data).slice(0, 120);
+    line.appendChild(badge);
+    line.appendChild(content);
+    el.appendChild(line);
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function esc(s) {
+    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  }
+
+  // ── Stream control ────────────────────────────────────────────────────────────
+
+  function startStream() {
+    const query   = document.getElementById("query-input").value.trim();
+    const userId  = document.getElementById("user-id").value.trim();
+    const threadId= document.getElementById("thread-id").value.trim();
+
+    if (!query)  { alert("Query cannot be empty."); return; }
+    if (!userId) { alert("User ID cannot be empty."); return; }
+
+    clearAll();
+
+    const params = new URLSearchParams({ query, user_id: userId });
+    if (threadId) params.set("thread_id", threadId);
+
+    const url = `${API}/simulate/stream?${params}`;
+    evtSource = new EventSource(url);
+
+    document.getElementById("start-btn").disabled = true;
+    document.getElementById("stop-btn").disabled  = false;
+    setStatus("green", "Streaming…");
+
+    // ── Event handlers ────────────────────────────────────────────────────────
+
+    evtSource.addEventListener("stream_started", e => {
+      const d = JSON.parse(e.data);
+      currentThreadId = d.thread_id;
+      document.getElementById("thread-id").value = d.thread_id;
+      log("stream_started", d);
+    });
+
+    ["query_refiner_complete","orchestrator_complete","schema_complete",
+     "planner_complete","traversal_complete","response_complete"].forEach(name => {
+      evtSource.addEventListener(name, e => log(name, JSON.parse(e.data)));
+    });
+
+    evtSource.addEventListener("hitl_start", e => {
+      const d = JSON.parse(e.data);
+      log("hitl_start", d);
+      showHITL(d);
+      setStatus("green", "Waiting for clarification…");
+    });
+
+    evtSource.addEventListener("hitl_complete", e => {
+      log("hitl_complete", JSON.parse(e.data));
+      hideHITL();
+      setStatus("green", "Resuming…");
+    });
+
+    evtSource.addEventListener("complete", e => {
+      const d = JSON.parse(e.data);
+      log("complete", d);
+      showResponse(d.final_response);
+      closeStream();
+      setStatus("grey", "Done");
+    });
+
+    evtSource.addEventListener("error", e => {
+      // Distinguish a real SSE error event vs a connection drop
+      if (e.data) {
+        const d = JSON.parse(e.data);
+        log("error", d);
+        showError(d.message);
+      }
+      closeStream();
+      setStatus("red", "Error");
+    });
+
+    evtSource.onerror = () => {
+      if (evtSource.readyState === EventSource.CLOSED) {
+        setStatus("grey", "Connection closed");
+        closeStream();
+      }
+    };
+  }
+
+  function stopStream() {
+    closeStream();
+    setStatus("grey", "Stopped");
+  }
+
+  function closeStream() {
+    if (evtSource) { evtSource.close(); evtSource = null; }
+    document.getElementById("start-btn").disabled = false;
+    document.getElementById("stop-btn").disabled  = true;
+  }
+
+  // ── HITL ──────────────────────────────────────────────────────────────────────
+
+  function showHITL(payload) {
+    const panel = document.getElementById("hitl-panel");
+    const ql    = document.getElementById("hitl-questions");
+    const al    = document.getElementById("hitl-assumptions");
+
+    ql.innerHTML = (payload.questions || [])
+      .map(q => `<li>${esc(q)}</li>`).join("");
+
+    const assumptions = payload.assumptions_if_skipped || [];
+    al.innerHTML = assumptions.length
+      ? `<em>If you skip, I'll assume:</em> ${assumptions.map(esc).join("; ")}`
+      : "";
+
+    document.getElementById("hitl-answer").value = "";
+    panel.classList.add("visible");
+    document.getElementById("hitl-answer").focus();
+  }
+
+  function hideHITL() {
+    document.getElementById("hitl-panel").classList.remove("visible");
+  }
+
+  async function sendResume(skip = false) {
+    const answer = skip
+      ? "Accept stated assumptions"
+      : (document.getElementById("hitl-answer").value.trim() || "Accept stated assumptions");
+
+    if (!currentThreadId) { alert("No active thread."); return; }
+
+    try {
+      const res = await fetch(`${API}/simulate/stream/resume`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ thread_id: currentThreadId, clarification: answer }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        alert("Resume failed: " + JSON.stringify(err));
+      }
+    } catch (ex) {
+      alert("Could not reach the API: " + ex.message);
+    }
+  }
+
+  function skipHitl() { sendResume(true); }
+
+  // ── Response / Error display ──────────────────────────────────────────────────
+
+  function showResponse(text) {
+    document.getElementById("response-text").textContent = text || "(no response)";
+    document.getElementById("response-panel").classList.add("visible");
+  }
+
+  function showError(msg) {
+    const el = document.getElementById("response-text");
+    el.style.color = "#fc8181";
+    el.textContent = "ERROR: " + msg;
+    document.getElementById("response-panel").classList.add("visible");
+  }
+
+  // ── Clear ─────────────────────────────────────────────────────────────────────
+
+  function clearAll() {
+    closeStream();
+    currentThreadId = null;
+    document.getElementById("log").innerHTML = "";
+    document.getElementById("hitl-panel").classList.remove("visible");
+    document.getElementById("response-panel").classList.remove("visible");
+    document.getElementById("response-text").style.color = "";
+    document.getElementById("response-text").textContent = "";
+    setStatus("grey", "Idle");
+  }
+</script>
+</body>
+</html>
