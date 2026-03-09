@@ -181,3 +181,18 @@ LLM_MODEL=claude-sonnet-4-20250514  # or any LangChain-compatible model
 "What is the site status breakdown by market and stage?"
 "Which vendors have the highest crew count?"
 ```
+Knowledge-Driven : Every query is grounded in the Business Knowledge Graph (BKG) — the agent traverses real Neo4j nodes and relationships rather than relying on static rules or hardcoded logic
+
+Dynamic Schema Awareness : Schema Discovery node fetches live BKG node labels, relationship types, and properties at runtime — Traversal and Planner agents always work with the current graph structure, no manual schema maintenance
+
+Graph-Native Querying : Traversal Agent is a ReAct agent that autonomously generates and executes Cypher queries — it reasons over the BKG iteratively (up to 20 steps), following relationship paths to gather exactly what the query needs
+
+Parallel Graph Exploration : For complex simulation queries, Planner decomposes into N independent sub-queries and runs N Traversal agents concurrently — each explores a different slice of the BKG simultaneously, reducing total data-gathering time
+
+Semantic + Structural Fusion : BKG structural data (Cypher results, graph paths) is combined with semantic context (KPI definitions, past simulation scenarios, question bank) — answers are grounded in both the graph topology and domain knowledge
+
+Path-Aware Reasoning : Traversal agent can discover and follow multi-hop relationship paths in the BKG (e.g. Site → GC Crew → Market → Region) — surfaces non-obvious dependencies that flat SQL queries would miss
+
+No Schema Lock-in : If the BKG evolves (new node types, new relationships), the Schema Discovery node auto-picks up changes on the next run — no agent code changes required
+
+Resilient Graph Access : BKG query failures are caught per tool call and logged — the agent continues with partial data rather than failing the entire simulation
