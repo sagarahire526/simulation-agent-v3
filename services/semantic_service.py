@@ -29,7 +29,7 @@ import config
 logger = logging.getLogger(__name__)
 
 _TABLES = ("kpi", "question_bank", "simulation")
-_DEFAULT_TOP_K = 3
+_DEFAULT_TOP_K = 2
 _REQUEST_TIMEOUT = 15  # seconds
 
 # Known structured keys inside the simulation table's content dict
@@ -105,7 +105,7 @@ class SemanticService:
         top_k: int = _DEFAULT_TOP_K,
     ) -> dict[str, list[dict]]:
         """
-        Query kpi, question_bank, and simulation tables for the given query.
+        Query kpi, question_bank, and simulation tables concurrently.
 
         Returns:
             {
@@ -115,7 +115,13 @@ class SemanticService:
             }
         Each list contains result dicts from the API (may be empty on error).
         """
-        return {table: self._search(query, table, top_k) for table in _TABLES}
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=len(_TABLES)) as executor:
+            futures = {
+                table: executor.submit(self._search, query, table, top_k)
+                for table in _TABLES
+            }
+        return {table: fut.result() for table, fut in futures.items()}
 
     # ── Context formatting ─────────────────────────────────────────────────
 

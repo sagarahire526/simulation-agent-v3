@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 # Suppress noisy Neo4j deprecation warnings
 logging.getLogger("neo4j.notifications").setLevel(logging.ERROR)
 
-DEFAULT_MAX_STEPS = 15
+DEFAULT_MAX_STEPS = 20
 
 # ─── ANSI colors for terminal output ───
 _CYAN = "\033[96m"
@@ -197,28 +197,35 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
     kg_schema = state.get("kg_schema", "Schema not available")
 
     # ── Semantic search: KPI + Question Bank + Simulation context ─────────
+    # When called from the planner, semantic context is already pre-fetched and
+    # stored in state to avoid N redundant API calls across parallel sub-steps.
     semantic_context = ""
-    simulation_guidance = ""
-    try:
-        semantic = SemanticService()
-        context_data = semantic.get_all_context(state["user_query"])
+    simulation_guidance = state.get("scenario_simulation_guidance", "")
 
-        kpi_hits = len(context_data.get("kpi", []))
-        qb_hits  = len(context_data.get("question_bank", []))
-        sim_hits = len(context_data.get("simulation", []))
-        total    = kpi_hits + qb_hits + sim_hits
+    if state.get("planner_semantic_context"):
+        semantic_context = state["planner_semantic_context"]
+        print(f"\n{_DIM}  ♻  Reusing planner semantic context (skipping API call){_RESET}")
+    else:
+        try:
+            semantic = SemanticService()
+            context_data = semantic.get_all_context(state["user_query"])
 
-        if total:
-            semantic_context   = semantic.format_traversal_context(context_data)
-            simulation_guidance = semantic.format_simulation_guidance(context_data)
-            print(
-                f"\n{_GREEN}  🎯 Semantic context: "
-                f"{kpi_hits} KPI · {qb_hits} Q&A · {sim_hits} scenario result(s){_RESET}"
-            )
-        else:
-            print(f"\n{_DIM}  ℹ  No semantic context retrieved (API may be unreachable).{_RESET}")
-    except Exception as e:
-        logger.warning("Semantic search failed (non-fatal): %s", e)
+            kpi_hits = len(context_data.get("kpi", []))
+            qb_hits  = len(context_data.get("question_bank", []))
+            sim_hits = len(context_data.get("simulation", []))
+            total    = kpi_hits + qb_hits + sim_hits
+
+            if total:
+                semantic_context    = semantic.format_traversal_context(context_data)
+                simulation_guidance = semantic.format_simulation_guidance(context_data)
+                print(
+                    f"\n{_GREEN}  🎯 Semantic context: "
+                    f"{kpi_hits} KPI · {qb_hits} Q&A · {sim_hits} scenario result(s){_RESET}"
+                )
+            else:
+                print(f"\n{_DIM}  ℹ  No semantic context retrieved (API may be unreachable).{_RESET}")
+        except Exception as e:
+            logger.warning("Semantic search failed (non-fatal): %s", e)
 
     # Escape literal { } in dynamic content to avoid str.format() KeyError
     safe_kg_schema = kg_schema.replace("{", "{{").replace("}", "}}")
@@ -247,7 +254,7 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
     try:
         result = agent.invoke(
             {"messages": [("human", state["user_query"])]},
-            config={"recursion_limit": max_steps * 2 + 5},
+            config={"recursion_limit": max_steps * 3},
         )
 
         elapsed = time.perf_counter() - start_time

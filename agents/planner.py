@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import warnings
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, wait
 from typing import Any
 
 from langchain_openai import ChatOpenAI
@@ -34,7 +34,9 @@ _BOLD   = "\033[1m"
 _DIM    = "\033[2m"
 _RESET  = "\033[0m"
 
-_MAX_PARALLEL_STEPS = 13  # Hard cap to avoid runaway API costs
+_MAX_PARALLEL_STEPS = 6    # Hard cap — prompt targets 4-6 focused steps
+_PLANNER_STEP_MAX_STEPS = 10  # Sub-steps are focused; rarely need more than 10 tool calls
+_STEP_TIMEOUT_SEC = 120   # Kill a runaway sub-traversal after 2 minutes
 
 
 def _parse_planner_response(content: str) -> tuple[str, list[str]]:
@@ -60,15 +62,25 @@ def _parse_planner_response(content: str) -> tuple[str, list[str]]:
         return "Single-step fallback due to parse error.", []
 
 
-def _run_traversal_step(step_query: str, base_state: SimulationState) -> dict:
+def _run_traversal_step(
+    step_query: str,
+    base_state: SimulationState,
+    max_steps: int = _PLANNER_STEP_MAX_STEPS,
+) -> dict:
     """
     Execute the traversal agent for a single planning step.
 
-    Creates a copy of base_state with `user_query` set to the step-specific
-    sub-query so the traversal agent focuses on exactly that dimension.
+    Creates a copy of base_state with `user_query` and a capped
+    `max_traversal_steps` so focused sub-queries don't over-iterate.
+    `planner_semantic_context` in base_state lets the traversal agent
+    skip its own redundant semantic API calls.
     """
     warnings.filterwarnings("ignore", message=".*pandas only supports SQLAlchemy.*")
-    step_state: SimulationState = {**base_state, "user_query": step_query}
+    step_state: SimulationState = {
+        **base_state,
+        "user_query": step_query,
+        "max_traversal_steps": max_steps,
+    }
     try:
         return traversal_node(step_state)
     except Exception as e:
@@ -172,7 +184,20 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
             executor.submit(_run_traversal_step, step, state): idx
             for idx, step in enumerate(steps)
         }
-        for future in as_completed(future_to_index):
+
+        done, not_done = wait(future_to_index.keys(), timeout=_STEP_TIMEOUT_SEC)
+
+        for future in not_done:
+            idx = future_to_index[future]
+            logger.warning("Step %d timed out after %ds — using partial result", idx + 1, _STEP_TIMEOUT_SEC)
+            step_results[idx] = {
+                "traversal_findings": f"Step timed out after {_STEP_TIMEOUT_SEC}s",
+                "traversal_tool_calls": [],
+                "traversal_steps_taken": 0,
+                "errors": [f"Step {idx + 1} timed out"],
+            }
+
+        for future in done:
             idx = future_to_index[future]
             try:
                 step_results[idx] = future.result()
@@ -199,6 +224,7 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
         "planner_steps": steps,
         "planner_step_results": step_results,
         "scenario_simulation_guidance": simulation_guidance,
+        "planner_semantic_context": semantic_context,  # reused by sub-traversals; avoids redundant API calls
         "current_phase": "response",
         "messages": [{
             "agent": "planner",

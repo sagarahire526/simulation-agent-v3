@@ -13,6 +13,7 @@ Graph Flow:
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime
 
 from langgraph.graph import StateGraph, START, END
@@ -116,6 +117,19 @@ def build_simulation_graph() -> StateGraph:
 _graph = build_simulation_graph()
 
 
+def _print_phase_timings(timings: dict[str, float], total_ms: float) -> None:
+    """Print a per-phase timing summary to the terminal after execution."""
+    print("\n" + "─" * 52)
+    print("  Phase Timing Summary")
+    print("─" * 52)
+    for node, ms in timings.items():
+        secs = ms / 1000
+        print(f"  {node:<22} {secs:>7.2f} s")
+    print("─" * 52)
+    print(f"  {'TOTAL':<22} {total_ms / 1000:>7.2f} s")
+    print("─" * 52 + "\n")
+
+
 def _make_initial_state(query: str, max_steps: int) -> SimulationState:
     return {
         "user_query": query,
@@ -127,6 +141,7 @@ def _make_initial_state(query: str, max_steps: int) -> SimulationState:
         "planner_steps": [],
         "planner_step_results": [],
         "kg_schema": "",
+        "planner_semantic_context": "",
         "traversal_findings": "",
         "traversal_tool_calls": [],
         "traversal_steps_taken": 0,
@@ -143,7 +158,7 @@ def _make_initial_state(query: str, max_steps: int) -> SimulationState:
 
 def run_simulation(
     query: str,
-    max_steps: int = 15,
+    max_steps: int = 20,
     thread_id: str = "default",
 ) -> dict:
     """
@@ -163,7 +178,21 @@ def run_simulation(
     initial_state = _make_initial_state(query, max_steps)
 
     logger.info("Starting simulation [thread=%s]: %s", thread_id, query)
-    final_state = _graph.invoke(initial_state, config=thread_config)
+
+    timings: dict[str, float] = {}
+    t_start = time.perf_counter()
+    t_prev = t_start
+
+    for chunk in _graph.stream(initial_state, config=thread_config, stream_mode="updates"):
+        t_now = time.perf_counter()
+        for node_name in chunk:
+            timings[node_name] = round((t_now - t_prev) * 1000, 1)
+        t_prev = t_now
+
+    total_ms = round((time.perf_counter() - t_start) * 1000, 1)
+    _print_phase_timings(timings, total_ms)
+
+    final_state = dict(_graph.get_state(thread_config).values)
     logger.info("Simulation complete [thread=%s]", thread_id)
 
     return final_state
@@ -191,10 +220,21 @@ def resume_simulation(
         "Resuming simulation [thread=%s] with clarification: %s",
         thread_id, user_clarification[:80],
     )
-    final_state = _graph.invoke(
-        Command(resume=user_clarification),
-        config=thread_config,
-    )
+
+    timings: dict[str, float] = {}
+    t_start = time.perf_counter()
+    t_prev = t_start
+
+    for chunk in _graph.stream(Command(resume=user_clarification), config=thread_config, stream_mode="updates"):
+        t_now = time.perf_counter()
+        for node_name in chunk:
+            timings[node_name] = round((t_now - t_prev) * 1000, 1)
+        t_prev = t_now
+
+    total_ms = round((time.perf_counter() - t_start) * 1000, 1)
+    _print_phase_timings(timings, total_ms)
+
+    final_state = dict(_graph.get_state(thread_config).values)
     logger.info("Simulation resumed and complete [thread=%s]", thread_id)
 
     return final_state
@@ -240,7 +280,7 @@ def stream_simulation(
     query_id: str,
     thread_id: str,
     mgr,                 # SSEManager instance — passed in to avoid circular import
-    max_steps: int = 15,
+    max_steps: int = 20,
     on_hitl=None,        # optional callable(payload) invoked just before .wait()
 ) -> dict:
     """
@@ -265,9 +305,16 @@ def stream_simulation(
     )
 
     # ── Phase 1: initial run ──────────────────────────────────────────────────
+    timings: dict[str, float] = {}
+    t_start = time.perf_counter()
+    t_prev = t_start
+
     for chunk in _graph.stream(initial_state, config=thread_config, stream_mode="updates"):
+        t_now = time.perf_counter()
         for node_name, state_delta in chunk.items():
+            timings[node_name] = round((t_now - t_prev) * 1000, 1)
             _emit_node_event(query_id, node_name, state_delta, mgr)
+        t_prev = t_now
 
     # ── Check for HITL interrupt ──────────────────────────────────────────────
     graph_state = _graph.get_state(thread_config)
@@ -292,13 +339,20 @@ def stream_simulation(
 
         # ── Phase 2: resume ───────────────────────────────────────────────────
         from langgraph.types import Command
+        t_prev = time.perf_counter()
         for chunk in _graph.stream(
             Command(resume=answer),
             config=thread_config,
             stream_mode="updates",
         ):
+            t_now = time.perf_counter()
             for node_name, state_delta in chunk.items():
+                timings[node_name] = round((t_now - t_prev) * 1000, 1)
                 _emit_node_event(query_id, node_name, state_delta, mgr)
+            t_prev = t_now
+
+    total_ms = round((time.perf_counter() - t_start) * 1000, 1)
+    _print_phase_timings(timings, total_ms)
 
     final_state = dict(_graph.get_state(thread_config).values)
     logger.info("Streaming complete [thread=%s query=%s]", thread_id, query_id)

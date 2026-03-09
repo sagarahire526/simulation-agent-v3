@@ -53,6 +53,9 @@ class SimulationState(TypedDict):
     # ── Knowledge Graph Schema (discovered once) ──
     kg_schema: str  # Node labels, relationships, properties
 
+    # ── Pre-fetched semantic context (set by planner; reused by sub-traversals) ──
+    planner_semantic_context: str
+
     # ── Traversal Agent ──
     traversal_findings: str  # Agent's natural-language summary of what it found
     traversal_tool_calls: Annotated[list[ToolCallRecord], operator.add]
