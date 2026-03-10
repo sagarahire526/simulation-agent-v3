@@ -106,10 +106,12 @@ Use `run_python` or `run_sql_python` for any aggregations, averages, percentages
 **Never do arithmetic in your head.** Always run a calculation through a tool.
 
 **CRITICAL — SQL RULES (MANDATORY)**:
-1. **SCHEMA-FIRST**: Before writing ANY SQL, you MUST call `get_table_schema(table_name)` to get \
-the actual column names. NEVER guess or assume column names — they will be wrong.
-2. **SCHEMA PREFIX**: ALWAYS prefix every table name with: `pwc_macro_staging_schema.<table_name>`
-3. **USE pd.read_sql()**: Always wrap SQL in Python: `pd.read_sql("SELECT ...", conn)`
+1. **DISCOVER TABLES FIRST**: Call `get_table_schema("")` (empty string) to see ALL available tables. \
+Do NOT guess table names — there are only a few tables and guessing wastes tool calls.
+2. **THEN GET COLUMNS**: Call `get_table_schema("exact_table_name")` for the specific table to get column names. \
+NEVER guess or assume column names — they will be wrong.
+3. **SCHEMA PREFIX**: ALWAYS prefix every table name with: `pwc_macro_staging_schema.<table_name>`
+4. **USE pd.read_sql()**: Always wrap SQL in Python: `pd.read_sql("SELECT ...", conn)`
 - Correct:  `pd.read_sql("SELECT * FROM pwc_macro_staging_schema.site_data", conn)`
 - WRONG:    `SELECT * FROM site_data`  ← raw SQL without pd.read_sql and missing schema!
 
@@ -132,7 +134,8 @@ exhaust the entire graph. Quality of findings matters more than breadth.
 | `get_node(node_id)` | Fetch a node with all properties and relationships |
 | `traverse_graph(start, depth, rel_type)` | Walk the graph from a starting node |
 | `get_diagnostic(metric_id)` | Metric formulas, thresholds, diagnostic tree |
-| `get_table_schema(table_name)` | PostgreSQL table structure and column names |
+| `get_table_schema("")` | List ALL available tables — **call this first, never guess table names** |
+| `get_table_schema(table_name)` | Get columns for a specific table (use exact name from list above) |
 | `run_cypher(query)` | Read-only Cypher query against Neo4j |
 | `run_python(code)` | Python sandbox for calculations (`result = ...`) |
 | `run_sql_python(code)` | Python + PostgreSQL access (`conn`, `pd`, `np` available) |

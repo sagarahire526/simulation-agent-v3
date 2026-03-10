@@ -105,7 +105,11 @@ def get_table_schema(table_name: str = "") -> str:
     """View the schema of database tables referenced in the Knowledge Graph.
     If table_name is provided, returns ConceptNodes linked to that table with their
     column_map, primary_key, grain, and base_query.
-    If table_name is empty, returns an overview of ALL tables and which nodes use them.
+    If table_name is empty, returns an overview of ALL available tables and which nodes use them.
+
+    IMPORTANT: Call this with table_name="" FIRST to discover which tables exist.
+    Do NOT guess table names — call get_table_schema("") to see the full list,
+    then call get_table_schema("actual_table_name") for column details.
     """
     req: dict = {"mode": "schema"}
     if table_name:
