@@ -176,9 +176,21 @@ class PythonSandbox:
             print(f"⚠ Postgres not available: {e}")
             self.conn = None
 
+    @staticmethod
+    def _is_raw_sql(code: str) -> bool:
+        """Detect if code is raw SQL rather than Python."""
+        first_line = code.strip().split("\n")[0].strip().rstrip(";").upper()
+        sql_starts = ("SELECT ", "INSERT ", "UPDATE ", "DELETE ", "WITH ", "EXPLAIN ")
+        return first_line.startswith(sql_starts)
+
     def execute(self, code: str, timeout_seconds: int = 30) -> dict:
         if self.conn is None:
             self._connect()
+
+        # Auto-wrap raw SQL in pd.read_sql() so exec() doesn't choke on it
+        if self._is_raw_sql(code):
+            escaped = code.replace("\\", "\\\\").replace('"""', '\\"\\"\\"')
+            code = f'result = pd.read_sql("""{escaped}""", conn).to_dict(orient="records")'
 
         namespace = {
             "conn": self.conn,

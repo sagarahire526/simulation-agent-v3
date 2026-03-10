@@ -154,16 +154,19 @@ def run_python(code: str) -> str:
 
 @tool
 def run_sql_python(code: str, timeout_seconds: int = 30) -> str:
-    """Execute Python code with access to a PostgreSQL database connection.
+    """Execute PYTHON code (not raw SQL) with access to a PostgreSQL database connection.
     Pre-imported: conn (psycopg2 read-only), pd (pandas), np (numpy),
     go (plotly.graph_objects), px (plotly.express), json.
     Set result = {...} to return data. DataFrames are auto-converted to records.
     Use this when you need to query PostgreSQL for actual operational data
     (as opposed to the Neo4j Knowledge Graph which describes the data model).
 
+    CRITICAL — YOU MUST WRAP SQL IN pd.read_sql(). Never pass raw SQL directly.
+    CORRECT:   result = pd.read_sql("SELECT * FROM pwc_macro_staging_schema.site_data", conn).to_dict(orient="records")
+    WRONG:     SELECT * FROM pwc_macro_staging_schema.site_data
+
     IMPORTANT — SQL SCHEMA RULE: ALWAYS prefix table names with the schema:
     pwc_macro_staging_schema.<table_name>
-    Example: pd.read_sql("SELECT * FROM pwc_macro_staging_schema.site_data", conn)
 
     ON FAILURE: The full error message and traceback will be returned — read the ENTIRE
     error, diagnose the root cause, fix the SQL or Python, and call this tool again.

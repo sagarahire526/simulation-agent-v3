@@ -36,7 +36,7 @@ _RESET  = "\033[0m"
 
 _MAX_PARALLEL_STEPS = 6    # Hard cap — prompt targets 4-6 focused steps
 _PLANNER_STEP_MAX_STEPS = 15  # Hard cap — sub-queries get at most 15 tool calls
-_STEP_TIMEOUT_SEC = 120   # Kill a runaway sub-traversal after 2 minutes
+_STEP_TIMEOUT_SEC = 300   # Kill a runaway sub-traversal after 5 minutes
 
 
 def _parse_planner_response(content: str) -> tuple[str, list[str]]:
@@ -186,7 +186,7 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
 
     with ThreadPoolExecutor(max_workers=1, thread_name_prefix="planner-async") as executor:
         future = executor.submit(asyncio.run, _gather_traversals(steps, state))
-        gathered = future.result(timeout=_STEP_TIMEOUT_SEC + 30)
+        gathered = future.result(timeout=_STEP_TIMEOUT_SEC + 60)
 
     step_results: list[dict] = []
     for idx, result in enumerate(gathered):

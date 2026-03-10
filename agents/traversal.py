@@ -256,7 +256,7 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
     try:
         result = agent.invoke(
             {"messages": [("human", state["user_query"])]},
-            config={"recursion_limit": max_steps * 3},
+            config={"recursion_limit": max_steps * 3 + 10},
         )
 
         elapsed = time.perf_counter() - start_time
@@ -340,7 +340,7 @@ async def atraversal_node(state: SimulationState) -> dict[str, Any]:
     try:
         result = await agent.ainvoke(
             {"messages": [("human", query)]},
-            config={"recursion_limit": max_steps * 3},
+            config={"recursion_limit": max_steps * 3 + 10},
         )
         elapsed = time.perf_counter() - start_time
         agent_messages = result.get("messages", [])
