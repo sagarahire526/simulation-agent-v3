@@ -176,8 +176,7 @@ class PythonSandbox:
             print(f"⚠ Postgres not available: {e}")
             self.conn = None
 
-    @staticmethod
-    def _is_raw_sql(code: str) -> bool:
+    def _is_raw_sql(self, code: str) -> bool:
         """Detect if code is raw SQL rather than Python."""
         first_line = code.strip().split("\n")[0].strip().rstrip(";").upper()
         sql_starts = ("SELECT ", "INSERT ", "UPDATE ", "DELETE ", "WITH ", "EXPLAIN ")

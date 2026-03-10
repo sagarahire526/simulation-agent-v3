@@ -105,11 +105,13 @@ When retrieving data, follow this order of priority for the sub-query you were g
 Use `run_python` or `run_sql_python` for any aggregations, averages, percentages, or projections.
 **Never do arithmetic in your head.** Always run a calculation through a tool.
 
-**CRITICAL — SQL SCHEMA RULE**: When writing ANY SQL query (in `run_sql_python` or `run_python`), \
-ALWAYS prefix every table name with the schema: `pwc_macro_staging_schema.<table_name>`
-- Correct:  `SELECT * FROM pwc_macro_staging_schema.site_data WHERE ...`
-- Correct:  `pd.read_sql("SELECT * FROM pwc_macro_staging_schema.prereq_status", conn)`
-- WRONG:    `SELECT * FROM site_data WHERE ...`  ← missing schema prefix!
+**CRITICAL — SQL RULES (MANDATORY)**:
+1. **SCHEMA-FIRST**: Before writing ANY SQL, you MUST call `get_table_schema(table_name)` to get \
+the actual column names. NEVER guess or assume column names — they will be wrong.
+2. **SCHEMA PREFIX**: ALWAYS prefix every table name with: `pwc_macro_staging_schema.<table_name>`
+3. **USE pd.read_sql()**: Always wrap SQL in Python: `pd.read_sql("SELECT ...", conn)`
+- Correct:  `pd.read_sql("SELECT * FROM pwc_macro_staging_schema.site_data", conn)`
+- WRONG:    `SELECT * FROM site_data`  ← raw SQL without pd.read_sql and missing schema!
 
 Examples of calculations to run in code:
 - Weekly crew capacity = (crews × sites_per_crew_per_day × working_days_per_week)
@@ -139,7 +141,7 @@ exhaust the entire graph. Quality of findings matters more than breadth.
 - **Always** start with `find_relevant` before writing raw Cypher or SQL.
 - Use only node labels, relationship types, and property names that appear in the schema — never invent them.
 - If Simulation Scenario Guidance is provided, answer EVERY Data Phase Question listed.
-- Before writing SQL: always call `get_table_schema(table_name)` first to confirm column names.
+- **NEVER write SQL without first calling `get_table_schema(table_name)`** — column name errors (e.g. "column X does not exist") waste tool calls and are always avoidable.
 - On tool error (`run_python` or `run_sql_python`): read the FULL `error` and `traceback` fields carefully, \
 diagnose the root cause, fix the code, and retry. You MUST attempt up to **3 times** before giving up. \
 Do NOT stop after a single failure — correct and re-execute.
