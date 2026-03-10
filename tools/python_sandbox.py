@@ -117,6 +117,17 @@ def execute_python(code: str, context: dict[str, Any] | None = None) -> dict:
     start = time.perf_counter()
 
     try:
+        # If last line is a bare expression (not assignment), auto-capture it as result
+        lines = code.strip().splitlines()
+        last_line = lines[-1].strip() if lines else ""
+        auto_capture = False
+        if last_line and not any(last_line.startswith(k) for k in ("result", "#", "print", "import", "from", "if ", "for ", "while ", "def ", "class ", "return", "try", "except", "with ")):
+            try:
+                ast.parse(last_line, mode="eval")
+                auto_capture = True
+            except SyntaxError:
+                pass
+
         with contextlib.redirect_stdout(stdout_capture):
             exec(code, namespace)
 
@@ -124,6 +135,17 @@ def execute_python(code: str, context: dict[str, Any] | None = None) -> dict:
 
         # Try to extract a 'result' variable if set by the code
         result = namespace.get("result", None)
+
+        # Auto-capture: if result was never set, evaluate the last expression
+        if result is None and auto_capture:
+            try:
+                result = eval(last_line, namespace)  # noqa: S307
+            except Exception:
+                pass
+
+        # Last resort: use stdout if nothing else captured
+        if result is None and stdout_capture.getvalue().strip():
+            result = stdout_capture.getvalue().strip()
 
         return {
             "status": "success",
@@ -199,8 +221,19 @@ class PythonSandbox:
             "px": px,
             "json": json,
             "session": self.session_vars,
-            "result": {},
+            "result": None,
         }
+
+        # Detect if last line is a bare expression (auto-capture as result)
+        lines = code.strip().splitlines()
+        last_line = lines[-1].strip() if lines else ""
+        auto_capture = False
+        if last_line and not any(last_line.startswith(k) for k in ("result", "#", "print", "import", "from", "if ", "for ", "while ", "def ", "class ", "return", "try", "except", "with ")):
+            try:
+                ast.parse(last_line, mode="eval")
+                auto_capture = True
+            except SyntaxError:
+                pass
 
         def _run():
             exec(code, namespace)  # noqa: S102
@@ -219,14 +252,24 @@ class PythonSandbox:
             if "session" in result_ns:
                 self.session_vars = result_ns["session"]
 
-            result = result_ns.get("result", {})
+            result = result_ns.get("result", None)
+
+            # Auto-capture: if result was never set, evaluate the last expression
+            if result is None and auto_capture:
+                try:
+                    result = eval(last_line, result_ns)  # noqa: S307
+                except Exception:
+                    pass
+
             # Handle result being a DataFrame, list, or other non-dict type
             if isinstance(result, pd.DataFrame):
                 result = result.to_dict(orient="records")
             elif isinstance(result, dict):
-                for key, val in result.items():
+                for key, val in list(result.items()):
                     if isinstance(val, pd.DataFrame):
                         result[key] = val.to_dict(orient="records")
+            elif result is None:
+                result = {}
             return {"status": "success", "result": result}
 
         except Exception as e:

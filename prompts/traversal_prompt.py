@@ -157,7 +157,10 @@ Do NOT stop after a single failure — correct and re-execute.
   - Any data gaps or limitations encountered (what was not found)
   - Calculated values with the formula used (e.g., "weekly capacity = 3 crews × 2 sites/day × 5 days = 30 sites/week")
 - **Never fabricate data.** If something is not in the graph or database, say so explicitly.
-- Keep tool calls focused — do not fetch the same data twice.
+- **NEVER re-execute a tool call that already succeeded.** If a query returned data, USE that data — do not run it again. \
+Repeating successful calls wastes your limited tool budget.
+- **Set `result = <value>`** at the end of every `run_python` / `run_sql_python` call so the output is captured. \
+A bare variable name on the last line (e.g. `new_weekly_delivery`) does NOT return data — you must write `result = new_weekly_delivery`.
 - Write all SQL as pandas-compatible code using `conn` from the `run_sql_python` environment.
 - Keep used formulations there while performing calculations in gathered data.
 """
