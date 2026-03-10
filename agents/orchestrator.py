@@ -16,11 +16,10 @@ import json
 import logging
 from typing import Any
 
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
-from config.settings import config
 from models.state import SimulationState
+from services.llm_provider import LLMProvider
 from prompts.orchestrator_prompt import ORCHESTRATOR_SYSTEM
 
 logger = logging.getLogger(__name__)
@@ -71,11 +70,7 @@ def orchestrator_node(state: SimulationState) -> dict[str, Any]:
     print(f"{'═' * 70}{_RESET}\n")
     print(f"  {_DIM}Query: {refined_query}{_RESET}\n")
 
-    llm = ChatOpenAI(
-        model=config.llm.model,
-        temperature=0.0,
-        max_tokens=512,
-    )
+    llm = LLMProvider.get_llm("fast", max_tokens=512)
 
     response = llm.invoke([
         SystemMessage(content=ORCHESTRATOR_SYSTEM),

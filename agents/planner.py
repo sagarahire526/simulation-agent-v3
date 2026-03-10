@@ -17,11 +17,10 @@ import warnings
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
-from config.settings import config
 from models.state import SimulationState
+from services.llm_provider import LLMProvider
 from agents.traversal import atraversal_node
 from services.semantic_service import SemanticService
 from prompts.planner_prompt import PLANNER_SYSTEM
@@ -36,7 +35,7 @@ _DIM    = "\033[2m"
 _RESET  = "\033[0m"
 
 _MAX_PARALLEL_STEPS = 6    # Hard cap — prompt targets 4-6 focused steps
-_PLANNER_STEP_MAX_STEPS = 10  # Sub-steps are focused; rarely need more than 10 tool calls
+_PLANNER_STEP_MAX_STEPS = 15  # Hard cap — sub-queries get at most 15 tool calls
 _STEP_TIMEOUT_SEC = 120   # Kill a runaway sub-traversal after 2 minutes
 
 
@@ -142,12 +141,8 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
     except Exception as e:
         logger.warning("Semantic search in planner failed (non-fatal): %s", e)
 
-    # ── Step 2: LLM creates the plan (fast model — just query decomposition) ──
-    llm = ChatOpenAI(
-        model=config.llm.model,
-        temperature=0.0,
-        max_tokens=2048,
-    )
+    # ── Step 2: LLM creates the plan (default model — query decomposition) ──
+    llm = LLMProvider.get_llm("default")
 
     # Escape any literal { } in dynamic content before calling str.format()
     safe_kg_schema = kg_schema.replace("{", "{{").replace("}", "}}")

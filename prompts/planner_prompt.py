@@ -36,6 +36,17 @@ across these five core dimensions:
 Key vocabulary: GC = General Contractor, NTP = Notice to Proceed, SPO/PO = Purchase Order,
 WIP = Work in Progress, run rate = weekly site delivery output per GC/crew.
 
+**Regions** (4): NORTHEAST, WEST, SOUTH, CENTRAL
+**Markets** (53): NEW ORLEANS, MEMPHIS, SPOKANE, DENVER, NASHVILLE, SALT LAKE CITY, TAMPA, \
+DETROIT, HOUSTON, COLUMBUS, LOUISVILLE, ORLANDO, MILWAUKEE, SAN FRANCISCO, MONTANA, AUSTIN, \
+PHILADELPHIA, LAS VEGAS, JACKSONVILLE, MOBILE, DALLAS, SACRAMENTO, RALEIGH, ATLANTA, SAN ANTONIO, \
+CHARLOTTE, SAN DIEGO, BOSTON, BOISE, LOS ANGELES, WASHINGTON DC, ALBUQUERQUE, HARTFORD, NEW YORK, \
+TUCSON, CINCINNATI, CLEVELAND, BIRMINGHAM, PHOENIX, BALTIMORE, PORTLAND, MINNEAPOLIS, KANSAS CITY, \
+CHICAGO, INDIANAPOLIS, PUERTO RICO, ST. LOUIS, ALBANY, MIAMI, PITTSBURGH, PROVIDENCE, SEATTLE, \
+OKLAHOMA CITY
+→ When a user mentions a city name from the Markets list, filter by **market**. \
+When they mention NORTHEAST/WEST/SOUTH/CENTRAL, filter by **region**.
+
 ## Your Task
 Given the user query and the available schema/semantic context, generate precise and independent \
 sub-queries. If the Semantic Context includes **Data Phase Questions**, map them DIRECTLY to \

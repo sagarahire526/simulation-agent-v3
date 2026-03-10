@@ -11,11 +11,10 @@ import logging
 import warnings
 from typing import Any
 
-from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 
-from config.settings import config
 from models.state import SimulationState, ToolCallRecord
+from services.llm_provider import LLMProvider
 from tools.langchain_tools import get_all_tools
 from prompts.traversal_prompt import TRAVERSAL_SYSTEM
 from services.semantic_service import SemanticService
@@ -25,7 +24,7 @@ logger = logging.getLogger(__name__)
 # Suppress noisy Neo4j deprecation warnings
 logging.getLogger("neo4j.notifications").setLevel(logging.ERROR)
 
-DEFAULT_MAX_STEPS = 20
+DEFAULT_MAX_STEPS = 15
 
 # ─── ANSI colors for terminal output ───
 _CYAN = "\033[96m"
@@ -46,12 +45,18 @@ def _print_tool_call(step_num: int, tool_name: str, tool_input: dict):
     _print_divider()
     print(f"{_BOLD}{_CYAN}  🔧 Step {step_num}: {tool_name}{_RESET}")
 
-    # Format input nicely
+    # Format input — print full code for sandbox tools, truncate others
     for key, val in tool_input.items():
         val_str = str(val)
-        if len(val_str) > 200:
-            val_str = val_str[:200] + "..."
-        print(f"     {_DIM}{key}:{_RESET} {val_str}")
+        if key == "code" and tool_name in ("run_sql_python", "run_python"):
+            # Print full SQL/Python code — never truncate
+            print(f"     {_DIM}{key}:{_RESET}")
+            for line in val_str.splitlines():
+                print(f"       {_DIM}{line}{_RESET}")
+        else:
+            if len(val_str) > 200:
+                val_str = val_str[:200] + "..."
+            print(f"     {_DIM}{key}:{_RESET} {val_str}")
 
 
 def _print_tool_result(status: str, output: str):
@@ -84,6 +89,8 @@ def _print_tool_result(status: str, output: str):
                     display += f"\n     • {n.get('node_id', '?')} — {(n.get('definition') or '')[:80]}"
             elif "error" in parsed:
                 display = f"Error: {parsed['error']}"
+                if parsed.get("traceback"):
+                    display += f"\nTraceback:\n{parsed['traceback']}"
                 status = "error"
             elif "paths" in parsed:
                 paths = parsed["paths"]
@@ -95,15 +102,15 @@ def _print_tool_result(status: str, output: str):
                 display = f"Success: {json.dumps(result_val, default=str)[:300]}"
             else:
                 display = json.dumps(parsed, indent=2, default=str)
-                if len(display) > 500:
-                    display = display[:500] + "\n     ...(truncated)"
+                if len(display) > 1500:
+                    display = display[:1500] + "\n     ...(truncated)"
         else:
             display = str(parsed)
-            if len(display) > 500:
-                display = display[:500] + "...(truncated)"
+            if len(display) > 1500:
+                display = display[:1500] + "...(truncated)"
     except (json.JSONDecodeError, TypeError):
-        if len(display) > 500:
-            display = display[:500] + "...(truncated)"
+        if len(display) > 1500:
+            display = display[:1500] + "...(truncated)"
 
     color_out = _RED if status == "error" else _GREEN
     print(f"     {color_out}{icon} Result:{_RESET} {display}")
@@ -161,11 +168,10 @@ def _extract_and_print(messages: list) -> tuple[list[ToolCallRecord], str]:
             # Match to the last record with empty output
             for rec in reversed(records):
                 if rec["tool_output"] == "":
-                    truncated = output[:2000] + "...(truncated)" if len(output) > 2000 else output
-                    rec["tool_output"] = truncated
+                    rec["tool_output"] = output
                     if "error" in output.lower()[:200]:
                         rec["status"] = "error"
-                    _print_tool_result(rec["status"], truncated)
+                    _print_tool_result(rec["status"], output)
                     break
 
     _print_divider("═")
@@ -187,11 +193,7 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
     # Suppress pandas SQLAlchemy warnings
     warnings.filterwarnings("ignore", message=".*pandas only supports SQLAlchemy.*")
 
-    llm = ChatOpenAI(
-        model=config.llm.model,
-        temperature=config.llm.temperature,
-        max_tokens=config.llm.max_tokens,
-    )
+    llm = LLMProvider.get_llm("default")
 
     # Build system prompt with KG schema injected
     kg_schema = state.get("kg_schema", "Schema not available")
@@ -247,7 +249,7 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
     )
 
     print(f"\n{_DIM}  Query: {state['user_query']}{_RESET}")
-    print(f"{_DIM}  Max steps: {max_steps} | Model: {config.llm.model}{_RESET}")
+    print(f"{_DIM}  Max steps: {max_steps}{_RESET}")
 
     # Invoke the agent
     start_time = time.perf_counter()
@@ -313,11 +315,7 @@ async def atraversal_node(state: SimulationState) -> dict[str, Any]:
     """
     warnings.filterwarnings("ignore", message=".*pandas only supports SQLAlchemy.*")
 
-    llm = ChatOpenAI(
-        model=config.llm.model,
-        temperature=config.llm.temperature,
-        max_tokens=config.llm.max_tokens,
-    )
+    llm = LLMProvider.get_llm("default")
 
     kg_schema = state.get("kg_schema", "Schema not available")
     # Planner always pre-fetches and injects semantic context — reuse it.

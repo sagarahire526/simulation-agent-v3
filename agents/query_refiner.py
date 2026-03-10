@@ -20,12 +20,11 @@ import json
 import logging
 from typing import Any
 
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from langgraph.types import interrupt
 
-from config.settings import config
 from models.state import SimulationState
+from services.llm_provider import LLMProvider
 from prompts.query_refiner_prompt import QUERY_REFINER_SYSTEM
 
 logger = logging.getLogger(__name__)
@@ -76,11 +75,7 @@ def query_refiner_node(state: SimulationState) -> dict[str, Any]:
     print(f"{'═' * 70}{_RESET}\n")
     print(f"  {_DIM}Query: {user_query}{_RESET}\n")
 
-    llm = ChatOpenAI(
-        model=config.llm.model,
-        temperature=0.0,
-        max_tokens=1024,
-    )
+    llm = LLMProvider.get_llm("fast", max_tokens=1024)
 
     response = llm.invoke([
         SystemMessage(content=QUERY_REFINER_SYSTEM),

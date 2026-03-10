@@ -121,26 +121,33 @@ def get_table_schema(table_name: str = "") -> str:
 @tool
 def run_python(code: str) -> str:
     """Execute Python code in a sandboxed environment for calculations.
-    Available modules: math, json, statistics, collections, datetime, itertools, functools.
+    Pre-available (no import needed): math, json, statistics, np (numpy), pd (pandas)
+    Also importable: collections, datetime, itertools, functools.
     Set a variable named 'result' to return structured data.
     Print statements will be captured as 'output'.
     Use this for arithmetic, aggregations, data transformations, or any computation
     that should not be done in your head.
+    Do NOT write import statements for pre-available modules — they are already loaded.
 
-    ON FAILURE: The result will contain 'status': 'error' and an 'error' field with the
-    exception message. Analyse the error, fix the code, and call this tool again with
-    the corrected version. Do NOT give up after a single failure.
+    IMPORTANT — SQL SCHEMA RULE: When writing any SQL query, ALWAYS prefix table names
+    with the schema: pwc_macro_staging_schema.<table_name>
+    Example: SELECT * FROM pwc_macro_staging_schema.site_data
+
+    ON FAILURE: The full error message and traceback will be returned — read the ENTIRE
+    error, diagnose the root cause, fix the code, and call this tool again.
+    You MUST retry up to 3 times before giving up. Do NOT stop after a single failure.
     """
     try:
         result = execute_python(code)
     except Exception as exc:
-        result = {"status": "error", "error": str(exc), "output": ""}
+        import traceback
+        result = {"status": "error", "error": str(exc), "traceback": traceback.format_exc(), "output": ""}
 
     if result.get("status") == "error":
-        # Augment error response with explicit retry instruction for the LLM
         result["retry_instruction"] = (
-            "Execution failed. Read the 'error' field, fix the code, "
-            "and call run_python again with the corrected code."
+            "EXECUTION FAILED. Read the FULL 'error' and 'traceback' fields below, "
+            "diagnose the issue, fix the code, and call run_python again. "
+            "You MUST retry up to 3 times before giving up."
         )
     return json.dumps(result, default=str)
 
@@ -154,22 +161,28 @@ def run_sql_python(code: str, timeout_seconds: int = 30) -> str:
     Use this when you need to query PostgreSQL for actual operational data
     (as opposed to the Neo4j Knowledge Graph which describes the data model).
 
-    ON FAILURE: The result will contain 'status': 'error' and an 'error' field.
-    Analyse the error, fix the SQL or Python, and call this tool again.
+    IMPORTANT — SQL SCHEMA RULE: ALWAYS prefix table names with the schema:
+    pwc_macro_staging_schema.<table_name>
+    Example: pd.read_sql("SELECT * FROM pwc_macro_staging_schema.site_data", conn)
+
+    ON FAILURE: The full error message and traceback will be returned — read the ENTIRE
+    error, diagnose the root cause, fix the SQL or Python, and call this tool again.
     Common fixes: wrong column name → check get_table_schema first;
     syntax error → fix the Python/SQL; connection error → simplify the query.
-    Do NOT give up after a single failure.
+    You MUST retry up to 3 times before giving up. Do NOT stop after a single failure.
     """
     try:
         sandbox = PythonSandbox()
         result = sandbox.execute(code, timeout_seconds)
     except Exception as exc:
-        result = {"status": "error", "error": str(exc), "output": ""}
+        import traceback
+        result = {"status": "error", "error": str(exc), "traceback": traceback.format_exc(), "output": ""}
 
     if result.get("status") == "error":
         result["retry_instruction"] = (
-            "Execution failed. Read the 'error' field, fix the code, "
-            "and call run_sql_python again with the corrected code."
+            "EXECUTION FAILED. Read the FULL 'error' and 'traceback' fields below, "
+            "diagnose the issue, fix the code, and call run_sql_python again. "
+            "You MUST retry up to 3 times before giving up."
         )
     return json.dumps(result, default=str)
 

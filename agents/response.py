@@ -12,13 +12,13 @@ import json
 import logging
 from typing import Any
 
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
-from config.settings import config
 from models.state import SimulationState
+from services.llm_provider import LLMProvider
 from tools.python_sandbox import execute_python
 from prompts.response_prompt import RESPONSE_SYSTEM
+
 
 logger = logging.getLogger(__name__)
 
@@ -110,11 +110,7 @@ def response_node(state: SimulationState) -> dict[str, Any]:
     Reads: refined_query (or user_query), traversal/planner data, errors
     Writes: final_response, calculations, data_summary, current_phase, messages
     """
-    llm = ChatOpenAI(
-        model=config.llm.fast_model,
-        temperature=0.1,
-        max_tokens=config.llm.max_tokens,
-    )
+    llm = LLMProvider.get_llm("heavy", temperature=0.1)
 
     # Prefer the query refiner's cleaned-up version
     user_query = state.get("refined_query") or state["user_query"]

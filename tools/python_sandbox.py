@@ -30,6 +30,8 @@ SAFE_MODULES = {
     "math": math,
     "json": json,
     "statistics": statistics,
+    "numpy": np,
+    "pandas": pd,
 }
 
 # Blocked built-in functions
@@ -101,6 +103,9 @@ def execute_python(code: str, context: dict[str, Any] | None = None) -> dict:
     namespace = {
         "__builtins__": safe_builtins,
         **SAFE_MODULES,
+        # Common aliases — pre-injected so LLM doesn't need import statements
+        "np": np,
+        "pd": pd,
     }
 
     # Inject context variables (e.g., data from previous steps)
@@ -204,9 +209,13 @@ class PythonSandbox:
                 self.session_vars = result_ns["session"]
 
             result = result_ns.get("result", {})
-            for key, val in result.items():
-                if isinstance(val, pd.DataFrame):
-                    result[key] = val.to_dict(orient="records")
+            # Handle result being a DataFrame, list, or other non-dict type
+            if isinstance(result, pd.DataFrame):
+                result = result.to_dict(orient="records")
+            elif isinstance(result, dict):
+                for key, val in result.items():
+                    if isinstance(val, pd.DataFrame):
+                        result[key] = val.to_dict(orient="records")
             return {"status": "success", "result": result}
 
         except Exception as e:
