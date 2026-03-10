@@ -7,24 +7,31 @@ Wraps existing tools (neo4j_tool, bkg_tool, python_sandbox) as
 from __future__ import annotations
 
 import json
+import threading
 from typing import Optional
 
 from langchain_core.tools import tool
 
-from tools.neo4j_tool import neo4j_tool
 from tools.bkg_tool import BKGTool
+from tools.neo4j_tool import Neo4jTool
 from tools.python_sandbox import execute_python, PythonSandbox
 
 
-# Lazy singleton for BKGTool
-_bkg: BKGTool | None = None
+# Thread-local storage: each thread (including each parallel planner sub-traversal)
+# gets its own BKGTool and Neo4jTool instance, preventing shared-connection serialization.
+_local = threading.local()
 
 
 def _get_bkg() -> BKGTool:
-    global _bkg
-    if _bkg is None:
-        _bkg = BKGTool()
-    return _bkg
+    if not hasattr(_local, "bkg"):
+        _local.bkg = BKGTool()
+    return _local.bkg
+
+
+def _get_neo4j() -> Neo4jTool:
+    if not hasattr(_local, "neo4j"):
+        _local.neo4j = Neo4jTool()
+    return _local.neo4j
 
 
 # ─────────────────────────────────────────────
@@ -38,7 +45,7 @@ def run_cypher(query: str) -> str:
     Returns JSON with 'status', 'records', 'count', and 'elapsed_ms'.
     Only READ operations are allowed — no CREATE, MERGE, DELETE, SET, or REMOVE.
     """
-    result = neo4j_tool.run_cypher_safe(query)
+    result = _get_neo4j().run_cypher_safe(query)
     return json.dumps(result, default=str)
 
 

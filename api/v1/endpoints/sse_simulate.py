@@ -134,14 +134,15 @@ async def _event_generator(
     """
     try:
         while True:
-            item = await queue.get()
+            try:
+                item = await asyncio.wait_for(queue.get(), timeout=20)
+            except asyncio.TimeoutError:
+                yield ": heartbeat\n\n"
+                continue
             event_name = item["event"]
-
             if event_name == "__done__":
                 break
-
             yield f"event: {event_name}\ndata: {json.dumps(item['data'])}\n\n"
-
             if event_name == "error":
                 break
     finally:

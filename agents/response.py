@@ -25,11 +25,10 @@ logger = logging.getLogger(__name__)
 
 def _format_traversal_data(state: SimulationState) -> tuple[str, list]:
     """
-    Format traversal findings and tool call log for the response LLM.
+    Format traversal findings for the response LLM.
 
-    Handles both:
-    - Direct traversal (single run): traversal_findings + traversal_tool_calls
-    - Planner path (parallel runs): planner_steps + planner_step_results
+    Sends findings and a compact tool call summary — NOT the full raw tool
+    outputs, which bloat the context and slow down LLM processing.
 
     Returns (formatted_context_string, effective_tool_calls_list).
     """
@@ -58,20 +57,12 @@ def _format_traversal_data(state: SimulationState) -> tuple[str, list]:
             lines.append("")
             all_tool_calls.extend(tool_calls)
 
+        # Compact tool summary: just tool names + key numeric outputs (skip raw payloads)
         if all_tool_calls:
-            lines.append(f"\n## Consolidated Tool Call Log ({len(all_tool_calls)} calls)\n")
+            lines.append(f"\n## Tool Call Summary ({len(all_tool_calls)} calls)\n")
             for i, tc in enumerate(all_tool_calls, 1):
-                status_icon = "OK" if tc["status"] == "success" else "ERROR"
-                lines.append(f"### Call {i}: {tc['tool_name']} [{status_icon}]")
-                input_str = json.dumps(tc["tool_input"], default=str)
-                if len(input_str) > 300:
-                    input_str = input_str[:300] + "..."
-                lines.append(f"**Input**: {input_str}")
-                output_str = str(tc["tool_output"])
-                if len(output_str) > 1500:
-                    output_str = output_str[:1500] + "\n... (truncated)"
-                lines.append(f"**Output**: {output_str}")
-                lines.append("")
+                status_icon = "OK" if tc["status"] == "success" else "ERR"
+                lines.append(f"- {tc['tool_name']} [{status_icon}]: {_compact_output(tc['tool_output'])}")
 
         return "\n".join(lines), all_tool_calls
 
@@ -83,21 +74,33 @@ def _format_traversal_data(state: SimulationState) -> tuple[str, list]:
 
     tool_calls = state.get("traversal_tool_calls", [])
     if tool_calls:
-        lines.append(f"\n## Tool Call Log ({len(tool_calls)} calls)\n")
+        lines.append(f"\n## Tool Call Summary ({len(tool_calls)} calls)\n")
         for i, tc in enumerate(tool_calls, 1):
-            status_icon = "OK" if tc["status"] == "success" else "ERROR"
-            lines.append(f"### Call {i}: {tc['tool_name']} [{status_icon}]")
-            input_str = json.dumps(tc["tool_input"], default=str)
-            if len(input_str) > 300:
-                input_str = input_str[:300] + "..."
-            lines.append(f"**Input**: {input_str}")
-            output_str = str(tc["tool_output"])
-            if len(output_str) > 1500:
-                output_str = output_str[:1500] + "\n... (truncated)"
-            lines.append(f"**Output**: {output_str}")
-            lines.append("")
+            status_icon = "OK" if tc["status"] == "success" else "ERR"
+            lines.append(f"- {tc['tool_name']} [{status_icon}]: {_compact_output(tc['tool_output'])}")
 
     return "\n".join(lines), tool_calls
+
+
+def _compact_output(raw: str, max_len: int = 200) -> str:
+    """Extract a compact summary from a tool output string."""
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict):
+            if "records" in parsed:
+                return f"{parsed.get('count', len(parsed['records']))} records"
+            if "error" in parsed:
+                return f"Error: {str(parsed['error'])[:120]}"
+            if "relevant_nodes" in parsed:
+                return f"{len(parsed['relevant_nodes'])} nodes, {len(parsed.get('relevant_metrics', []))} metrics"
+            if "paths" in parsed:
+                return f"{len(parsed['paths'])} paths"
+            if "status" in parsed and parsed["status"] == "success":
+                return f"OK — {str(parsed.get('result', parsed.get('output', '')))[:150]}"
+    except (json.JSONDecodeError, TypeError):
+        pass
+    text = str(raw)
+    return text[:max_len] + "…" if len(text) > max_len else text
 
 
 def response_node(state: SimulationState) -> dict[str, Any]:
@@ -108,7 +111,7 @@ def response_node(state: SimulationState) -> dict[str, Any]:
     Writes: final_response, calculations, data_summary, current_phase, messages
     """
     llm = ChatOpenAI(
-        model=config.llm.model,
+        model=config.llm.fast_model,
         temperature=0.1,
         max_tokens=config.llm.max_tokens,
     )

@@ -17,6 +17,7 @@ class Neo4jConfig:
 @dataclass
 class LLMConfig:
     model: str = os.getenv("LLM_MODEL", "gpt-4o")
+    fast_model: str = os.getenv("LLM_FAST_MODEL", "gpt-4o-mini")  # For synthesis/formatting tasks
     temperature: float = 0.0  # Deterministic for planning
     max_tokens: int = 4096
     api_key: Optional[str] = os.getenv("OPENAI_API_KEY")

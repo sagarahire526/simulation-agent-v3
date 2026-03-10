@@ -302,3 +302,84 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
                 "content": f"Traversal failed after {elapsed:.1f}s: {e}",
             }],
         }
+
+
+async def atraversal_node(state: SimulationState) -> dict[str, Any]:
+    """
+    Async version of traversal_node for concurrent execution from the planner.
+
+    Uses agent.ainvoke() so multiple sub-traversals can truly overlap via
+    asyncio.gather() in the planner, rather than serializing through threads.
+    """
+    warnings.filterwarnings("ignore", message=".*pandas only supports SQLAlchemy.*")
+
+    llm = ChatOpenAI(
+        model=config.llm.model,
+        temperature=config.llm.temperature,
+        max_tokens=config.llm.max_tokens,
+    )
+
+    kg_schema = state.get("kg_schema", "Schema not available")
+    # Planner always pre-fetches and injects semantic context — reuse it.
+    semantic_context = state.get("planner_semantic_context", "")
+    simulation_guidance = state.get("scenario_simulation_guidance", "")
+
+    safe_kg_schema = kg_schema.replace("{", "{{").replace("}", "}}")
+    safe_semantic  = semantic_context.replace("{", "{{").replace("}", "}}")
+
+    system_prompt = TRAVERSAL_SYSTEM.format(
+        kg_schema=safe_kg_schema,
+        semantic_context=safe_semantic,
+    )
+
+    max_steps = state.get("max_traversal_steps", DEFAULT_MAX_STEPS)
+    tools = get_all_tools()
+    agent = create_react_agent(model=llm, tools=tools, prompt=system_prompt)
+
+    query = state["user_query"]
+
+    start_time = time.perf_counter()
+    try:
+        result = await agent.ainvoke(
+            {"messages": [("human", query)]},
+            config={"recursion_limit": max_steps * 3},
+        )
+        elapsed = time.perf_counter() - start_time
+        agent_messages = result.get("messages", [])
+        tool_call_records, findings = _extract_and_print(agent_messages)
+        steps_taken = len(tool_call_records)
+
+        logger.info(
+            "Async traversal complete: %d tool calls in %.1fs | '%s'",
+            steps_taken, elapsed, query[:60],
+        )
+
+        return {
+            "traversal_findings": findings,
+            "traversal_tool_calls": tool_call_records,
+            "traversal_steps_taken": steps_taken,
+            "scenario_simulation_guidance": simulation_guidance,
+            "current_phase": "response",
+            "messages": [{
+                "agent": "traversal",
+                "content": (
+                    f"Exploration complete: {steps_taken} tool calls, {elapsed:.1f}s"
+                ),
+            }],
+        }
+
+    except Exception as e:
+        elapsed = time.perf_counter() - start_time
+        logger.error("Async traversal failed after %.1fs: %s", elapsed, e)
+        return {
+            "traversal_findings": f"Traversal failed: {e}",
+            "traversal_tool_calls": [],
+            "traversal_steps_taken": 0,
+            "scenario_simulation_guidance": simulation_guidance,
+            "current_phase": "response",
+            "errors": [f"Traversal agent error: {e}"],
+            "messages": [{
+                "agent": "traversal",
+                "content": f"Traversal failed after {elapsed:.1f}s: {e}",
+            }],
+        }
