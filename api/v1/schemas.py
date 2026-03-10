@@ -15,7 +15,7 @@ from pydantic import BaseModel
 class SimulateRequest(BaseModel):
     user_id: str                       # Supplied via Swagger for now; passed by frontend later
     query: str
-    thread_id: Optional[str] = None  # Caller-supplied conversation ID for HITL
+    thread_id: Optional[str] = None    # Caller-supplied conversation ID for HITL
 
     model_config = {
         "json_schema_extra": {
@@ -131,9 +131,24 @@ class SemanticRetrieveResponse(BaseModel):
 
 # ── Threads ───────────────────────────────────────────────────────────────────
 
+class CreateThreadRequest(BaseModel):
+    user_id: str
+    thread_name: str
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "user_id": "user-001",
+                "thread_name": "Chicago sites analysis",
+            }
+        }
+    }
+
+
 class ThreadSummary(BaseModel):
     thread_id: str
     user_id: str
+    thread_name: Optional[str] = None
     created_at: Any
     last_active_at: Any
     status: str

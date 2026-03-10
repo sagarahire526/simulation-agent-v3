@@ -1,18 +1,36 @@
 """
 Threads endpoints.
 
+  POST   /api/v1/threads                          — Create a new thread
   GET    /api/v1/threads                          — List all threads for a user
   GET    /api/v1/threads/{thread_id}              — Get a single thread's metadata
   DELETE /api/v1/threads/{thread_id}              — Delete a thread and all its data
   GET    /api/v1/threads/{thread_id}/messages     — Get all queries for a thread
   GET    /api/v1/threads/{thread_id}/clarification — Get pending clarification status
 """
+import uuid
+
 from fastapi import APIRouter, HTTPException, Query
 
 import services.db_service as db_svc
-from api.v1.schemas import ThreadSummary, MessageRecord, ClarificationStatus
+from api.v1.schemas import CreateThreadRequest, ThreadSummary, MessageRecord, ClarificationStatus
 
 router = APIRouter(prefix="/threads", tags=["Threads"])
+
+
+@router.post("", response_model=ThreadSummary, status_code=201)
+def create_thread(req: CreateThreadRequest):
+    """
+    Create a new conversation thread with a human-readable name.
+
+    The frontend should call this before sending the first query,
+    using the first few words of the user's question as thread_name.
+    The returned thread_id is then passed to /simulate or /simulate/stream.
+    """
+    thread_id = str(uuid.uuid4())
+    db_svc.upsert_thread(thread_id, req.user_id, req.thread_name)
+    thread = db_svc.get_thread(thread_id)
+    return thread
 
 
 @router.get("", response_model=list[ThreadSummary])

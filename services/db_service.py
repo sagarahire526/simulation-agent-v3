@@ -52,6 +52,7 @@ def ensure_tables() -> None:
         CREATE TABLE IF NOT EXISTS {_SCHEMA}.threads (
             thread_id       VARCHAR(100)    PRIMARY KEY,
             user_id         VARCHAR(100)    NOT NULL,
+            thread_name     VARCHAR(255),
             created_at      TIMESTAMP       NOT NULL DEFAULT NOW(),
             last_active_at  TIMESTAMP       NOT NULL DEFAULT NOW(),
             status          VARCHAR(20)     NOT NULL DEFAULT 'active'
@@ -142,17 +143,17 @@ def _fetch_row(sql: str, params: tuple) -> dict | None:
 # threads
 # ─────────────────────────────────────────────
 
-def upsert_thread(thread_id: str, user_id: str) -> None:
+def upsert_thread(thread_id: str, user_id: str, thread_name: str | None = None) -> None:
     """Create thread if new; on conflict refresh last_active_at and set status=active."""
     _exec(
         f"""
         INSERT INTO {_SCHEMA}.threads
-            (thread_id, user_id, created_at, last_active_at, status)
-        VALUES (%s, %s, NOW(), NOW(), 'active')
+            (thread_id, user_id, thread_name, created_at, last_active_at, status)
+        VALUES (%s, %s, %s, NOW(), NOW(), 'active')
         ON CONFLICT (thread_id)
         DO UPDATE SET last_active_at = NOW(), status = 'active'
         """,
-        (thread_id, user_id),
+        (thread_id, user_id, thread_name),
     )
 
 
@@ -313,6 +314,7 @@ def get_threads_by_user(user_id: str) -> list[dict]:
         SELECT
             t.thread_id,
             t.user_id,
+            t.thread_name,
             t.created_at,
             t.last_active_at,
             t.status,
@@ -334,6 +336,7 @@ def get_thread(thread_id: str) -> dict | None:
         SELECT
             t.thread_id,
             t.user_id,
+            t.thread_name,
             t.created_at,
             t.last_active_at,
             t.status,
