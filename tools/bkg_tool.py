@@ -462,9 +462,9 @@ class BKGTool:
 
     def _get_schema(self, table_name: str = None) -> dict:
         """
-        Your schema lives as properties on ConceptNodes (primary_table, column_map, etc.)
-        rather than dedicated BKGTable nodes.
-        This reconstructs a schema view from ConceptNode properties.
+        Return table names and column names from ConceptNode properties.
+        column_map stores business_name → actual_db_column mappings.
+        attributes stores the list of business-friendly column names.
         """
         if table_name:
             rows = self._run(
@@ -478,7 +478,6 @@ class BKGTool:
                     n.primary_key   AS primary_key,
                     n.grain         AS grain,
                     n.column_map    AS column_map,
-                    n.attributes    AS columns,
                     n.base_query    AS base_query,
                     n.notes         AS notes
                 """,
@@ -486,27 +485,69 @@ class BKGTool:
             )
             if not rows:
                 return {"error": f"No ConceptNode found with primary_table='{table_name}'"}
+
+            # Parse column_map strings into dicts for clearer output
+            nodes = []
+            for r in rows:
+                node = self._node_props_to_dict(r)
+                cm = node.get("column_map", "")
+                if isinstance(cm, str) and cm.startswith("{"):
+                    # Parse '{business_name:db_column, ...}' format
+                    pairs = [p.strip() for p in cm.strip("{}").split(",") if ":" in p]
+                    node["column_mapping"] = {
+                        k.strip(): v.strip()
+                        for k, v in (p.split(":", 1) for p in pairs)
+                    }
+                    node["db_columns"] = list(node["column_mapping"].values())
+                nodes.append(node)
+
             return {
                 "table_name": table_name,
-                "nodes": [self._node_props_to_dict(r) for r in rows],
+                "nodes": nodes,
             }
 
+        # No table_name → return all tables with their columns
         rows = self._run(
             """
             MATCH (n:ConceptNode)
             WHERE n.primary_table IS NOT NULL
-            RETURN DISTINCT
+            RETURN
                 n.primary_table AS table_name,
-                collect(n.node_id) AS used_by_nodes,
-                collect(n.primary_key)[0] AS sample_primary_key,
-                collect(n.grain)[0] AS sample_grain
-            ORDER BY table_name
+                n.node_id       AS node_id,
+                n.primary_key   AS primary_key,
+                n.grain         AS grain,
+                n.column_map    AS column_map
+            ORDER BY n.primary_table, n.node_id
             """
         )
-        return {
-            "tables": rows,
-            "note": (
-                "Schema is derived from ConceptNode.primary_table properties. "
-                "Use get_node mode for full column_map and base_query per node."
-            ),
-        }
+
+        # Group by table_name and extract actual db column names
+        tables: dict = {}
+        for r in rows:
+            tname = r["table_name"]
+            if tname not in tables:
+                tables[tname] = {
+                    "table_name": tname,
+                    "nodes": [],
+                    "all_db_columns": set(),
+                }
+            cm = r.get("column_map", "")
+            db_cols = []
+            if isinstance(cm, str) and cm.startswith("{"):
+                pairs = [p.strip() for p in cm.strip("{}").split(",") if ":" in p]
+                db_cols = [p.split(":", 1)[1].strip() for p in pairs]
+                tables[tname]["all_db_columns"].update(db_cols)
+
+            tables[tname]["nodes"].append({
+                "node_id": r["node_id"],
+                "primary_key": r.get("primary_key"),
+                "db_columns": db_cols,
+            })
+
+        # Convert sets to sorted lists for JSON serialization
+        result = []
+        for t in tables.values():
+            t["all_db_columns"] = sorted(t["all_db_columns"])
+            result.append(t)
+
+        return {"tables": result}

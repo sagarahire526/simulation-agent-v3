@@ -7,31 +7,24 @@ Wraps existing tools (neo4j_tool, bkg_tool, python_sandbox) as
 from __future__ import annotations
 
 import json
-import threading
 from typing import Optional
 
 from langchain_core.tools import tool
 
+from tools.neo4j_tool import neo4j_tool
 from tools.bkg_tool import BKGTool
-from tools.neo4j_tool import Neo4jTool
 from tools.python_sandbox import execute_python, PythonSandbox
 
 
-# Thread-local storage: each thread (including each parallel planner sub-traversal)
-# gets its own BKGTool and Neo4jTool instance, preventing shared-connection serialization.
-_local = threading.local()
+# Lazy singleton for BKGTool
+_bkg: BKGTool | None = None
 
 
 def _get_bkg() -> BKGTool:
-    if not hasattr(_local, "bkg"):
-        _local.bkg = BKGTool()
-    return _local.bkg
-
-
-def _get_neo4j() -> Neo4jTool:
-    if not hasattr(_local, "neo4j"):
-        _local.neo4j = Neo4jTool()
-    return _local.neo4j
+    global _bkg
+    if _bkg is None:
+        _bkg = BKGTool()
+    return _bkg
 
 
 # ─────────────────────────────────────────────
@@ -45,7 +38,7 @@ def run_cypher(query: str) -> str:
     Returns JSON with 'status', 'records', 'count', and 'elapsed_ms'.
     Only READ operations are allowed — no CREATE, MERGE, DELETE, SET, or REMOVE.
     """
-    result = _get_neo4j().run_cypher_safe(query)
+    result = neo4j_tool.run_cypher_safe(query)
     return json.dumps(result, default=str)
 
 
@@ -101,19 +94,17 @@ def get_diagnostic(metric_id: str) -> str:
 
 
 @tool
-def get_table_schema(table_name: str = "") -> str:
-    """View the schema of database tables referenced in the Knowledge Graph.
-    If table_name is provided, returns ConceptNodes linked to that table with their
-    column_map, primary_key, grain, and base_query.
-    If table_name is empty, returns an overview of ALL available tables and which nodes use them.
-
-    IMPORTANT: Call this with table_name="" FIRST to discover which tables exist.
-    Do NOT guess table names — call get_table_schema("") to see the full list,
-    then call get_table_schema("actual_table_name") for column details.
+def get_table_schema(primary_table: str = "") -> str:
+    """Get PostgreSQL table names and their column names from the Knowledge Graph.
+    If primary_table is provided (e.g. 'stg_ndpd_mbt_tmobile_macro_combined'),
+    returns that table's columns (business-name → actual DB column mapping),
+    primary_key, grain, and base_query for each ConceptNode using that table.
+    If primary_table is empty, returns ALL tables with their column lists.
+    The primary_table values match the ConceptNode.primary_table property in Neo4j.
     """
     req: dict = {"mode": "schema"}
-    if table_name:
-        req["table_name"] = table_name
+    if primary_table:
+        req["table_name"] = primary_table
     result = _get_bkg().query(req)
     return json.dumps(result, default=str)
 
@@ -125,72 +116,27 @@ def get_table_schema(table_name: str = "") -> str:
 @tool
 def run_python(code: str) -> str:
     """Execute Python code in a sandboxed environment for calculations.
-    Pre-available (no import needed): math, json, statistics, np (numpy), pd (pandas)
-    Also importable: collections, datetime, itertools, functools.
+    Available modules: math, json, statistics, collections, datetime, itertools, functools.
     Set a variable named 'result' to return structured data.
     Print statements will be captured as 'output'.
     Use this for arithmetic, aggregations, data transformations, or any computation
     that should not be done in your head.
-    Do NOT write import statements for pre-available modules — they are already loaded.
-
-    IMPORTANT — SQL SCHEMA RULE: When writing any SQL query, ALWAYS prefix table names
-    with the schema: pwc_macro_staging_schema.<table_name>
-    Example: SELECT * FROM pwc_macro_staging_schema.site_data
-
-    ON FAILURE: The full error message and traceback will be returned — read the ENTIRE
-    error, diagnose the root cause, fix the code, and call this tool again.
-    You MUST retry up to 3 times before giving up. Do NOT stop after a single failure.
     """
-    try:
-        result = execute_python(code)
-    except Exception as exc:
-        import traceback
-        result = {"status": "error", "error": str(exc), "traceback": traceback.format_exc(), "output": ""}
-
-    if result.get("status") == "error":
-        result["retry_instruction"] = (
-            "EXECUTION FAILED. Read the FULL 'error' and 'traceback' fields below, "
-            "diagnose the issue, fix the code, and call run_python again. "
-            "You MUST retry up to 3 times before giving up."
-        )
+    result = execute_python(code)
     return json.dumps(result, default=str)
 
 
 @tool
 def run_sql_python(code: str, timeout_seconds: int = 30) -> str:
-    """Execute PYTHON code (not raw SQL) with access to a PostgreSQL database connection.
+    """Execute Python code with access to a PostgreSQL database connection.
     Pre-imported: conn (psycopg2 read-only), pd (pandas), np (numpy),
     go (plotly.graph_objects), px (plotly.express), json.
     Set result = {...} to return data. DataFrames are auto-converted to records.
     Use this when you need to query PostgreSQL for actual operational data
     (as opposed to the Neo4j Knowledge Graph which describes the data model).
-
-    CRITICAL — YOU MUST WRAP SQL IN pd.read_sql(). Never pass raw SQL directly.
-    CORRECT:   result = pd.read_sql("SELECT * FROM pwc_macro_staging_schema.site_data", conn).to_dict(orient="records")
-    WRONG:     SELECT * FROM pwc_macro_staging_schema.site_data
-
-    IMPORTANT — SQL SCHEMA RULE: ALWAYS prefix table names with the schema:
-    pwc_macro_staging_schema.<table_name>
-
-    ON FAILURE: The full error message and traceback will be returned — read the ENTIRE
-    error, diagnose the root cause, fix the SQL or Python, and call this tool again.
-    Common fixes: wrong column name → check get_table_schema first;
-    syntax error → fix the Python/SQL; connection error → simplify the query.
-    You MUST retry up to 3 times before giving up. Do NOT stop after a single failure.
     """
-    try:
-        sandbox = PythonSandbox()
-        result = sandbox.execute(code, timeout_seconds)
-    except Exception as exc:
-        import traceback
-        result = {"status": "error", "error": str(exc), "traceback": traceback.format_exc(), "output": ""}
-
-    if result.get("status") == "error":
-        result["retry_instruction"] = (
-            "EXECUTION FAILED. Read the FULL 'error' and 'traceback' fields below, "
-            "diagnose the issue, fix the code, and call run_sql_python again. "
-            "You MUST retry up to 3 times before giving up."
-        )
+    sandbox = PythonSandbox()
+    result = sandbox.execute(code, timeout_seconds)
     return json.dumps(result, default=str)
 
 
