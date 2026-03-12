@@ -83,6 +83,7 @@ def run_query(
     t0 = time.perf_counter()
 
     db_svc.upsert_thread(thread_id, user_id)
+    db_svc.auto_name_thread(thread_id, query)
     db_svc.create_query(query_id, thread_id, user_id, query)
 
     logger.info("Starting query [thread=%s query=%s]: %.80s", thread_id, query_id, query)

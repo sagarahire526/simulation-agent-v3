@@ -24,7 +24,7 @@ import config
 
 logger = logging.getLogger(__name__)
 
-_SCHEMA = "pwc_simulation_agent_schema"
+_SCHEMA = "pwc_agent_utility_schema"
 
 
 # ─────────────────────────────────────────────
@@ -49,7 +49,7 @@ def ensure_tables() -> None:
     Called once at application startup.
     """
     ddl = f"""
-        CREATE TABLE IF NOT EXISTS {_SCHEMA}.threads (
+        CREATE TABLE IF NOT EXISTS {_SCHEMA}.simulation_agent_threads (
             thread_id       VARCHAR(100)    PRIMARY KEY,
             user_id         VARCHAR(100)    NOT NULL,
             thread_name     VARCHAR(255),
@@ -58,10 +58,10 @@ def ensure_tables() -> None:
             status          VARCHAR(20)     NOT NULL DEFAULT 'active'
         );
 
-        CREATE TABLE IF NOT EXISTS {_SCHEMA}.queries (
+        CREATE TABLE IF NOT EXISTS {_SCHEMA}.simulation_agent_queries (
             query_id            VARCHAR(100)    PRIMARY KEY,
             thread_id           VARCHAR(100)    NOT NULL
-                                    REFERENCES {_SCHEMA}.threads(thread_id),
+                                    REFERENCES {_SCHEMA}.simulation_agent_threads(thread_id),
             user_id             VARCHAR(100)    NOT NULL,
             original_query      TEXT            NOT NULL,
             refined_query       TEXT,
@@ -74,12 +74,12 @@ def ensure_tables() -> None:
             status              VARCHAR(20)     NOT NULL DEFAULT 'running'
         );
 
-        CREATE TABLE IF NOT EXISTS {_SCHEMA}.hitl_clarifications (
+        CREATE TABLE IF NOT EXISTS {_SCHEMA}.simulation_agent_hitl_clarifications (
             clarification_id    VARCHAR(100)    PRIMARY KEY,
             query_id            VARCHAR(100)    NOT NULL
-                                    REFERENCES {_SCHEMA}.queries(query_id),
+                                    REFERENCES {_SCHEMA}.simulation_agent_queries(query_id),
             thread_id           VARCHAR(100)    NOT NULL
-                                    REFERENCES {_SCHEMA}.threads(thread_id),
+                                    REFERENCES {_SCHEMA}.simulation_agent_threads(thread_id),
             questions_asked     JSONB           NOT NULL,
             assumptions_offered JSONB           NOT NULL,
             user_answer         TEXT,
@@ -147,7 +147,7 @@ def upsert_thread(thread_id: str, user_id: str, thread_name: str | None = None) 
     """Create thread if new; on conflict refresh last_active_at and set status=active."""
     _exec(
         f"""
-        INSERT INTO {_SCHEMA}.threads
+        INSERT INTO {_SCHEMA}.simulation_agent_threads
             (thread_id, user_id, thread_name, created_at, last_active_at, status)
         VALUES (%s, %s, %s, NOW(), NOW(), 'active')
         ON CONFLICT (thread_id)
@@ -157,10 +157,22 @@ def upsert_thread(thread_id: str, user_id: str, thread_name: str | None = None) 
     )
 
 
+def auto_name_thread(thread_id: str, query: str) -> None:
+    """Set thread_name to the first user query (truncated) if it's currently NULL."""
+    name = query.strip()[:250]
+    if not name:
+        return
+    _exec(
+        f"UPDATE {_SCHEMA}.simulation_agent_threads SET thread_name = %s "
+        f"WHERE thread_id = %s AND thread_name IS NULL",
+        (name, thread_id),
+    )
+
+
 def touch_thread(thread_id: str) -> None:
     """Refresh last_active_at on resume (user_id already stored from initial call)."""
     _exec(
-        f"UPDATE {_SCHEMA}.threads SET last_active_at = NOW() WHERE thread_id = %s",
+        f"UPDATE {_SCHEMA}.simulation_agent_threads SET last_active_at = NOW() WHERE thread_id = %s",
         (thread_id,),
     )
 
@@ -178,7 +190,7 @@ def create_query(
     """Insert a new query row with status=running at the moment of receipt."""
     _exec(
         f"""
-        INSERT INTO {_SCHEMA}.queries
+        INSERT INTO {_SCHEMA}.simulation_agent_queries
             (query_id, thread_id, user_id, original_query, started_at, status)
         VALUES (%s, %s, %s, %s, NOW(), 'running')
         """,
@@ -189,7 +201,7 @@ def create_query(
 def update_query_paused(query_id: str) -> None:
     """Mark query as paused while waiting for HITL clarification."""
     _exec(
-        f"UPDATE {_SCHEMA}.queries SET status = 'paused' WHERE query_id = %s",
+        f"UPDATE {_SCHEMA}.simulation_agent_queries SET status = 'paused' WHERE query_id = %s",
         (query_id,),
     )
 
@@ -209,7 +221,7 @@ def update_query_complete(
     planning_rationale = json.dumps(planner_steps) if planner_steps else None
     _exec(
         f"""
-        UPDATE {_SCHEMA}.queries SET
+        UPDATE {_SCHEMA}.simulation_agent_queries SET
             refined_query      = %s,
             routing_decision   = %s,
             planning_rationale = %s,
@@ -234,7 +246,7 @@ def update_query_error(query_id: str, duration_ms: float) -> None:
     """Mark query as errored with the elapsed duration."""
     _exec(
         f"""
-        UPDATE {_SCHEMA}.queries SET
+        UPDATE {_SCHEMA}.simulation_agent_queries SET
             completed_at = NOW(),
             duration_ms  = %s,
             status       = 'error'
@@ -248,7 +260,7 @@ def get_paused_query_id(thread_id: str) -> str | None:
     """Return the query_id of the most recent paused query for this thread."""
     return _fetch_one(
         f"""
-        SELECT query_id FROM {_SCHEMA}.queries
+        SELECT query_id FROM {_SCHEMA}.simulation_agent_queries
         WHERE thread_id = %s AND status = 'paused'
         ORDER BY started_at DESC
         LIMIT 1
@@ -270,7 +282,7 @@ def create_hitl_clarification(
     """Record the clarification questions shown to the user."""
     _exec(
         f"""
-        INSERT INTO {_SCHEMA}.hitl_clarifications
+        INSERT INTO {_SCHEMA}.simulation_agent_hitl_clarifications
             (clarification_id, query_id, thread_id,
              questions_asked, assumptions_offered, asked_at)
         VALUES (%s, %s, %s, %s, %s, NOW())
@@ -293,7 +305,7 @@ def update_hitl_answered(
     """Record the user's response to the clarification questions."""
     _exec(
         f"""
-        UPDATE {_SCHEMA}.hitl_clarifications SET
+        UPDATE {_SCHEMA}.simulation_agent_hitl_clarifications SET
             user_answer = %s,
             answered_at = NOW(),
             was_skipped = %s
@@ -319,8 +331,8 @@ def get_threads_by_user(user_id: str) -> list[dict]:
             t.last_active_at,
             t.status,
             COUNT(q.query_id) AS total_queries
-        FROM {_SCHEMA}.threads t
-        LEFT JOIN {_SCHEMA}.queries q ON q.thread_id = t.thread_id
+        FROM {_SCHEMA}.simulation_agent_threads t
+        LEFT JOIN {_SCHEMA}.simulation_agent_queries q ON q.thread_id = t.thread_id
         WHERE t.user_id = %s
         GROUP BY t.thread_id
         ORDER BY t.last_active_at DESC
@@ -341,8 +353,8 @@ def get_thread(thread_id: str) -> dict | None:
             t.last_active_at,
             t.status,
             COUNT(q.query_id) AS total_queries
-        FROM {_SCHEMA}.threads t
-        LEFT JOIN {_SCHEMA}.queries q ON q.thread_id = t.thread_id
+        FROM {_SCHEMA}.simulation_agent_threads t
+        LEFT JOIN {_SCHEMA}.simulation_agent_queries q ON q.thread_id = t.thread_id
         WHERE t.thread_id = %s
         GROUP BY t.thread_id
         """,
@@ -360,15 +372,15 @@ def delete_thread(thread_id: str) -> bool:
         with _conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    f"DELETE FROM {_SCHEMA}.hitl_clarifications WHERE thread_id = %s",
+                    f"DELETE FROM {_SCHEMA}.simulation_agent_hitl_clarifications WHERE thread_id = %s",
                     (thread_id,),
                 )
                 cur.execute(
-                    f"DELETE FROM {_SCHEMA}.queries WHERE thread_id = %s",
+                    f"DELETE FROM {_SCHEMA}.simulation_agent_queries WHERE thread_id = %s",
                     (thread_id,),
                 )
                 cur.execute(
-                    f"DELETE FROM {_SCHEMA}.threads WHERE thread_id = %s",
+                    f"DELETE FROM {_SCHEMA}.simulation_agent_threads WHERE thread_id = %s",
                     (thread_id,),
                 )
                 return cur.rowcount > 0
@@ -394,7 +406,7 @@ def get_messages_by_thread(thread_id: str) -> list[dict]:
             completed_at,
             duration_ms,
             status
-        FROM {_SCHEMA}.queries
+        FROM {_SCHEMA}.simulation_agent_queries
         WHERE thread_id = %s
         ORDER BY started_at ASC
         """,
@@ -415,8 +427,8 @@ def get_pending_clarification(thread_id: str) -> dict | None:
             hc.questions_asked,
             hc.assumptions_offered,
             hc.asked_at
-        FROM {_SCHEMA}.hitl_clarifications hc
-        JOIN {_SCHEMA}.queries q ON q.query_id = hc.query_id
+        FROM {_SCHEMA}.simulation_agent_hitl_clarifications hc
+        JOIN {_SCHEMA}.simulation_agent_queries q ON q.query_id = hc.query_id
         WHERE q.thread_id = %s
           AND q.status    = 'paused'
           AND hc.answered_at IS NULL

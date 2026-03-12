@@ -73,6 +73,7 @@ def _run_stream_thread(
     t0 = time.perf_counter()
 
     db_svc.upsert_thread(thread_id, user_id)
+    db_svc.auto_name_thread(thread_id, query)
     db_svc.create_query(query_id, thread_id, user_id, query)
 
     def _on_hitl(payload: dict) -> None:
