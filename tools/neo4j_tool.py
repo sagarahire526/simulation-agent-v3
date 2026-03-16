@@ -75,12 +75,30 @@ class Neo4jTool:
                 "  AS properties"
             ).data()
 
-            # ── 3. Relationship patterns: (SourceLabel)-[:REL_TYPE]->(TargetLabel) ──
+            # ── 3. Relationship type patterns (meta-level) ──
             rel_patterns = session.run(
                 "MATCH (a)-[r]->(b) "
                 "WITH labels(a) AS srcLabels, type(r) AS relType, labels(b) AS tgtLabels "
                 "RETURN DISTINCT srcLabels, relType, tgtLabels "
                 "ORDER BY relType"
+            ).data()
+
+            # ── 4. All BKGNode instances grouped by entity_type ──
+            node_instances = session.run(
+                "MATCH (n:BKGNode) "
+                "RETURN n.entity_type AS entity_type, "
+                "       n.node_id AS node_id, "
+                "       n.label AS label "
+                "ORDER BY n.entity_type, n.node_id"
+            ).data()
+
+            # ── 5. Actual relationship map between nodes ──
+            node_relationships = session.run(
+                "MATCH (a:BKGNode)-[r:RELATES_TO]->(b:BKGNode) "
+                "RETURN a.node_id AS source, "
+                "       r.relationship_type AS rel_type, "
+                "       b.node_id AS target "
+                "ORDER BY a.entity_type, a.node_id"
             ).data()
 
         # ── Build formatted output ──
@@ -120,15 +138,33 @@ class Neo4jTool:
             if not props_list:
                 schema_lines.append("    (no properties)")
 
-        # -- Relationship Patterns --
+        # -- Relationship Patterns (meta-level) --
         schema_lines.append("\n── Relationship Patterns ──")
         for row in rel_patterns:
             src = ":".join(row["srcLabels"])
             tgt = ":".join(row["tgtLabels"])
             schema_lines.append(f"  (:{src})-[:{row['relType']}]->(:{tgt})")
 
+        # -- BKG Nodes by entity_type --
+        schema_lines.append("\n── BKG Nodes (by entity type) ──")
+        current_type = None
+        for row in node_instances:
+            et = row.get("entity_type", "unknown")
+            if et != current_type:
+                current_type = et
+                schema_lines.append(f"\n  [{et}]")
+            label_str = f" — {row['label']}" if row.get("label") else ""
+            schema_lines.append(f"    • {row['node_id']}{label_str}")
+
+        # -- Actual relationships between nodes --
+        schema_lines.append("\n── Node Relationships ──")
+        for row in node_relationships:
+            rel = row.get("rel_type") or "RELATES_TO"
+            schema_lines.append(
+                f"  ({row['source']}) —[{rel}]→ ({row['target']})"
+            )
+
         logger.debug("Schema discovery complete: %d lines", len(schema_lines))
-        # print(f"SCHEMA LINES ARE AS FOLLOWS: {schema_lines}")
         return "\n".join(schema_lines)
 
     # ─────────────────────────────────────────────

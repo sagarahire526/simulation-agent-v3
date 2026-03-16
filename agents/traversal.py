@@ -324,7 +324,7 @@ async def atraversal_node(state: SimulationState) -> dict[str, Any]:
 
     safe_kg_schema = kg_schema.replace("{", "{{").replace("}", "}}")
     safe_semantic  = semantic_context.replace("{", "{{").replace("}", "}}")
-
+    # print(f"FINAL LENGTH OF KG SCHEMA IS {len(safe_kg_schema)} and OF CONTEXT IS {len(safe_semantic)}")
     system_prompt = TRAVERSAL_SYSTEM.format(
         kg_schema=safe_kg_schema,
         semantic_context=safe_semantic,

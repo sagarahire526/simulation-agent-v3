@@ -79,20 +79,27 @@ class SemanticService:
                 "Semantic search [%s]: %d result(s) for query: %.80s",
                 table, len(results), query,
             )
+            # print(f"RESULTS ARE AS FOLLOWS: {results}")
             return results
 
-        except requests.exceptions.ConnectionError:
+        except requests.exceptions.ConnectionError as exc:
+            print(
+                f"⚠ Semantic search [{table}]: Cannot reach {self._base_url} — {exc}"
+            )
             logger.warning(
-                "Semantic search [%s]: Cannot reach %s — are you on the company network?",
-                table, self._base_url,
+                "Semantic search [%s]: Cannot reach %s — %s",
+                table, self._base_url, exc,
             )
         except requests.exceptions.Timeout:
+            print(f"⚠ Semantic search [{table}]: Timed out after {_REQUEST_TIMEOUT}s")
             logger.warning(
                 "Semantic search [%s]: Request timed out after %ds", table, _REQUEST_TIMEOUT
             )
         except requests.exceptions.HTTPError as exc:
+            print(f"⚠ Semantic search [{table}]: HTTP error — {exc}")
             logger.warning("Semantic search [%s]: HTTP error — %s", table, exc)
         except Exception as exc:
+            print(f"⚠ Semantic search [{table}]: Unexpected error — {exc}")
             logger.warning("Semantic search [%s]: Unexpected error — %s", table, exc)
 
         return []

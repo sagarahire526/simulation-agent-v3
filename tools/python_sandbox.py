@@ -228,6 +228,13 @@ class PythonSandbox:
             escaped = code.replace("\\", "\\\\").replace('"""', '\\"\\"\\"')
             code = f'result = pd.read_sql("""{escaped}""", conn).to_dict(orient="records")'
 
+        def _execute_query(sql, db=None, max_rows=None):
+            """Helper: run SQL and return list[dict] (not a DataFrame)."""
+            df = pd.read_sql(sql, self.conn)
+            if max_rows is not None:
+                df = df.head(max_rows)
+            return df.to_dict(orient="records")
+
         namespace = {
             "conn": self.conn,
             "pd": pd,
@@ -236,6 +243,7 @@ class PythonSandbox:
             "px": px,
             "json": json,
             "session": self.session_vars,
+            "execute_query": _execute_query,
             "result": None,
         }
 
@@ -285,7 +293,23 @@ class PythonSandbox:
                         result[key] = val.to_dict(orient="records")
             elif result is None:
                 result = {}
-            return {"status": "success", "result": result}
+
+            # Detect empty results and flag for the agent to re-examine filters
+            response = {"status": "success", "result": result}
+            is_empty = (
+                (isinstance(result, list) and len(result) == 0)
+                or (isinstance(result, dict) and all(
+                    (isinstance(v, list) and len(v) == 0) for v in result.values()
+                ))
+            )
+            if is_empty:
+                response["empty_result_warning"] = (
+                    "Query returned 0 rows. This usually means WHERE clause "
+                    "filters (IS NOT NULL, IS NULL, specific value checks) are "
+                    "too restrictive. Re-examine your query: remove IS NOT NULL "
+                    "/ IS NULL conditions and non-essential filters, then retry."
+                )
+            return response
 
         except Exception as e:
             return {

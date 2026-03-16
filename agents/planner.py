@@ -219,9 +219,17 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
     # while still getting true async concurrency across all traversal sub-steps.
     print(f"  {_BOLD}Executing {len(steps)} traversal(s) in parallel…{_RESET}\n")
 
+    # Inject semantic context into state so sub-traversals can reuse it
+    # (the planner's return value sets this field too late for the sub-traversals)
+    traversal_state: SimulationState = {
+        **state,
+        "planner_semantic_context": semantic_context,
+        "scenario_simulation_guidance": simulation_guidance,
+    }
+
     ctx = contextvars.copy_context()
     with ThreadPoolExecutor(max_workers=1, thread_name_prefix="planner-async") as executor:
-        future = executor.submit(ctx.run, asyncio.run, _gather_traversals(steps, state))
+        future = executor.submit(ctx.run, asyncio.run, _gather_traversals(steps, traversal_state))
         gathered = future.result(timeout=_STEP_TIMEOUT_SEC + 60)
 
     step_results: list[dict] = []

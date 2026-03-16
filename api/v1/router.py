@@ -7,9 +7,10 @@ from api.v1.endpoints import health, simulate, bkg, sandbox, semantic, threads, 
 
 router = APIRouter(prefix="/v1")
 
-router.include_router(simulate.router)
+
 router.include_router(sse_simulate.router)
 router.include_router(threads.router)
 router.include_router(sandbox.router)
 router.include_router(health.router)
 router.include_router(semantic.router)
+router.include_router(simulate.router)

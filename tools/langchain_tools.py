@@ -225,13 +225,16 @@ def run_sql_python(code: str, timeout_seconds: int = 30) -> str:
     actual DATA.
 
     PRE-IMPORTED: conn (psycopg2 read-only), pd (pandas), np (numpy),
-    go (plotly.graph_objects), px (plotly.express), json.
+    go (plotly.graph_objects), px (plotly.express), json,
+    execute_query(sql, db=None, max_rows=None) → list[dict].
 
     CRITICAL RULES:
     1. ALWAYS call get_table_schema("") first to discover available tables.
     2. ALWAYS call get_table_schema("table_name") to get exact column names.
     3. ALWAYS prefix tables: pwc_macro_staging_schema.<table_name>
-    4. Use pd.read_sql("SELECT ...", conn) — never raw SQL.
+    4. Use the pre-injected execute_query(sql) to run SQL — it returns list[dict].
+       Alternatively use pd.read_sql("SELECT ...", conn) for DataFrames.
+       Do NOT redefine execute_query yourself.
     5. Set `result = <value>` to return data. DataFrames are auto-converted.
     6. On error: read the FULL 'error' and 'traceback' fields carefully, diagnose
        the root cause, fix your code, and call this tool again with corrected code.

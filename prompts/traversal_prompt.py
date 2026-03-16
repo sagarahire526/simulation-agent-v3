@@ -176,9 +176,11 @@ Do NOT guess table names — there are only a few tables and guessing wastes too
 2. **THEN GET COLUMNS**: Call `get_table_schema("exact_table_name")` for the specific table to get \
 column names, SQL templates, and Python functions. NEVER guess or assume column names.
 3. **SCHEMA PREFIX**: ALWAYS prefix every table name with: `pwc_macro_staging_schema.<table_name>`
-4. **USE pd.read_sql()**: Always wrap SQL in Python: `pd.read_sql("SELECT ...", conn)`
-- Correct:  `pd.read_sql("SELECT * FROM pwc_macro_staging_schema.site_data", conn)`
-- WRONG:    `SELECT * FROM site_data`  ← raw SQL without pd.read_sql and missing schema!
+4. **USE execute_query()**: A pre-injected helper `execute_query(sql)` is available — it returns `list[dict]`. \
+Use it instead of pd.read_sql() when you need to iterate over rows as dicts. Do NOT redefine execute_query yourself.
+- Correct:  `rows = execute_query("SELECT * FROM pwc_macro_staging_schema.site_data")`  → list of dicts
+- Also OK:  `df = pd.read_sql("SELECT ...", conn)`  → DataFrame (iterate with df.iterrows() or df.to_dict("records"))
+- WRONG:    `SELECT * FROM site_data`  ← raw SQL without wrapper and missing schema!
 5. **USE TEMPLATES**: If `map_sql_template` or `map_python_function` is available, \
 adapt it rather than writing from scratch.
 6. **DATE COLUMNS**: Date/milestone columns often come back as strings from PostgreSQL. \
@@ -227,6 +229,12 @@ waste tool calls and are always avoidable.
 carefully, diagnose the root cause, fix your code, and call the tool again with corrected code. \
 You may retry up to **3 times** — each retry MUST include a meaningful fix (do NOT re-submit \
 identical code). Do NOT give up after a single failure.
+- **EMPTY RESULT HANDLING (CRITICAL)**: If `run_sql_python` returns `empty_result_warning` in its output, \
+your WHERE clause filters are too restrictive. Immediately re-examine the query and remove \
+unnecessary filters — especially `IS NOT NULL`, `IS NULL`, and overly specific value conditions \
+on columns that may be sparsely populated. Rewrite the query keeping only the filters essential \
+to the user's question (e.g. market/region/GC filters) and retry. This is a common issue with \
+milestone and status columns that are mostly NULL in the data.
 - When you have gathered sufficient data, write a **DETAILED FINDINGS SUMMARY** as your final message containing:
   - All data points with **specific numbers** (totals, counts, rates, percentages, dates)
   - Breakdown by GC/vendor where relevant
