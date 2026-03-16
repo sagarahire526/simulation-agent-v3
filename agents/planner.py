@@ -11,6 +11,7 @@ Workflow:
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import logging
 import warnings
@@ -23,6 +24,7 @@ from models.state import SimulationState
 from services.llm_provider import LLMProvider
 from agents.traversal import atraversal_node
 from services.semantic_service import SemanticService
+from services.sse_context import emit_sse
 from prompts.planner_prompt import PLANNER_SYSTEM
 
 logger = logging.getLogger(__name__)
@@ -91,15 +93,39 @@ async def _gather_traversals(steps: list[str], state: SimulationState) -> list:
     """
     Run all traversal steps concurrently inside a single asyncio event loop.
     Each step uses agent.ainvoke() so they truly overlap during LLM I/O waits.
+    Emits SSE planner_step_complete events as each step finishes.
     """
-    tasks = [
-        asyncio.wait_for(
-            _run_traversal_step_async(step, state, idx),
-            timeout=float(_STEP_TIMEOUT_SEC),
-        )
-        for idx, step in enumerate(steps)
-    ]
-    return await asyncio.gather(*tasks, return_exceptions=True)
+    # Wrap each step in a task that tags the result with its index
+    async def _tagged_step(idx: int, step: str) -> tuple[int, dict | Exception]:
+        try:
+            result = await asyncio.wait_for(
+                _run_traversal_step_async(step, state, idx),
+                timeout=float(_STEP_TIMEOUT_SEC),
+            )
+            return idx, result
+        except Exception as exc:
+            return idx, exc
+
+    pending = [_tagged_step(i, s) for i, s in enumerate(steps)]
+    results: list[dict | Exception] = [None] * len(steps)  # type: ignore[list-item]
+
+    for coro in asyncio.as_completed(pending):
+        step_idx, result = await coro
+        results[step_idx] = result
+
+        # Emit SSE progress event
+        step_query = steps[step_idx]
+        display_query = step_query.split(": ", 1)[1] if ": " in step_query else step_query
+        is_error = isinstance(result, Exception)
+        emit_sse("planner_step_complete", {
+            "step_index": step_idx,
+            "step_total": len(steps),
+            "step_query": display_query,
+            "status": "error" if is_error else "complete",
+            "error": str(result) if is_error else None,
+        })
+
+    return results
 
 
 def planner_node(state: SimulationState) -> dict[str, Any]:
@@ -170,12 +196,21 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
     print(f"\n  {_BOLD}Business Analysis Plan ({len(steps)} steps):{_RESET}")
     if rationale:
         print(f"  {_YELLOW}📌 Intent:{_RESET} {rationale}\n")
+    display_steps = []
     for i, step in enumerate(steps, 1):
         display = step
         if ": " in step:
             display = step.split(": ", 1)[1]
         print(f"  {_CYAN}  Step {i}:{_RESET} {display}")
+        display_steps.append(display)
     print()
+
+    # ── SSE: plan is ready, sub-queries about to start ────────────────────────
+    emit_sse("planner_plan_ready", {
+        "step_total": len(steps),
+        "steps": display_steps,
+        "rationale": rationale,
+    })
 
     # ── Step 3: Execute each step concurrently ────────────────────────────────
     # Strategy: run asyncio.gather() inside a dedicated thread that owns its own
@@ -184,8 +219,9 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
     # while still getting true async concurrency across all traversal sub-steps.
     print(f"  {_BOLD}Executing {len(steps)} traversal(s) in parallel…{_RESET}\n")
 
+    ctx = contextvars.copy_context()
     with ThreadPoolExecutor(max_workers=1, thread_name_prefix="planner-async") as executor:
-        future = executor.submit(asyncio.run, _gather_traversals(steps, state))
+        future = executor.submit(ctx.run, asyncio.run, _gather_traversals(steps, state))
         gathered = future.result(timeout=_STEP_TIMEOUT_SEC + 60)
 
     step_results: list[dict] = []

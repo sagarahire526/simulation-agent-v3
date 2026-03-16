@@ -92,12 +92,12 @@ Schema:
 - If the Semantic Context above includes **Data Phase Questions**, only REFER them while keeping user's actual query in mind (adapt wording to match the actual market/timeframe/target from the user query).
 - If the Semantic Context includes **Data Phase Steps**, reference them in your rationale to explain the retrieval approach.
 - Prefer specificity over breadth — narrower sub-queries produce better traversal results.
-- Include a site-status step and a prerequisite-readiness step for any planning query wherever required.
-- Include a GC/crew capacity step for any query about feasibility, targets, or planning.
+- Include a site-status step and a prerequisite-readiness step for any planning query ONLY wherever required.
+- Include a GC/crew capacity step for any query about feasibility, targets, or planning appropriately.
 - Do NOT add markdown code fences — return raw JSON only.
 
 ## Examples
-
+- The below examples are only for reference DO NOT USE these unless and untill required to answer user's-query
 ### Weekly Rollout Planning
 User query: "Share me the weekly plan for Chicago market to complete 100 sites in next 3 weeks"
 

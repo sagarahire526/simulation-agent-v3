@@ -26,6 +26,7 @@ from agents.schema_discovery import discover_schema_node
 from agents.traversal import traversal_node
 from agents.planner import planner_node
 from agents.response import response_node
+from services.sse_context import set_sse_context
 
 logger = logging.getLogger(__name__)
 
@@ -303,6 +304,9 @@ def stream_simulation(
         "Streaming simulation [thread=%s query=%s]: %.80s",
         thread_id, query_id, query,
     )
+
+    # Make SSE manager available to nodes (e.g. planner emits per-step progress)
+    set_sse_context(mgr, query_id)
 
     # ── Phase 1: initial run ──────────────────────────────────────────────────
     timings: dict[str, float] = {}

@@ -184,7 +184,7 @@ adapt it rather than writing from scratch.
 6. **DATE COLUMNS**: Date/milestone columns often come back as strings from PostgreSQL. \
 ALWAYS wrap them with `pd.to_datetime(df['col'], errors='coerce')` before doing arithmetic \
 like subtraction or `.dt.days`. Never assume date columns are already datetime dtype.
-7. **STRICTLY FOLLOW THIS** **DISCOVER VALUES BEFORE FILTERING**: NEVER guess or hardcode status/category values \
+7. **MUST BE FOLLOWED** **DISCOVER VALUES BEFORE FILTERING**: NEVER guess or hardcode status/category values \
 (e.g. "Pending", "Completed", "In Progress") in WHERE clauses. First run a \
 `SELECT DISTINCT column_name FROM table` query to see what values actually exist, \
 then use the exact values from the results. Guessing values leads to empty result sets \

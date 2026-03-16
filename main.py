@@ -21,10 +21,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 
 # ── Logging setup ──
+# force=True ensures we replace any handlers uvicorn already attached,
+# preventing duplicate log lines when running under uvicorn --reload.
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s │ %(name)-30s │ %(levelname)-5s │ %(message)s",
     datefmt="%H:%M:%S",
+    force=True,
 )
 logger = logging.getLogger(__name__)
 
