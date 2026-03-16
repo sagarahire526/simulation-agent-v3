@@ -20,7 +20,7 @@ def get_schema(table_name: Optional[str] = None):
     """
     Return the BKG schema overview.
 
-    Pass `table_name` to get ConceptNodes for a specific table,
+    Pass `table_name` to get BKGNodes mapped to a specific table,
     or omit it for a full overview of all tables.
     """
     try:
@@ -38,11 +38,11 @@ def bkg_query(req: BKGQueryRequest):
 
     | mode | required fields | description |
     |------|----------------|-------------|
-    | `get_node` | `node_id` | Fetch ConceptNode or MetricNode by ID |
-    | `find_relevant` | `question` | Keyword search across all nodes |
+    | `get_node` | `node_id` | Fetch a BKGNode by ID with all properties and relationships |
+    | `find_relevant` | `question` | Keyword search across all BKGNodes |
     | `traverse` | `start`, `depth` | Walk relationships from a start node |
-    | `diagnostic` | `metric_id` | Get metric definition + diagnostic tree |
-    | `schema` | *(none)* | List all tables / ConceptNodes |
+    | `get_kpi` | `node_id` | Get KPI computation details (formula, logic, function) |
+    | `schema` | *(none)* | List all tables / mapped BKGNodes |
     """
     try:
         return bkg_svc.query(req.model_dump(exclude_none=True))

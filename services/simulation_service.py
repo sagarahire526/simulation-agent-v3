@@ -32,29 +32,18 @@ def _shape_response(state: dict) -> dict:
         interrupt_payload = raw.value if hasattr(raw, "value") else raw
         return {
             "status": "clarification_needed",
-            "clarification": interrupt_payload,
             "final_response": "",
-            "data_summary": {},
-            "calculations": "",
             "errors": [],
-            "messages": state.get("messages", []),
-            "traversal_steps": 0,
             "routing_decision": "",
-            "planning_rationale": "",
             "planner_steps": [],
+            "clarification": interrupt_payload,
         }
 
     return {
         "status": "complete",
-        "clarification": None,
         "final_response": state.get("final_response", ""),
-        "data_summary": state.get("data_summary", {}),
-        "calculations": state.get("calculations", ""),
         "errors": state.get("errors", []),
-        "messages": state.get("messages", []),
-        "traversal_steps": state.get("traversal_steps_taken", 0),
         "routing_decision": state.get("routing_decision", ""),
-        "planning_rationale": state.get("planning_rationale", ""),
         "planner_steps": state.get("planner_steps", []),
     }
 

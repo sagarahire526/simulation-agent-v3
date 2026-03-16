@@ -108,11 +108,8 @@ def _run_stream_thread(
             "final_response":    final_state.get("final_response", ""),
             "routing_decision":  final_state.get("routing_decision", ""),
             "planner_steps":     final_state.get("planner_steps", []),
-            "planning_rationale": final_state.get("planning_rationale", ""),
-            "traversal_steps":   final_state.get("traversal_steps_taken", 0),
+            "status":            "complete",
             "errors":            final_state.get("errors", []),
-            "data_summary":      final_state.get("data_summary", {}),
-            "calculations":      final_state.get("calculations", ""),
         })
 
     except Exception as exc:

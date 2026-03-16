@@ -242,14 +242,14 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
 
     # Create the ReAct agent with all available tools
     tools = get_all_tools()
+
+    print(f"  {_DIM}Traversal: {len(tools)} tools | max {max_steps} steps{_RESET}")
+
     agent = create_react_agent(
         model=llm,
         tools=tools,
         prompt=system_prompt,
     )
-
-    print(f"\n{_DIM}  Query: {state['user_query']}{_RESET}")
-    print(f"{_DIM}  Max steps: {max_steps}{_RESET}")
 
     # Invoke the agent
     start_time = time.perf_counter()
@@ -332,9 +332,10 @@ async def atraversal_node(state: SimulationState) -> dict[str, Any]:
 
     max_steps = state.get("max_traversal_steps", DEFAULT_MAX_STEPS)
     tools = get_all_tools()
-    agent = create_react_agent(model=llm, tools=tools, prompt=system_prompt)
 
     query = state["user_query"]
+
+    agent = create_react_agent(model=llm, tools=tools, prompt=system_prompt)
 
     start_time = time.perf_counter()
     try:

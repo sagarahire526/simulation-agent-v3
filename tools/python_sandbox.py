@@ -32,13 +32,25 @@ SAFE_MODULES = {
     "statistics": statistics,
     "numpy": np,
     "pandas": pd,
+    "collections": __import__("collections"),
+    "datetime": __import__("datetime"),
+    "itertools": __import__("itertools"),
+    "functools": __import__("functools"),
 }
 
 # Blocked built-in functions
 BLOCKED_BUILTINS = {
-    "exec", "eval", "compile", "__import__", "open",
+    "exec", "eval", "compile", "open",
     "breakpoint", "exit", "quit",
 }
+
+
+def _safe_import(name, *args, **kwargs):
+    """Only allow importing whitelisted modules."""
+    top_level = name.split(".")[0]
+    if top_level not in SAFE_MODULES and top_level not in ("collections", "datetime", "itertools", "functools"):
+        raise ImportError(f"Import of '{name}' is not allowed in sandbox.")
+    return __import__(name, *args, **kwargs)
 
 
 def _validate_code(code: str) -> tuple[bool, str]:
@@ -99,6 +111,9 @@ def execute_python(code: str, context: dict[str, Any] | None = None) -> dict:
         k: v for k, v in __builtins__.items()
         if k not in BLOCKED_BUILTINS
     }
+
+    # Allow imports but only for whitelisted modules
+    safe_builtins["__import__"] = _safe_import
 
     namespace = {
         "__builtins__": safe_builtins,

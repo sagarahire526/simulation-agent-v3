@@ -1,41 +1,44 @@
 # bkg_tool.py
 import re
 import json
+import logging
 from neo4j import GraphDatabase
 import config
+
+logger = logging.getLogger(__name__)
 
 
 class BKGTool:
     """
     Agent's understanding layer — backed by Neo4j.
 
-    Labels in Neo4j:
-      - ConceptNode  → business entities  (node_id property)
-      - MetricNode   → computed metrics   (metric_id property)
+    All nodes in Neo4j use the unified `BKGNode` label with a `node_id` property.
+    The `entity_type` property distinguishes node categories:
+      - core        → business entities with `map_*` database mapping properties
+      - context     → contextual/reference entities
+      - transaction → transactional entities
+      - reference   → reference/lookup entities
+      - kpi         → computed KPI metrics with `kpi_*` calculation properties
 
-    Relationships are typed (HAS_PROJECT, LOCATED_IN, MEASURES, etc.)
-
-    No separate alias table in your schema — aliases are handled in-memory
-    from a hardcoded map (GC → GeneralContractor, etc.) since your Cypher
-    script has no BKGAlias nodes.
+    Relationships use `RELATES_TO` edges with `relationship_type` property.
     """
 
-    # Hardcoded aliases since your ingestion script has no alias nodes
+    # Common aliases for quick node lookup
     STATIC_ALIASES = {
-        "GC": "GeneralContractor",
-        "gc": "GeneralContractor",
-        "generalcontractor": "GeneralContractor",
-        "NAS": "NASSession",
-        "nas": "NASSession",
-        "IX": "Integration",
-        "ix": "Integration",
-        "CX": "ConstructionProgress",
-        "cx": "TowerConstruction",
-        "BOM": "BillOfMaterials",
-        "bom": "BillOfMaterials",
-        "NTP": "NTP",
-        "SSV": "Acceptance",
-        "COP": "Acceptance",
+        "GC": "general_contractor",
+        "gc": "general_contractor",
+        "generalcontractor": "general_contractor",
+        "NAS": "nas_session",
+        "nas": "nas_session",
+        "IX": "integration",
+        "ix": "integration",
+        "CX": "construction_progress",
+        "cx": "construction_progress",
+        "BOM": "bill_of_materials",
+        "bom": "bill_of_materials",
+        "NTP": "ntp",
+        "SSV": "acceptance",
+        "COP": "acceptance",
     }
 
     def __init__(self):
@@ -46,17 +49,21 @@ class BKGTool:
         self._driver.verify_connectivity()
         self.aliases = self.STATIC_ALIASES.copy()
 
-        # ── Startup diagnostics ──
-        concept_count = self._run("MATCH (n:ConceptNode) RETURN count(n) AS cnt")[0]["cnt"]
-        metric_count  = self._run("MATCH (m:MetricNode)  RETURN count(m) AS cnt")[0]["cnt"]
-        self._node_count = concept_count + metric_count
+        # Startup diagnostics
+        counts = self._run(
+            """
+            MATCH (n:BKGNode)
+            RETURN n.entity_type AS entity_type, count(n) AS cnt
+            """
+        )
+        total = sum(r["cnt"] for r in counts)
+        self._node_count = total
 
-        # Print actual property keys from first node so we can catch mismatches
-        sample = self._run("MATCH (n:ConceptNode) RETURN keys(n) AS k, n.node_id AS nid LIMIT 1")
-        if sample:
-            print(f"✓ Neo4j: Found {concept_count+metric_count} Nodes!")
+        if total > 0:
+            breakdown = ", ".join(f"{r['entity_type']}={r['cnt']}" for r in counts)
+            print(f"✓ Neo4j: Found {total} BKGNodes ({breakdown})")
         else:
-            print("✗ Neo4j: ConceptNode label exists but NO NODES FOUND — check your database name")
+            print("✗ Neo4j: BKGNode label exists but NO NODES FOUND — check your database")
             print(f"  Connected to: {config.NEO4J_URI}")
 
     @property
@@ -84,13 +91,14 @@ class BKGTool:
                     request.get("depth", 2),
                     request.get("rel_type"),
                 )
-            elif mode == "diagnostic":
-                return self._get_diagnostic(request.get("metric_id", ""))
+            elif mode == "get_kpi":
+                return self._get_kpi(request.get("node_id", ""))
             elif mode == "schema":
                 return self._get_schema(request.get("table_name"))
             else:
                 return {"error": f"Unknown mode: {mode}"}
         except Exception as e:
+            logger.error("BKGTool.query error (mode=%s): %s", mode, e)
             return {"error": str(e)}
 
     # ── Private helpers ──────────────────────────────────────────────────────
@@ -100,15 +108,31 @@ class BKGTool:
             result = session.run(cypher, **params)
             return [r.data() for r in result]
 
-    def _node_props_to_dict(self, props: dict) -> dict:
+    # Properties excluded from get_node output to prevent context-window overflow.
+    # These contain large generated code / JSON blobs (100K+ chars each).
+    # Use get_table_schema(table_name) or get_kpi(node_id) to fetch them explicitly.
+    _LARGE_PROPS = frozenset({
+        "map_python_function", "map_sql_template", "map_contract",
+        "kpi_python_function", "kpi_contract", "kpi_business_logic",
+        "embedding", "session_id",
+    })
+
+    def _parse_json_props(self, props: dict, exclude_large: bool = False) -> dict:
         """
-        Clean up raw Neo4j property bag.
-        - Parse JSON strings back to dicts/lists where applicable.
-        - Strip Neo4j internal keys.
+        Clean up raw Neo4j property bag:
+        - Parse JSON strings back to dicts/lists.
+        - Leave native arrays (string[]) untouched.
+        - When exclude_large=True, skip code/contract fields and add
+          boolean flags (e.g. has_map_python_function=True) so the agent
+          knows the data exists and can fetch it with a dedicated tool.
         """
         out = {}
         for k, v in props.items():
-            if isinstance(v, str) and v.startswith(('{', '[')):
+            if exclude_large and k in self._LARGE_PROPS:
+                if v:
+                    out[f"has_{k}"] = True
+                continue
+            if isinstance(v, str) and v.startswith(("{", "[")):
                 try:
                     v = json.loads(v)
                 except (json.JSONDecodeError, ValueError):
@@ -121,193 +145,164 @@ class BKGTool:
     def _get_node(self, raw_id: str) -> dict:
         node_id = self.resolve_id(raw_id)
 
-        # Try ConceptNode first
         rows = self._run(
-            "MATCH (n:ConceptNode {node_id: $nid}) RETURN properties(n) AS props",
+            "MATCH (n:BKGNode {node_id: $nid}) RETURN properties(n) AS props",
             nid=node_id,
         )
-        if rows:
-            node = self._node_props_to_dict(rows[0]["props"])
+        if not rows:
+            return {
+                "error": (
+                    f"'{raw_id}' not found (resolved to '{node_id}'). "
+                    "Try find_relevant to search by keyword."
+                )
+            }
 
-            # Outgoing relationships
-            out_rows = self._run(
-                """
-                MATCH (n:ConceptNode {node_id: $nid})-[r]->(t)
-                RETURN type(r) AS relationship,
-                       coalesce(t.node_id, t.metric_id) AS target,
-                       properties(r) AS rel_props
-                """,
-                nid=node_id,
-            )
-            node["outgoing"] = [
-                {
-                    "relationship": r["relationship"],
-                    "target": r["target"],
-                    **{k: v for k, v in (r["rel_props"] or {}).items()},
-                }
-                for r in out_rows
-            ]
+        # exclude_large=True: skip map_python_function, map_contract, etc.
+        # to keep tool output compact (~1-2K chars instead of 100K+)
+        node = self._parse_json_props(rows[0]["props"], exclude_large=True)
 
-            # Incoming relationships
-            in_rows = self._run(
-                """
-                MATCH (s)-[r]->(n:ConceptNode {node_id: $nid})
-                RETURN type(r) AS relationship,
-                       coalesce(s.node_id, s.metric_id) AS source,
-                       properties(r) AS rel_props
-                """,
-                nid=node_id,
-            )
-            node["incoming"] = [
-                {
-                    "relationship": r["relationship"],
-                    "source": r["source"],
-                    **{k: v for k, v in (r["rel_props"] or {}).items()},
-                }
-                for r in in_rows
-            ]
-            return node
-
-        # Try MetricNode
-        rows = self._run(
-            "MATCH (m:MetricNode {metric_id: $mid}) RETURN properties(m) AS props",
-            mid=node_id,
+        # Outgoing relationships
+        out_rows = self._run(
+            """
+            MATCH (n:BKGNode {node_id: $nid})-[r]->(t:BKGNode)
+            RETURN type(r) AS rel_label,
+                   r.relationship_type AS relationship_type,
+                   r.relationship AS relationship,
+                   t.node_id AS target,
+                   t.label AS target_label,
+                   t.entity_type AS target_entity_type
+            """,
+            nid=node_id,
         )
-        if rows:
-            return self._node_props_to_dict(rows[0]["props"])
+        node["outgoing"] = [
+            {
+                "relationship": r.get("relationship") or r.get("relationship_type") or r["rel_label"],
+                "target": r["target"],
+                "target_label": r.get("target_label"),
+                "target_entity_type": r.get("target_entity_type"),
+            }
+            for r in out_rows
+        ]
 
-        return {
-            "error": (
-                f"'{raw_id}' not found (resolved to '{node_id}'). "
-                "Try find_relevant to search by keyword."
-            )
-        }
+        # Incoming relationships
+        in_rows = self._run(
+            """
+            MATCH (s:BKGNode)-[r]->(n:BKGNode {node_id: $nid})
+            RETURN type(r) AS rel_label,
+                   r.relationship_type AS relationship_type,
+                   r.relationship AS relationship,
+                   s.node_id AS source,
+                   s.label AS source_label,
+                   s.entity_type AS source_entity_type
+            """,
+            nid=node_id,
+        )
+        node["incoming"] = [
+            {
+                "relationship": r.get("relationship") or r.get("relationship_type") or r["rel_label"],
+                "source": r["source"],
+                "source_label": r.get("source_label"),
+                "source_entity_type": r.get("source_entity_type"),
+            }
+            for r in in_rows
+        ]
+
+        return node
 
     # ── Mode: find_relevant ──────────────────────────────────────────────────
 
     def _find_relevant(self, question: str) -> dict:
         """
-        Keyword search over ConceptNode and MetricNode properties.
-        Uses CONTAINS matching — no fulltext index required.
-        Scores by how many words match across key fields.
+        Keyword search over BKGNode properties.
+        Searches node_id, name, label, definition, nl_description, entity_type,
+        and kpi_name/kpi_description for KPI nodes.
+        Returns up to 10 nodes ranked by relevance score.
         """
-        q_words = list(set(re.findall(r'\w+', question.lower())))
+        q_words = list(set(re.findall(r"\w+", question.lower())))
         if not q_words:
-            return {"relevant_nodes": [], "relevant_metrics": []}
+            return {"relevant_nodes": []}
 
-        # ── ConceptNodes ──
-        node_rows = self._run(
+        rows = self._run(
             """
-            MATCH (n:ConceptNode)
+            MATCH (n:BKGNode)
             WHERE any(w IN $words
-                WHERE toLower(coalesce(n.node_id, ''))    CONTAINS w
-                   OR toLower(coalesce(n.definition, '')) CONTAINS w
-                   OR toLower(coalesce(n.name, ''))       CONTAINS w
-                   OR toLower(coalesce(n.domain, ''))     CONTAINS w
-                   OR any(attr IN coalesce(n.attributes, [])
-                          WHERE toLower(attr) CONTAINS w)
+                WHERE toLower(coalesce(n.node_id, ''))          CONTAINS w
+                   OR toLower(coalesce(n.name, ''))             CONTAINS w
+                   OR toLower(coalesce(n.label, ''))            CONTAINS w
+                   OR toLower(coalesce(n.definition, ''))       CONTAINS w
+                   OR toLower(coalesce(n.nl_description, ''))   CONTAINS w
+                   OR toLower(coalesce(n.entity_type, ''))      CONTAINS w
+                   OR toLower(coalesce(n.kpi_name, ''))         CONTAINS w
+                   OR toLower(coalesce(n.kpi_description, ''))  CONTAINS w
+                   OR toLower(coalesce(n.kpi_formula_description, ''))  CONTAINS w
             )
             RETURN
-                n.node_id       AS node_id,
-                n.layer         AS layer,
-                n.domain        AS domain,
-                n.definition    AS definition,
-                n.name          AS name,
-                n.primary_table AS primary_table,
-                coalesce(n.is_stub, false) AS is_stub
-            LIMIT 8
+                n.node_id          AS node_id,
+                n.name             AS name,
+                n.label            AS label,
+                n.entity_type      AS entity_type,
+                n.definition       AS definition,
+                n.nl_description   AS nl_description,
+                n.map_table_name   AS map_table_name,
+                n.kpi_name         AS kpi_name,
+                n.kpi_description  AS kpi_description,
+                n.kpi_formula_description  AS kpi_formula_description
+            LIMIT 15
             """,
             words=q_words,
         )
 
-        node_results = []
-        for r in node_rows:
-            nid = r["node_id"]
-
-            # Score: count how many q_words appear across key text fields
-            text = " ".join(filter(None, [
-                str(r.get("node_id") or ""),
-                str(r.get("definition") or ""),
-                str(r.get("name") or ""),
-                str(r.get("domain") or ""),
-            ])).lower()
+        results = []
+        for r in rows:
+            # Score by counting how many query words match across key fields
+            text = " ".join(
+                filter(None, [
+                    str(r.get("node_id") or ""),
+                    str(r.get("name") or ""),
+                    str(r.get("label") or ""),
+                    str(r.get("definition") or ""),
+                    str(r.get("nl_description") or ""),
+                    str(r.get("kpi_name") or ""),
+                    str(r.get("kpi_description") or ""),
+                ])
+            ).lower()
             score = sum(1 for w in q_words if w in text)
 
             # Neighbor preview
             neighbors = self._run(
                 """
-                MATCH (n:ConceptNode {node_id: $nid})-[r]->(t)
-                RETURN coalesce(t.node_id, t.metric_id) AS target
+                MATCH (n:BKGNode {node_id: $nid})-[r]->(t:BKGNode)
+                RETURN t.node_id AS target,
+                       r.relationship_type AS rel_type
                 LIMIT 5
                 """,
-                nid=nid,
+                nid=r["node_id"],
             )
 
-            node_results.append({
-                "node_id": nid,
+            entry = {
+                "node_id": r["node_id"],
                 "name": r.get("name"),
-                "layer": r.get("layer"),
-                "domain": r.get("domain"),
+                "label": r.get("label"),
+                "entity_type": r.get("entity_type"),
                 "definition": (r.get("definition") or "")[:300],
-                "primary_table": r.get("primary_table"),
-                "is_stub": r.get("is_stub", False),
                 "relevance_score": score,
-                "neighbors_out": [n["target"] for n in neighbors],
-                "neighbors_in": [],
-            })
+                "neighbors": [
+                    {"target": n["target"], "rel_type": n.get("rel_type")}
+                    for n in neighbors
+                ],
+            }
 
-        # Sort by score descending
-        node_results.sort(key=lambda x: x["relevance_score"], reverse=True)
+            # Add type-specific summary fields
+            if r.get("entity_type") == "kpi":
+                entry["kpi_name"] = r.get("kpi_name")
+                entry["kpi_description"] = (r.get("kpi_description") or "")[:200]
+            elif r.get("map_table_name"):
+                entry["map_table_name"] = r.get("map_table_name")
 
-        # ── MetricNodes ──
-        metric_rows = self._run(
-            """
-            MATCH (m:MetricNode)
-            WHERE any(w IN $words
-                WHERE toLower(coalesce(m.metric_id, ''))  CONTAINS w
-                   OR toLower(coalesce(m.definition, '')) CONTAINS w
-                   OR toLower(coalesce(m.name, ''))       CONTAINS w
-                   OR toLower(coalesce(m.domain, ''))     CONTAINS w
-                   OR any(ref IN coalesce(m.references_nodes, [])
-                          WHERE toLower(ref) CONTAINS w)
-            )
-            RETURN
-                m.metric_id        AS metric_id,
-                m.domain           AS domain,
-                m.definition       AS definition,
-                m.name             AS name,
-                m.references_nodes AS references_nodes
-            LIMIT 5
-            """,
-            words=q_words,
-        )
+            results.append(entry)
 
-        metric_results = []
-        for r in metric_rows:
-            text = " ".join(filter(None, [
-                str(r.get("metric_id") or ""),
-                str(r.get("definition") or ""),
-                str(r.get("name") or ""),
-                str(r.get("domain") or ""),
-            ])).lower()
-            score = sum(1 for w in q_words if w in text)
-
-            metric_results.append({
-                "metric_id": r["metric_id"],
-                "name": r.get("name"),
-                "domain": r.get("domain"),
-                "definition": (r.get("definition") or "")[:300],
-                "references_nodes": r.get("references_nodes") or [],
-                "has_diagnostic": True,
-                "relevance_score": score,
-            })
-
-        metric_results.sort(key=lambda x: x["relevance_score"], reverse=True)
-
-        return {
-            "relevant_nodes": node_results,
-            "relevant_metrics": metric_results,
-        }
+        results.sort(key=lambda x: x["relevance_score"], reverse=True)
+        return {"relevant_nodes": results[:10]}
 
     # ── Mode: traverse ───────────────────────────────────────────────────────
 
@@ -315,43 +310,62 @@ class BKGTool:
         node_id = self.resolve_id(raw_start)
         depth = min(max(depth, 1), 4)
 
-        rel_pattern = f"[r:{rel_type}*1..{depth}]" if rel_type else f"[r*1..{depth}]"
-
+        # Check node exists
         exists = self._run(
-            """
-            MATCH (n)
-            WHERE (n:ConceptNode AND n.node_id = $nid)
-               OR (n:MetricNode  AND n.metric_id = $nid)
-            RETURN n LIMIT 1
-            """,
+            "MATCH (n:BKGNode {node_id: $nid}) RETURN n LIMIT 1",
             nid=node_id,
         )
         if not exists:
             return {"error": f"Node '{raw_start}' (resolved: '{node_id}') not found"}
 
-        rows = self._run(
-            f"""
-            MATCH (start)-{rel_pattern}->(end)
-            WHERE (start:ConceptNode AND start.node_id = $nid)
-               OR (start:MetricNode  AND start.metric_id = $nid)
-            WITH start, r, end
-            UNWIND r AS rel
-            WITH startNode(rel) AS src, rel, endNode(rel) AS tgt
-            RETURN
-                coalesce(src.node_id, src.metric_id) AS from_node,
-                type(rel)                             AS relationship,
-                coalesce(tgt.node_id, tgt.metric_id) AS to_node,
-                coalesce(rel.join_column, '')         AS join_sql,
-                coalesce(tgt.domain, '')              AS domain,
-                coalesce(tgt.definition, '')          AS definition,
-                tgt.primary_table                     AS primary_table,
-                tgt.base_query                        AS base_query,
-                tgt.filters                           AS filters,
-                coalesce(tgt.is_stub, false)          AS is_stub
-            LIMIT 20
-            """,
-            nid=node_id,
-        )
+        # Build relationship pattern
+        if rel_type:
+            # Filter by relationship_type property on RELATES_TO edges
+            rows = self._run(
+                f"""
+                MATCH (start:BKGNode {{node_id: $nid}})-[r*1..{depth}]->(end:BKGNode)
+                WHERE all(rel IN r WHERE rel.relationship_type = $rtype)
+                WITH start, r, end
+                UNWIND r AS rel
+                WITH startNode(rel) AS src, rel, endNode(rel) AS tgt
+                RETURN
+                    src.node_id                       AS from_node,
+                    coalesce(rel.relationship_type,
+                             rel.relationship,
+                             type(rel))               AS relationship,
+                    tgt.node_id                       AS to_node,
+                    tgt.label                         AS to_label,
+                    tgt.entity_type                   AS to_entity_type,
+                    tgt.definition                    AS definition,
+                    tgt.map_table_name                AS map_table_name,
+                    tgt.kpi_name                      AS kpi_name
+                LIMIT 30
+                """,
+                nid=node_id,
+                rtype=rel_type,
+            )
+        else:
+            rows = self._run(
+                f"""
+                MATCH (start:BKGNode {{node_id: $nid}})-[r*1..{depth}]->(end:BKGNode)
+                WITH start, r, end
+                UNWIND r AS rel
+                WITH startNode(rel) AS src, rel, endNode(rel) AS tgt
+                RETURN
+                    src.node_id                       AS from_node,
+                    coalesce(rel.relationship_type,
+                             rel.relationship,
+                             type(rel))               AS relationship,
+                    tgt.node_id                       AS to_node,
+                    tgt.label                         AS to_label,
+                    tgt.entity_type                   AS to_entity_type,
+                    tgt.definition                    AS definition,
+                    tgt.map_table_name                AS map_table_name,
+                    tgt.kpi_name                      AS kpi_name
+                LIMIT 30
+                """,
+                nid=node_id,
+            )
 
         paths = []
         discovered = {}
@@ -362,192 +376,192 @@ class BKGTool:
                 "from": r["from_node"],
                 "relationship": r["relationship"],
                 "to": r["to_node"],
-                "join_sql": r.get("join_sql", ""),
             })
             tgt = r["to_node"]
             if tgt not in discovered:
                 discovered[tgt] = {
                     "node_id": tgt,
-                    "domain": r.get("domain"),
+                    "label": r.get("to_label"),
+                    "entity_type": r.get("to_entity_type"),
                     "definition": (r.get("definition") or "")[:200],
-                    "primary_table": r.get("primary_table"),
-                    "base_query": r.get("base_query"),
-                    "filters": r.get("filters"),
-                    "is_stub": r.get("is_stub", False),
+                    "map_table_name": r.get("map_table_name"),
+                    "kpi_name": r.get("kpi_name"),
                 }
 
         return {"paths": paths, "discovered_nodes": discovered}
 
-    # ── Mode: diagnostic ─────────────────────────────────────────────────────
+    # ── Mode: get_kpi ─────────────────────────────────────────────────────
 
-    def _get_diagnostic(self, raw_id: str) -> dict:
-        metric_id = self.resolve_id(raw_id)
+    def _get_kpi(self, raw_id: str) -> dict:
+        """
+        Fetch KPI details for a node with entity_type='kpi'.
+        Returns kpi_* properties: name, description, formula, business logic,
+        python function, source tables/columns, dimensions, filters, output schema,
+        and contract.
+        """
+        node_id = self.resolve_id(raw_id)
 
         rows = self._run(
-            "MATCH (m:MetricNode {metric_id: $mid}) RETURN properties(m) AS props",
-            mid=metric_id,
+            """
+            MATCH (n:BKGNode {node_id: $nid})
+            WHERE n.entity_type = 'kpi'
+            RETURN properties(n) AS props
+            """,
+            nid=node_id,
         )
         if rows:
-            m = self._node_props_to_dict(rows[0]["props"])
+            props = self._parse_json_props(rows[0]["props"])
 
-            dt_rows = self._run(
+            # Extract KPI-specific fields (excluding kpi_contract and
+            # embedding to keep output compact)
+            kpi_data = {
+                "node_id": node_id,
+                "label": props.get("label"),
+                "definition": props.get("definition"),
+                "kpi_name": props.get("kpi_name"),
+                "kpi_description": props.get("kpi_description"),
+                "kpi_formula_description": props.get("kpi_formula_description"),
+                "kpi_business_logic": props.get("kpi_business_logic"),
+                "kpi_python_function": props.get("kpi_python_function"),
+                "kpi_relationship_type": props.get("kpi_relationship_type"),
+                "kpi_related_core_node_ids": props.get("kpi_related_core_node_ids", []),
+                "kpi_source_tables": props.get("kpi_source_tables", []),
+                "kpi_source_columns": props.get("kpi_source_columns", []),
+                "kpi_dimensions": props.get("kpi_dimensions", []),
+                "kpi_filters": props.get("kpi_filters"),
+                "kpi_output_schema": props.get("kpi_output_schema"),
+            }
+
+            # Fetch related core nodes
+            related = self._run(
                 """
-                MATCH (m:MetricNode {metric_id: $mid})-[r:DIAGNOSTIC_TRAVERSES]->(t)
-                RETURN
-                    coalesce(r.step, 0)       AS step,
-                    coalesce(r.condition, '') AS condition,
-                    t.metric_id               AS traverse_to_metric,
-                    properties(t)             AS target_props
-                ORDER BY r.step
+                MATCH (n:BKGNode {node_id: $nid})-[r]->(t:BKGNode)
+                WHERE t.entity_type IN ['core', 'context', 'transaction']
+                RETURN t.node_id AS node_id,
+                       t.label AS label,
+                       t.map_table_name AS map_table_name,
+                       r.relationship_type AS relationship_type
                 """,
-                mid=metric_id,
+                nid=node_id,
             )
+            kpi_data["related_core_nodes"] = [
+                {
+                    "node_id": r["node_id"],
+                    "label": r.get("label"),
+                    "map_table_name": r.get("map_table_name"),
+                    "relationship_type": r.get("relationship_type"),
+                }
+                for r in related
+            ]
+            return kpi_data
 
-            diagnostic_tree = []
-            for dt in dt_rows:
-                tgt_props = self._node_props_to_dict(dt["target_props"] or {})
-                diagnostic_tree.append({
-                    "step": dt["step"],
-                    "condition": dt["condition"],
-                    "traverse_to": [dt["traverse_to_metric"]],
-                    "description": tgt_props.get("definition", "")[:200],
-                    "_target_summaries": {
-                        dt["traverse_to_metric"]: {
-                            "primary_table": tgt_props.get("primary_table"),
-                            "base_query": tgt_props.get("base_query"),
-                            "filters": tgt_props.get("filters"),
-                        }
-                    }
-                })
-
-            formulas = {
-                k: v for k, v in m.items()
-                if k.startswith("formula_sql_")
-            }
-
-            return {
-                "metric_id": metric_id,
-                "definition": m.get("definition"),
-                "references_nodes": m.get("references_nodes", []),
-                "formulas": formulas,
-                "thresholds": m.get("thresholds", {}),
-                "unit": m.get("unit"),
-                "diagnostic_tree": diagnostic_tree,
-            }
-
-        related = self._run(
-            """
-            MATCH (m:MetricNode)
-            WHERE $nid IN coalesce(m.references_nodes, [])
-            RETURN m.metric_id AS metric_id, m.definition AS definition
-            """,
-            nid=metric_id,
+        # If not a KPI node, check if it's a core node and find KPIs referencing it
+        core_check = self._run(
+            "MATCH (n:BKGNode {node_id: $nid}) RETURN n.entity_type AS et",
+            nid=node_id,
         )
-        if related:
-            return {
-                "note": f"'{metric_id}' is a ConceptNode, not a MetricNode. Metrics referencing it:",
-                "related_metrics": [
-                    {
-                        "metric_id": r["metric_id"],
-                        "definition": (r.get("definition") or "")[:200],
-                        "has_diagnostic": True,
-                    }
-                    for r in related
-                ],
-            }
+        if core_check:
+            related_kpis = self._run(
+                """
+                MATCH (k:BKGNode)-[r]->(n:BKGNode {node_id: $nid})
+                WHERE k.entity_type = 'kpi'
+                RETURN k.node_id AS node_id,
+                       k.kpi_name AS kpi_name,
+                       k.kpi_description AS kpi_description
+                UNION
+                MATCH (k:BKGNode)
+                WHERE k.entity_type = 'kpi'
+                  AND $nid IN coalesce(k.kpi_related_core_node_ids, [])
+                RETURN k.node_id AS node_id,
+                       k.kpi_name AS kpi_name,
+                       k.kpi_description AS kpi_description
+                """,
+                nid=node_id,
+            )
+            if related_kpis:
+                return {
+                    "note": f"'{node_id}' is a {core_check[0]['et']} node, not a KPI. Related KPIs:",
+                    "related_kpis": [
+                        {
+                            "node_id": r["node_id"],
+                            "kpi_name": r.get("kpi_name"),
+                            "kpi_description": (r.get("kpi_description") or "")[:200],
+                        }
+                        for r in related_kpis
+                    ],
+                }
 
-        return {"error": f"Metric '{raw_id}' not found"}
+        return {"error": f"KPI node '{raw_id}' not found. Try find_relevant to search by keyword."}
 
     # ── Mode: schema ─────────────────────────────────────────────────────────
 
     def _get_schema(self, table_name: str = None) -> dict:
         """
-        Return table names and column names from ConceptNode properties.
-        column_map stores business_name → actual_db_column mappings.
-        attributes stores the list of business-friendly column names.
+        Return database table mappings from BKGNode `map_*` properties.
+
+        If table_name is given, returns detailed mapping info for all nodes
+        referencing that table. Otherwise, returns a summary of all mapped tables.
         """
         if table_name:
             rows = self._run(
                 """
-                MATCH (n:ConceptNode)
-                WHERE n.primary_table = $tname
+                MATCH (n:BKGNode)
+                WHERE n.map_table_name = $tname
                 RETURN
-                    n.node_id       AS node_id,
-                    n.name          AS name,
-                    n.primary_table AS table_name,
-                    n.primary_key   AS primary_key,
-                    n.grain         AS grain,
-                    n.column_map    AS column_map,
-                    n.base_query    AS base_query,
-                    n.notes         AS notes
+                    n.node_id            AS node_id,
+                    n.name               AS name,
+                    n.label              AS label,
+                    n.entity_type        AS entity_type,
+                    n.definition         AS definition,
+                    n.map_table_name     AS map_table_name,
+                    n.map_database_name  AS map_database_name,
+                    n.map_key_column     AS map_key_column,
+                    n.map_label_column   AS map_label_column,
+                    n.map_sql_template   AS map_sql_template,
+                    n.map_python_function AS map_python_function
                 """,
                 tname=table_name,
             )
             if not rows:
-                return {"error": f"No ConceptNode found with primary_table='{table_name}'"}
+                return {"error": f"No BKGNode found with map_table_name='{table_name}'"}
 
-            # Parse column_map strings into dicts for clearer output
             nodes = []
             for r in rows:
-                node = self._node_props_to_dict(r)
-                cm = node.get("column_map", "")
-                if isinstance(cm, str) and cm.startswith("{"):
-                    # Parse '{business_name:db_column, ...}' format
-                    pairs = [p.strip() for p in cm.strip("{}").split(",") if ":" in p]
-                    node["column_mapping"] = {
-                        k.strip(): v.strip()
-                        for k, v in (p.split(":", 1) for p in pairs)
-                    }
-                    node["db_columns"] = list(node["column_mapping"].values())
+                node = self._parse_json_props(r)
                 nodes.append(node)
 
-            return {
-                "table_name": table_name,
-                "nodes": nodes,
-            }
+            return {"table_name": table_name, "nodes": nodes}
 
-        # No table_name → return all tables with their columns
+        # No table_name → return all tables with their mapped nodes
         rows = self._run(
             """
-            MATCH (n:ConceptNode)
-            WHERE n.primary_table IS NOT NULL
+            MATCH (n:BKGNode)
+            WHERE n.map_table_name IS NOT NULL
             RETURN
-                n.primary_table AS table_name,
-                n.node_id       AS node_id,
-                n.primary_key   AS primary_key,
-                n.grain         AS grain,
-                n.column_map    AS column_map
-            ORDER BY n.primary_table, n.node_id
+                n.map_table_name     AS table_name,
+                n.map_database_name  AS database_name,
+                n.node_id            AS node_id,
+                n.label              AS label,
+                n.map_key_column     AS key_column,
+                n.map_label_column   AS label_column
+            ORDER BY n.map_table_name, n.node_id
             """
         )
 
-        # Group by table_name and extract actual db column names
         tables: dict = {}
         for r in rows:
             tname = r["table_name"]
             if tname not in tables:
                 tables[tname] = {
                     "table_name": tname,
+                    "database_name": r.get("database_name"),
                     "nodes": [],
-                    "all_db_columns": set(),
                 }
-            cm = r.get("column_map", "")
-            db_cols = []
-            if isinstance(cm, str) and cm.startswith("{"):
-                pairs = [p.strip() for p in cm.strip("{}").split(",") if ":" in p]
-                db_cols = [p.split(":", 1)[1].strip() for p in pairs]
-                tables[tname]["all_db_columns"].update(db_cols)
-
             tables[tname]["nodes"].append({
                 "node_id": r["node_id"],
-                "primary_key": r.get("primary_key"),
-                "db_columns": db_cols,
+                "label": r.get("label"),
+                "key_column": r.get("key_column"),
+                "label_column": r.get("label_column"),
             })
 
-        # Convert sets to sorted lists for JSON serialization
-        result = []
-        for t in tables.values():
-            t["all_db_columns"] = sorted(t["all_db_columns"])
-            result.append(t)
-
-        return {"tables": result}
+        return {"tables": list(tables.values())}

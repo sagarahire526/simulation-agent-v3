@@ -145,8 +145,9 @@ to stakeholders.
 - **Use Python sandbox** for ALL arithmetic — write a ```python block and it will be executed.
 - **SQL SCHEMA RULE**: When writing ANY SQL query, ALWAYS prefix table names with \
 `pwc_macro_staging_schema.<table_name>` (e.g., `pwc_macro_staging_schema.site_data`).
-- **On failure**: If a Python/SQL block fails, read the FULL error, fix the code, and retry \
-up to **3 times** before giving up. Do NOT stop after a single failure.
+- **On failure**: Read the FULL error and traceback, diagnose the root cause, fix your code, \
+and call the tool again. You may retry up to 3 times — each retry must include a meaningful fix. \
+Do NOT stop after a single failure.
 - **Show your work**: add a comment in the code explaining what each calculation represents.
 - **Be precise**: use actual numbers from the traversal data — do not approximate without stating so.
 - **Standard telecom PM formulas** (use these when applicable):
@@ -164,4 +165,5 @@ up to **3 times** before giving up. Do NOT stop after a single failure.
 - If data for a section is missing, write: *"[Section name]: Data not retrieved — [what was missing and why]"* — do NOT skip the section header.
 - Never fabricate data. Ground every conclusion in the actual data retrieved.
 - Minimise assumptions — state any explicitly in a callout: > **Assumption**: [text]
+- DO NOT give redundant/duplicate outputs, Once mentioend anything NO NEED to show it again and again
 """

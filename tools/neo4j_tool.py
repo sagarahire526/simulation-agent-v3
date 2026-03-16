@@ -128,6 +128,7 @@ class Neo4jTool:
             schema_lines.append(f"  (:{src})-[:{row['relType']}]->(:{tgt})")
 
         logger.debug("Schema discovery complete: %d lines", len(schema_lines))
+        # print(f"SCHEMA LINES ARE AS FOLLOWS: {schema_lines}")
         return "\n".join(schema_lines)
 
     # ─────────────────────────────────────────────

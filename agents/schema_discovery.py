@@ -5,7 +5,6 @@ the Traversal Agent to explore the graph effectively.
 """
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
@@ -24,19 +23,26 @@ def _fetch_table_list() -> str:
         tables = result.get("tables", [])
         if not tables:
             return ""
+
         lines = ["\n\n=== AVAILABLE POSTGRESQL TABLES ==="]
         lines.append("Use ONLY these table names with get_table_schema() and in SQL queries:\n")
+
         for t in tables:
             name = t.get("table_name", "")
-            nodes = ", ".join(t.get("used_by_nodes", []))
-            grain = t.get("sample_grain", "")
-            pk = t.get("sample_primary_key", "")
-            detail = f"  nodes: {nodes}" if nodes else ""
-            if grain:
-                detail += f"  grain: {grain}"
-            if pk:
-                detail += f"  pk: {pk}"
+            db = t.get("database_name", "")
+            nodes = t.get("nodes", [])
+            node_ids = ", ".join(n.get("node_id", "") for n in nodes)
+            key_cols = ", ".join(
+                filter(None, set(n.get("key_column", "") for n in nodes))
+            )
+
+            detail = f"  nodes: {node_ids}" if node_ids else ""
+            if key_cols:
+                detail += f"  key_column(s): {key_cols}"
+            if db:
+                detail += f"  db: {db}"
             lines.append(f"  - {name}{detail}")
+
         lines.append("\nDo NOT invent table names. If you need a table not listed here, the data does not exist.")
         return "\n".join(lines)
     except Exception as e:
@@ -56,7 +62,7 @@ def discover_schema_node(state: SimulationState) -> dict[str, Any]:
         table_list = _fetch_table_list()
         full_schema = schema + table_list
         logger.info(f"Schema discovered: {len(full_schema)} chars (incl. table list)")
-
+        # print(f"FULL SCHEMA RECEIVED IS {full_schema}")
         return {
             "kg_schema": full_schema,
             "current_phase": "traversal",
@@ -67,7 +73,6 @@ def discover_schema_node(state: SimulationState) -> dict[str, Any]:
         }
     except Exception as e:
         logger.error(f"Schema discovery failed: {e}")
-        # Provide a fallback empty schema — traversal agent will work with what it has
         return {
             "kg_schema": f"Schema discovery failed: {e}. Write generic Cypher queries.",
             "current_phase": "traversal",

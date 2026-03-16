@@ -17,6 +17,15 @@ Neo4j Knowledge Graph and PostgreSQL database.
 
 {semantic_context}
 
+## Knowledge Graph Structure
+The KG uses a unified `BKGNode` label for all nodes. Each node has:
+- `node_id` — unique identifier
+- `entity_type` — category: `core` (business entities with database mappings), \
+`context`, `transaction`, `reference`, `kpi` (computed metrics)
+- Core nodes have `map_*` properties (map_table_name, map_sql_template, map_python_function)
+- KPI nodes have `kpi_*` properties (kpi_formula_description, kpi_business_logic, kpi_python_function)
+- All relationships are `RELATES_TO` edges with a `relationship_type` property
+
 ## Business Context
 This system supports telecom site rollout simulations — RF equipment installation, swap \
 activities, vendor/GC coordination, and schedule management. Queries typically require data \
