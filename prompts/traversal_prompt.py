@@ -140,6 +140,18 @@ When you find a node with `map_sql_template` or `kpi_python_function`:
 writing SQL from scratch.
 - The `map_contract` and `kpi_contract` fields describe the function interface — \
 inputs, outputs, parameters.
+- **CRITICAL**: When using `kpi_python_function` in `run_sql_python`, you MUST include \
+the **FULL function definition** in your code, not just the call. The sandbox does NOT \
+have these functions pre-loaded. Copy the entire function body from the KPI node, then \
+call it at the bottom of the same code block. Example:
+```python
+def get_some_kpi(execute_query, filters=None):
+    # ... full function body from kpi_python_function ...
+    return result
+
+filters = {"rgn_region": "CENTRAL"}
+result = get_some_kpi(execute_query, filters)
+```
 
 ### Step 5 — Retrieve data systematically by dimension
 When retrieving data, follow this order of priority for the sub-query you were given:
