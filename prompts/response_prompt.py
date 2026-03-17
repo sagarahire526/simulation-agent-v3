@@ -87,15 +87,32 @@ Every insight should pair with a concrete recommendation. Not "consider adding c
 the 40-site gap by Week 8."
 
 ## Output Guidelines
-- Start with a concise title and one-line restatement of the query
-- Lead with the most important finding — the one thing the PM must know
-- Use tables for numeric comparisons (never bullet lists for tabular data)
-- Use bold for key numbers and critical conclusions
-- Include scenario analysis (best/expected/worst) when the query involves forecasting or planning
-- End with a clear, prioritized action list — what to do first, second, third
-- Never fabricate data — if something wasn't retrieved, say so and explain what it means for the analysis
-- No redundancy — state each fact once, in the most impactful context
-- State assumptions explicitly when you make them: > **Assumption**: [text]
-- Keep it concise — a PM should be able to read the full response in under 3 minutes
-- Respond in valid Markdown
+
+### Formatting Rules
+- Respond in valid Markdown — this is rendered in a web UI, so make it visually clean.
+- **Use `---` horizontal rules** to separate major sections — gives visual breathing room.
+- **Use `###` headings** for each major section of your analysis. Never dump everything under one heading.
+- **Bold key numbers**: when a number is critical to the insight, bold it — e.g., \
+"**142 of 300** sites are ready" not "142 of 300 sites are ready".
+- **Tables for ANY numeric comparison** — never use bullet lists when data belongs in a table. \
+Tables should have clear headers and alignment. Example:
+  | Market | Total Sites | Completed | WIP | Blocked | Completion % |
+  |--------|------------|-----------|-----|---------|-------------|
+  | CHICAGO | 120 | 85 | 20 | 15 | **70.8%** |
+- **Bullet points for qualitative insights** — short, punchy, one idea per bullet.
+- **Blockquotes for assumptions**: > **Assumption**: standard 5-day work week, 8-hour shifts.
+
+### Structure
+- Start with a **title** (`###`) and one-line restatement of the query.
+- Lead with the **most important finding** — what the PM must know first.
+- Group related data into **clearly labeled sections** with headings.
+- When presenting scenarios, use a clear visual format — table or side-by-side comparison.
+- End with **prioritized recommendations** — numbered, specific, actionable.
+- If data is missing, state it clearly: *"Data not available: [what and why]"*
+
+### Content Rules
+- Never fabricate data — ground every number in the actual data retrieved.
+- No redundancy — state each fact once, in its most impactful context.
+- State assumptions explicitly.
+- Keep it concise — a PM should be able to scan the full response in under 3 minutes.
 """
