@@ -108,29 +108,16 @@ class BKGTool:
             result = session.run(cypher, **params)
             return [r.data() for r in result]
 
-    # Properties excluded from get_node output to prevent context-window overflow.
-    # These contain large generated code / JSON blobs (100K+ chars each).
-    # Use get_table_schema(table_name) or get_kpi(node_id) to fetch them explicitly.
-    _LARGE_PROPS = frozenset({
-        "map_python_function", "map_sql_template", "map_contract",
-        "kpi_python_function", "kpi_contract", "kpi_business_logic",
-        "embedding", "session_id",
-    })
-
-    def _parse_json_props(self, props: dict, exclude_large: bool = False) -> dict:
+    def _parse_json_props(self, props: dict) -> dict:
         """
         Clean up raw Neo4j property bag:
         - Parse JSON strings back to dicts/lists.
         - Leave native arrays (string[]) untouched.
-        - When exclude_large=True, skip code/contract fields and add
-          boolean flags (e.g. has_map_python_function=True) so the agent
-          knows the data exists and can fetch it with a dedicated tool.
+        - Excludes 'embedding' and 'session_id' (internal fields, not useful for agents).
         """
         out = {}
         for k, v in props.items():
-            if exclude_large and k in self._LARGE_PROPS:
-                if v:
-                    out[f"has_{k}"] = True
+            if k in ("embedding", "session_id"):
                 continue
             if isinstance(v, str) and v.startswith(("{", "[")):
                 try:
@@ -157,9 +144,7 @@ class BKGTool:
                 )
             }
 
-        # exclude_large=True: skip map_python_function, map_contract, etc.
-        # to keep tool output compact (~1-2K chars instead of 100K+)
-        node = self._parse_json_props(rows[0]["props"], exclude_large=True)
+        node = self._parse_json_props(rows[0]["props"])
 
         # Outgoing relationships
         out_rows = self._run(

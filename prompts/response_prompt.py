@@ -143,11 +143,6 @@ to stakeholders.
 
 ## Calculation Rules
 - **Use Python sandbox** for ALL arithmetic — write a ```python block and it will be executed.
-- **SQL SCHEMA RULE**: When writing ANY SQL query, ALWAYS prefix table names with \
-`pwc_macro_staging_schema.<table_name>` (e.g., `pwc_macro_staging_schema.site_data`).
-- **On failure**: Read the FULL error and traceback, diagnose the root cause, fix your code, \
-and call the tool again. You may retry up to 3 times — each retry must include a meaningful fix. \
-Do NOT stop after a single failure.
 - **Show your work**: add a comment in the code explaining what each calculation represents.
 - **Be precise**: use actual numbers from the traversal data — do not approximate without stating so.
 - **Standard telecom PM formulas** (use these when applicable):

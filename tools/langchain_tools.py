@@ -6,13 +6,12 @@ Wraps existing tools (neo4j_tool, bkg_tool, python_sandbox) as
 
 Tools are ordered by recommended usage sequence:
   1. find_relevant  — discover relevant KG nodes (start here)
-  2. get_node       — inspect a specific node's full details
+  2. get_node       — inspect a specific node's full details (all properties)
   3. traverse_graph — walk relationships from a node
   4. get_kpi        — get KPI formula, logic, and computation details
-  5. get_table_schema — discover database tables and columns
-  6. run_cypher     — custom Neo4j queries
-  7. run_sql_python — query PostgreSQL with Python
-  8. run_python     — sandboxed calculations
+  5. run_cypher     — custom Neo4j queries
+  6. run_sql_python — query PostgreSQL with Python
+  7. run_python     — sandboxed calculations
 """
 from __future__ import annotations
 
@@ -75,8 +74,12 @@ def get_node(node_id: str) -> str:
     properties plus all incoming and outgoing relationships.
 
     DETAILS:
-    - Returns ALL properties on the node (core props, map_* for database mappings,
-      kpi_* for KPI computation details).
+    - Returns ALL properties on the node including:
+      - Core props: node_id, name, label, entity_type, definition, nl_description
+      - Database mapping props (map_*): map_table_name, map_key_column,
+        map_label_column, map_sql_template, map_python_function, map_contract
+      - KPI props (kpi_*): kpi_name, kpi_description, kpi_formula_description,
+        kpi_business_logic, kpi_python_function, kpi_source_tables, etc.
     - Returns outgoing and incoming relationships with target/source node_id,
       label, entity_type, and relationship type.
     - Supports aliases: 'GC' → general_contractor, 'BOM' → bill_of_materials, etc.
@@ -159,33 +162,6 @@ def get_kpi(node_id: str) -> str:
     return json.dumps(result, default=str)
 
 
-@tool
-def get_table_schema(table_name: str = "") -> str:
-    """Get database table mappings from the Knowledge Graph.
-
-    USE WHEN: You need to understand what database tables exist and how to query
-    them BEFORE writing any SQL. Never guess table or column names.
-
-    USAGE PATTERN:
-    1. Call get_table_schema("") (empty string) → lists ALL available tables with
-       their mapped nodes, key columns, and label columns.
-    2. Call get_table_schema("exact_table_name") → returns detailed mapping for
-       that table: map_key_column, map_label_column, map_sql_template,
-       map_python_function, and map_contract for each node using that table.
-
-    IMPORTANT: The map_sql_template and map_python_function fields contain
-    ready-to-use SQL and Python code for querying the table. Use these as
-    templates instead of writing queries from scratch.
-
-    NEXT STEP: Use the discovered table/column names in run_sql_python.
-    Always prefix tables with the correct schema (e.g., pwc_macro_staging_schema.<table>).
-    """
-    req: dict = {"mode": "schema"}
-    if table_name:
-        req["table_name"] = table_name
-    result = _get_bkg().query(req)
-    return json.dumps(result, default=str)
-
 
 # ─────────────────────────────────────────────
 # Python Sandbox Tools
@@ -229,8 +205,6 @@ def run_sql_python(code: str, timeout_seconds: int = 30) -> str:
     execute_query(sql, db=None, max_rows=None) → list[dict].
 
     CRITICAL RULES:
-    1. ALWAYS call get_table_schema("") first to discover available tables.
-    2. ALWAYS call get_table_schema("table_name") to get exact column names.
     3. ALWAYS prefix tables: pwc_macro_staging_schema.<table_name>
     4. Use the pre-injected execute_query(sql) to run SQL — it returns list[dict].
        Alternatively use pd.read_sql("SELECT ...", conn) for DataFrames.
@@ -258,7 +232,6 @@ def get_all_tools() -> list:
         get_node,
         traverse_graph,
         get_kpi,
-        get_table_schema,
         run_cypher,
         run_sql_python,
         run_python,

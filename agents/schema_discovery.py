@@ -25,7 +25,7 @@ def _fetch_table_list() -> str:
             return ""
 
         lines = ["\n\n=== AVAILABLE POSTGRESQL TABLES ==="]
-        lines.append("Use ONLY these table names with get_table_schema() and in SQL queries:\n")
+        lines.append("Use ONLY these table names in SQL queries (use get_node on mapped nodes for full details):\n")
 
         for t in tables:
             name = t.get("table_name", "")
