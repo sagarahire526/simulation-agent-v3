@@ -50,6 +50,18 @@ Material availability, Bill of Materials (BOM), Tools, Manpower, Vendor assignme
 crews, performance score (planned vs actual delivery %), crew certifications, weekly run rate
 (sites completed per week per GC)
 
+**GC Crew Capacity Table** (NOT in the Knowledge Graph — query directly):
+- Table: `public.gc_capacity_market_trial`
+- Columns: `id`, `gc_company`, `market`, `gc_mail`, `day_wise_gc_capacity`, \
+`create_uid`, `create_date`, `write_date`, `write_uid`
+- Use this table for crew/capacity queries: how many sites a GC can handle per day in a market.
+- `day_wise_gc_capacity` = number of sites a GC can handle per day in that market.
+- Weekly capacity = `day_wise_gc_capacity × 5` (working days).
+- Sample row: `id=22691, gc_company='Broken Arrow Communications', market='ALBUQUERQUE', \
+gc_mail='abc@broken.com', day_wise_gc_capacity=2, create_date='2025-10-22'`
+- **NOTE**: This table uses schema `public`, NOT `pwc_macro_staging_schema`. \
+Query as: `SELECT ... FROM public.gc_capacity_market_trial WHERE ...`
+
 **Material Data** — material forecast, ordered status, pickup dates, delivery timelines,
 SPO/PO authorization status, warehouse location, potential delays
 

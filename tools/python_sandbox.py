@@ -94,6 +94,9 @@ def execute_python(code: str, context: dict[str, Any] | None = None) -> dict:
     Returns:
         dict with status, output (stdout), result (last expression), error
     """
+    # Strip trailing whitespace per line to fix LLM-generated `\` continuation errors
+    code = "\n".join(line.rstrip() for line in code.splitlines())
+
     is_safe, reason = _validate_code(code)
     if not is_safe:
         return {
@@ -222,6 +225,9 @@ class PythonSandbox:
     def execute(self, code: str, timeout_seconds: int = 30) -> dict:
         if self.conn is None:
             self._connect()
+
+        # Strip trailing whitespace per line to fix LLM-generated `\` continuation errors
+        code = "\n".join(line.rstrip() for line in code.splitlines())
 
         # Auto-wrap raw SQL in pd.read_sql() so exec() doesn't choke on it
         if self._is_raw_sql(code):
