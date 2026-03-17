@@ -120,8 +120,23 @@ def response_node(state: SimulationState) -> dict[str, Any]:
 
     user_message_parts = [
         f"## Original User Query\n{user_query}",
-        f"\n{data_context}",
     ]
+
+    # Include planner's decomposition strategy so the response agent
+    # understands WHY data was collected the way it was
+    planner_steps = state.get("planner_steps", [])
+    planning_rationale = state.get("planning_rationale", "")
+    if planner_steps:
+        plan_lines = ["## Planner Strategy"]
+        if planning_rationale:
+            plan_lines.append(f"**Rationale**: {planning_rationale}\n")
+        plan_lines.append("**Decomposed into these sub-queries:**")
+        for i, step in enumerate(planner_steps, 1):
+            display = step.split(": ", 1)[1] if ": " in step else step
+            plan_lines.append(f"  {i}. {display}")
+        user_message_parts.append("\n".join(plan_lines))
+
+    user_message_parts.append(f"\n{data_context}")
 
     if errors:
         user_message_parts.append(
@@ -138,9 +153,8 @@ def response_node(state: SimulationState) -> dict[str, Any]:
         "\nAnalyze the collected data above and generate a comprehensive, "
         "PM-readable response. Use the Simulation Guidance above (if provided) "
         "as a reference for how to structure your calculations and output only for used approaches to calculate data— "
-        "adapt it to what was actually retrieved. Use Python sandbox for any "
-        "calculations — write the code and I'll execute it. Include specific "
-        "numbers from the data. If data is missing or queries failed, acknowledge "
+        "adapt it to what was actually retrieved. "
+        "If data is missing or queries failed, acknowledge "
         "it explicitly."
     )
 
