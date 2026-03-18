@@ -70,10 +70,10 @@ def query_refiner_node(state: SimulationState) -> dict[str, Any]:
     """
     user_query = state["user_query"]
 
-    print(f"\n{_BOLD}{'═' * 70}")
-    print(f"  🔍 QUERY REFINER — Evaluating query completeness")
-    print(f"{'═' * 70}{_RESET}\n")
-    print(f"  {_DIM}Query: {user_query}{_RESET}\n")
+    print(f"\n{_BOLD}{'═' * 70}", flush=True)
+    print(f"  🔍 QUERY REFINER — Evaluating query completeness", flush=True)
+    print(f"{'═' * 70}{_RESET}\n", flush=True)
+    print(f"  {_DIM}Query: {user_query}{_RESET}\n", flush=True)
 
     llm = LLMProvider.get_llm("fast", max_tokens=1024)
 
@@ -89,10 +89,10 @@ def query_refiner_node(state: SimulationState) -> dict[str, Any]:
     refined_query: str = parsed.get("refined_query", user_query) or user_query
 
     if assumptions:
-        print(f"  {_DIM}Assumptions: {' | '.join(assumptions)}{_RESET}")
+        print(f"  {_DIM}Assumptions: {' | '.join(assumptions)}{_RESET}", flush=True)
 
     if is_complete:
-        print(f"  {_GREEN}✓ Query is complete — proceeding to orchestrator.{_RESET}\n")
+        print(f"  {_GREEN}✓ Query is complete — proceeding to orchestrator.{_RESET}\n", flush=True)
         return {
             "refined_query": refined_query,
             "current_phase": "orchestration",
@@ -103,10 +103,10 @@ def query_refiner_node(state: SimulationState) -> dict[str, Any]:
         }
 
     # ── Query is incomplete → ask the user for clarification ──────────────────
-    print(f"  {_YELLOW}⚠ Query needs clarification:{_RESET}")
+    print(f"  {_YELLOW}⚠ Query needs clarification:{_RESET}", flush=True)
     for q in clarification_questions:
-        print(f"     • {q}")
-    print()
+        print(f"     • {q}", flush=True)
+    print(flush=True)
 
     # Build a user-facing clarification prompt
     clarification_prompt = {
@@ -128,12 +128,12 @@ def query_refiner_node(state: SimulationState) -> dict[str, Any]:
         refined_query = (
             f"{user_query} — Additional context: {user_clarification.strip()}"
         )
-        print(f"  {_GREEN}✓ Clarification received. Refined query:{_RESET}")
-        print(f"     {refined_query}\n")
+        print(f"  {_GREEN}✓ Clarification received. Refined query:{_RESET}", flush=True)
+        print(f"     {refined_query}\n", flush=True)
     else:
         # User accepted assumptions; use the LLM's refined version as-is
         refined_query = refined_query or user_query
-        print(f"  {_DIM}No clarification provided — proceeding with assumptions.{_RESET}\n")
+        print(f"  {_DIM}No clarification provided — proceeding with assumptions.{_RESET}\n", flush=True)
 
     return {
         "refined_query": refined_query,

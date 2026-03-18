@@ -65,10 +65,10 @@ def orchestrator_node(state: SimulationState) -> dict[str, Any]:
     """
     refined_query = state.get("refined_query") or state["user_query"]
 
-    print(f"\n{_BOLD}{'═' * 70}")
-    print(f"  🎯 ORCHESTRATOR — Routing query to the right pipeline")
-    print(f"{'═' * 70}{_RESET}\n")
-    print(f"  {_DIM}Query: {refined_query}{_RESET}\n")
+    print(f"\n{_BOLD}{'═' * 70}", flush=True)
+    print(f"  🎯 ORCHESTRATOR — Routing query to the right pipeline", flush=True)
+    print(f"{'═' * 70}{_RESET}\n", flush=True)
+    print(f"  {_DIM}Query: {refined_query}{_RESET}\n", flush=True)
 
     llm = LLMProvider.get_llm("fast", max_tokens=512)
 
@@ -92,8 +92,8 @@ def orchestrator_node(state: SimulationState) -> dict[str, Any]:
         "simulation": _GREEN,
     }.get(routing_decision, _GREEN)
 
-    print(f"  {route_color}→ Route: {routing_decision.upper()}{_RESET}")
-    print(f"  {_DIM}Reason: {reasoning}{_RESET}\n")
+    print(f"  {route_color}→ Route: {routing_decision.upper()}{_RESET}", flush=True)
+    print(f"  {_DIM}Reason: {reasoning}{_RESET}\n", flush=True)
 
     result: dict[str, Any] = {
         "routing_decision": routing_decision,

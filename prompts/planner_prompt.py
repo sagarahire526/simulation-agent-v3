@@ -31,6 +31,8 @@ This system supports telecom site rollout simulations — RF equipment installat
 activities, vendor/GC coordination, and schedule management. Queries typically require data \
 across these five core dimensions:
 
+- Today's date is {today_date}
+
 1. **Site Status** — total sites, completed, WIP (Work In Progress), pending, by market/region
 2. **Prerequisite Readiness** — status and breakdown of each prerequisite gate:
    RFI, NTP, Permits, Approvals, NOC, Power, Civil work, Transmission/Fiber link,

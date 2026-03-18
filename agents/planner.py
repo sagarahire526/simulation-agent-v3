@@ -15,6 +15,7 @@ import contextvars
 import json
 import logging
 import warnings
+from datetime import date
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -139,10 +140,10 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
     refined_query = state.get("refined_query") or state["user_query"]
     kg_schema = state.get("kg_schema", "Schema not available")
 
-    print(f"\n{_BOLD}{'═' * 70}")
-    print(f"  📋 PLANNER AGENT — Decomposing query into parallel steps")
-    print(f"{'═' * 70}{_RESET}\n")
-    print(f"  {_DIM}Query: {refined_query}{_RESET}\n")
+    print(f"\n{_BOLD}{'═' * 70}", flush=True)
+    print(f"  📋 PLANNER AGENT — Decomposing query into parallel steps", flush=True)
+    print(f"{'═' * 70}{_RESET}\n", flush=True)
+    print(f"  {_DIM}Query: {refined_query}{_RESET}\n", flush=True)
 
     # ── Step 1: Fetch semantic context for planning guidance ──────────────────
     semantic_context = ""
@@ -160,10 +161,11 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
             sim_hits = len(context_data.get("simulation", []))
             print(
                 f"  {_GREEN}🎯 Semantic context: "
-                f"{kpi_hits} KPI · {qb_hits} Q&A · {sim_hits} scenario(s){_RESET}"
+                f"{kpi_hits} KPI · {qb_hits} Q&A · {sim_hits} scenario(s){_RESET}",
+                flush=True,
             )
         else:
-            print(f"  {_DIM}ℹ  No semantic context (API may be unreachable).{_RESET}")
+            print(f"  {_DIM}ℹ  No semantic context (API may be unreachable).{_RESET}", flush=True)
     except Exception as e:
         logger.warning("Semantic search in planner failed (non-fatal): %s", e)
 
@@ -175,6 +177,7 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
     safe_semantic = semantic_context.replace("{", "{{").replace("}", "}}")
 
     planning_prompt = PLANNER_SYSTEM.format(
+        today_date=date.today(),
         kg_schema=safe_kg_schema,
         semantic_context=safe_semantic,
     )
@@ -193,17 +196,17 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
     # Cap the number of parallel steps
     steps = steps[:_MAX_PARALLEL_STEPS]
 
-    print(f"\n  {_BOLD}Business Analysis Plan ({len(steps)} steps):{_RESET}")
+    print(f"\n  {_BOLD}Business Analysis Plan ({len(steps)} steps):{_RESET}", flush=True)
     if rationale:
-        print(f"  {_YELLOW}📌 Intent:{_RESET} {rationale}\n")
+        print(f"  {_YELLOW}📌 Intent:{_RESET} {rationale}\n", flush=True)
     display_steps = []
     for i, step in enumerate(steps, 1):
         display = step
         if ": " in step:
             display = step.split(": ", 1)[1]
-        print(f"  {_CYAN}  Step {i}:{_RESET} {display}")
+        print(f"  {_CYAN}  Step {i}:{_RESET} {display}", flush=True)
         display_steps.append(display)
-    print()
+    print(flush=True)
 
     # ── SSE: plan is ready, sub-queries about to start ────────────────────────
     emit_sse("planner_plan_ready", {
@@ -217,7 +220,7 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
     # event loop. This avoids "cannot call asyncio.run() from a running loop"
     # errors that occur when LangGraph's sync runner has its own internal loop,
     # while still getting true async concurrency across all traversal sub-steps.
-    print(f"  {_BOLD}Executing {len(steps)} traversal(s) in parallel…{_RESET}\n")
+    print(f"  {_BOLD}Executing {len(steps)} traversal(s) in parallel…{_RESET}\n", flush=True)
 
     # Inject semantic context into state so sub-traversals can reuse it
     # (the planner's return value sets this field too late for the sub-traversals)
@@ -255,7 +258,7 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
     total_tool_calls = sum(
         r.get("traversal_steps_taken", 0) for r in step_results
     )
-    print(f"\n  {_GREEN}✅ All steps complete — {total_tool_calls} total tool calls{_RESET}\n")
+    print(f"\n  {_GREEN}✅ All steps complete — {total_tool_calls} total tool calls{_RESET}\n", flush=True)
 
     logger.info(
         "Planner completed: %d steps, %d total tool calls",

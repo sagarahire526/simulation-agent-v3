@@ -120,15 +120,15 @@ _graph = build_simulation_graph()
 
 def _print_phase_timings(timings: dict[str, float], total_ms: float) -> None:
     """Print a per-phase timing summary to the terminal after execution."""
-    print("\n" + "─" * 52)
-    print("  Phase Timing Summary")
-    print("─" * 52)
+    print("\n" + "─" * 52, flush=True)
+    print("  Phase Timing Summary", flush=True)
+    print("─" * 52, flush=True)
     for node, ms in timings.items():
         secs = ms / 1000
-        print(f"  {node:<22} {secs:>7.2f} s")
-    print("─" * 52)
-    print(f"  {'TOTAL':<22} {total_ms / 1000:>7.2f} s")
-    print("─" * 52 + "\n")
+        print(f"  {node:<22} {secs:>7.2f} s", flush=True)
+    print("─" * 52, flush=True)
+    print(f"  {'TOTAL':<22} {total_ms / 1000:>7.2f} s", flush=True)
+    print("─" * 52 + "\n", flush=True)
 
 
 def _make_initial_state(query: str, max_steps: int) -> SimulationState:
