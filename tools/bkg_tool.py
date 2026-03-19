@@ -133,7 +133,22 @@ class BKGTool:
         node_id = self.resolve_id(raw_id)
 
         rows = self._run(
-            "MATCH (n:BKGNode {node_id: $nid}) RETURN properties(n) AS props",
+            """
+            MATCH (n:BKGNode {node_id: $nid})
+            RETURN
+                n.node_id            AS node_id,
+                n.name               AS name,
+                n.label              AS label,
+                n.entity_type        AS entity_type,
+                n.definition         AS definition,
+                n.nl_description     AS nl_description,
+                n.map_table_name     AS map_table_name,
+                n.map_database_name  AS map_database_name,
+                n.map_key_column     AS map_key_column,
+                n.map_label_column   AS map_label_column,
+                n.map_python_function AS map_python_function,
+                n.map_contract       AS map_contract
+            """,
             nid=node_id,
         )
         if not rows:
@@ -144,7 +159,7 @@ class BKGTool:
                 )
             }
 
-        node = self._parse_json_props(rows[0]["props"])
+        node = self._parse_json_props(rows[0])
 
         # Outgoing relationships
         out_rows = self._run(
@@ -390,32 +405,32 @@ class BKGTool:
             """
             MATCH (n:BKGNode {node_id: $nid})
             WHERE n.entity_type = 'kpi'
-            RETURN properties(n) AS props
+            RETURN
+                n.node_id                   AS node_id,
+                n.name                      AS name,
+                n.label                     AS label,
+                n.entity_type               AS entity_type,
+                n.definition                AS definition,
+                n.nl_description            AS nl_description,
+                n.kpi_name                  AS kpi_name,
+                n.kpi_kpi_id                AS kpi_kpi_id,
+                n.kpi_description           AS kpi_description,
+                n.kpi_formula_description   AS kpi_formula_description,
+                n.kpi_business_logic        AS kpi_business_logic,
+                n.kpi_python_function       AS kpi_python_function,
+                n.kpi_contract              AS kpi_contract,
+                n.kpi_relationship_type     AS kpi_relationship_type,
+                n.kpi_related_core_node_ids AS kpi_related_core_node_ids,
+                n.kpi_source_tables         AS kpi_source_tables,
+                n.kpi_source_columns        AS kpi_source_columns,
+                n.kpi_dimensions            AS kpi_dimensions,
+                n.kpi_filters               AS kpi_filters,
+                n.kpi_output_schema         AS kpi_output_schema
             """,
             nid=node_id,
         )
         if rows:
-            props = self._parse_json_props(rows[0]["props"])
-
-            # Extract KPI-specific fields (excluding kpi_contract and
-            # embedding to keep output compact)
-            kpi_data = {
-                "node_id": node_id,
-                "label": props.get("label"),
-                "definition": props.get("definition"),
-                "kpi_name": props.get("kpi_name"),
-                "kpi_description": props.get("kpi_description"),
-                "kpi_formula_description": props.get("kpi_formula_description"),
-                "kpi_business_logic": props.get("kpi_business_logic"),
-                "kpi_python_function": props.get("kpi_python_function"),
-                "kpi_relationship_type": props.get("kpi_relationship_type"),
-                "kpi_related_core_node_ids": props.get("kpi_related_core_node_ids", []),
-                "kpi_source_tables": props.get("kpi_source_tables", []),
-                "kpi_source_columns": props.get("kpi_source_columns", []),
-                "kpi_dimensions": props.get("kpi_dimensions", []),
-                "kpi_filters": props.get("kpi_filters"),
-                "kpi_output_schema": props.get("kpi_output_schema"),
-            }
+            kpi_data = self._parse_json_props(rows[0])
 
             # Fetch related core nodes
             related = self._run(

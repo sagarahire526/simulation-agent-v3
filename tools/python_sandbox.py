@@ -5,6 +5,7 @@ Used by the Traversal Agent and Response Agent for calculations.
 from __future__ import annotations
 
 import ast
+import re
 import time
 import logging
 import traceback
@@ -216,11 +217,42 @@ class PythonSandbox:
             print(f"⚠ Postgres not available: {e}")
             self.conn = None
 
+    # DML/DDL keywords that must never be executed
+    _BLOCKED_SQL_KEYWORDS = {
+        "INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "TRUNCATE",
+        "CREATE", "GRANT", "REVOKE", "MERGE", "REPLACE",
+    }
+
     def _is_raw_sql(self, code: str) -> bool:
         """Detect if code is raw SQL rather than Python."""
         first_line = code.strip().split("\n")[0].strip().rstrip(";").upper()
         sql_starts = ("SELECT ", "INSERT ", "UPDATE ", "DELETE ", "WITH ", "EXPLAIN ")
         return first_line.startswith(sql_starts)
+
+    def _validate_sql(self, code: str) -> tuple[bool, str]:
+        """
+        Scan Python code for embedded SQL strings containing DML/DDL.
+        Returns (is_safe, reason).
+        """
+        # Extract all string literals that look like SQL
+        # Match quoted strings (single, double, triple-quoted)
+        sql_patterns = re.findall(
+            r'(?:"""(.*?)"""|\'\'\'(.*?)\'\'\'|"(.*?)"|\'(.*?)\')',
+            code, re.DOTALL,
+        )
+        for groups in sql_patterns:
+            for sql_str in groups:
+                if not sql_str:
+                    continue
+                # Normalize and check first meaningful word
+                stripped = sql_str.strip().upper()
+                first_word = stripped.split()[0] if stripped.split() else ""
+                if first_word in self._BLOCKED_SQL_KEYWORDS:
+                    return False, (
+                        f"DML/DDL operation '{first_word}' is blocked. "
+                        "Only SELECT/WITH queries are allowed."
+                    )
+        return True, "OK"
 
     def execute(self, code: str, timeout_seconds: int = 30) -> dict:
         if self.conn is None:
@@ -229,8 +261,20 @@ class PythonSandbox:
         # Strip trailing whitespace per line to fix LLM-generated `\` continuation errors
         code = "\n".join(line.rstrip() for line in code.splitlines())
 
+        # Block DML/DDL before any execution
+        is_safe, reason = self._validate_sql(code)
+        if not is_safe:
+            return {"status": "error", "error": reason}
+
         # Auto-wrap raw SQL in pd.read_sql() so exec() doesn't choke on it
         if self._is_raw_sql(code):
+            # Block raw DML/DDL
+            first_word = code.strip().split()[0].rstrip(";").upper()
+            if first_word in self._BLOCKED_SQL_KEYWORDS:
+                return {
+                    "status": "error",
+                    "error": f"DML/DDL operation '{first_word}' is blocked. Only SELECT/WITH queries are allowed.",
+                }
             escaped = code.replace("\\", "\\\\").replace('"""', '\\"\\"\\"')
             code = f'result = pd.read_sql("""{escaped}""", conn).to_dict(orient="records")'
 

@@ -4,14 +4,14 @@ LangChain tool wrappers for the autonomous Traversal Agent.
 Wraps existing tools (neo4j_tool, bkg_tool, python_sandbox) as
 @tool functions that the ReAct agent can call.
 
-Tools are ordered by recommended usage sequence:
-  1. find_relevant  — discover relevant KG nodes (start here)
-  2. get_node       — inspect a specific node's full details (all properties)
-  3. traverse_graph — walk relationships from a node
-  4. get_kpi        — get KPI formula, logic, and computation details
-  5. run_cypher     — custom Neo4j queries
-  6. run_sql_python — query PostgreSQL with Python
-  7. run_python     — sandboxed calculations
+Tools are ordered by recommended usage sequence (KPI-first):
+  1. get_kpi        — FIRST CHOICE: KPI formula, logic, python function, source tables
+  2. get_node       — FALLBACK: core node map_* properties when KPI is insufficient
+  3. find_relevant  — ONLY when schema doesn't reveal the right nodes
+  4. traverse_graph — ONLY when schema relationship map is insufficient
+  5. run_sql_python — query PostgreSQL with Python
+  6. run_python     — sandboxed calculations
+  7. run_cypher     — read-only Neo4j Cypher (last resort)
 """
 from __future__ import annotations
 
@@ -68,23 +68,17 @@ def run_cypher(query: str) -> str:
 
 @tool
 def get_node(node_id: str) -> str:
-    """Fetch a single node from the Knowledge Graph by its node_id.
+    """FALLBACK — Fetch a core/context/transaction node's database mapping details.
 
-    USE WHEN: You know the exact node_id you want to inspect and need its full
-    properties plus all incoming and outgoing relationships.
+    USE ONLY WHEN: get_kpi did not return adequate logic/formulas for your query,
+    and you need the core node's map_* properties (map_table_name, map_python_function,
+    map_contract, map_key_column, map_label_column, map_database_name).
 
-    DETAILS:
-    - Returns ALL properties on the node including:
-      - Core props: node_id, name, label, entity_type, definition, nl_description
-      - Database mapping props (map_*): map_table_name, map_key_column,
-        map_label_column, map_sql_template, map_python_function, map_contract
-      - KPI props (kpi_*): kpi_name, kpi_description, kpi_formula_description,
-        kpi_business_logic, kpi_python_function, kpi_source_tables, etc.
-    - Returns outgoing and incoming relationships with target/source node_id,
-      label, entity_type, and relationship type.
-    - Supports aliases: 'GC' → general_contractor, 'BOM' → bill_of_materials, etc.
+    DO NOT use this tool if get_kpi already gave you the source tables and python function.
 
-    SEQUENCE: Use find_relevant FIRST to discover node_ids, then get_node for details.
+    Returns: node_id, name, label, entity_type, definition, nl_description,
+    map_* properties, plus outgoing and incoming relationships.
+    Supports aliases: 'GC' → general_contractor, 'BOM' → bill_of_materials, etc.
     """
     result = _get_bkg().query({"mode": "get_node", "node_id": node_id})
     return json.dumps(result, default=str)
@@ -92,24 +86,17 @@ def get_node(node_id: str) -> str:
 
 @tool
 def find_relevant(question: str) -> str:
-    """Keyword search across all BKGNode nodes in the Knowledge Graph.
+    """Keyword search across all BKGNode nodes — use ONLY when the KG schema
+    doesn't reveal the right nodes for your query.
 
-    USE WHEN: You are starting a new exploration and need to discover which nodes
-    relate to a question. This should be your FIRST tool call for any new query.
+    The schema already lists all nodes and relationships. Check it FIRST.
+    Only call this if the query uses terms that don't match any node_id or label.
 
-    SEARCHES ACROSS: node_id, name, label, definition, nl_description, entity_type,
+    SEARCHES: node_id, name, label, definition, nl_description, entity_type,
     kpi_name, kpi_description.
 
-    RETURNS: Up to 10 nodes ranked by relevance score, each with:
-    - node_id, name, label, entity_type, definition (truncated)
-    - For KPI nodes: kpi_name, kpi_description
-    - For core nodes with mappings: map_table_name
-    - Neighbor preview (up to 5 connected nodes)
-
-    NEXT STEPS after find_relevant:
-    - Use get_node(node_id) to inspect a specific node in detail.
-    - Use traverse_graph(node_id) to explore its neighborhood.
-    - Use get_kpi(node_id) if entity_type is 'kpi' and you need formula details.
+    RETURNS: Up to 10 nodes ranked by relevance, with node_id, entity_type,
+    definition, and neighbor preview.
     """
     result = _get_bkg().query({"mode": "find_relevant", "question": question})
     return json.dumps(result, default=str)
@@ -141,22 +128,25 @@ def traverse_graph(start: str, depth: int = 2, rel_type: Optional[str] = None) -
 
 @tool
 def get_kpi(node_id: str) -> str:
-    """Get detailed KPI computation information for a KPI node.
+    """YOUR FIRST TOOL — Get KPI computation details including connected core nodes.
 
-    USE WHEN: You found a KPI node (entity_type='kpi') and need to understand:
+    ALWAYS call this BEFORE get_node. KPI nodes contain:
     - What it measures (kpi_description, kpi_formula_description)
     - How to compute it (kpi_business_logic, kpi_python_function)
     - What data it needs (kpi_source_tables, kpi_source_columns, kpi_dimensions)
     - How to filter it (kpi_filters)
     - What it outputs (kpi_output_schema)
     - Its function contract (kpi_contract)
+    - Related core node IDs and their table mappings
 
-    ALSO: If the node_id is a core/context node (not a KPI), this tool will return
-    all KPI nodes that reference or compute from it — useful for discovering which
-    KPIs relate to a business entity.
+    This single call often gives you everything needed — the SQL logic, tables,
+    and connected entities — eliminating the need for separate get_node calls.
 
-    SEQUENCE: find_relevant → get_kpi(kpi_node_id) → use kpi_python_function
-    or kpi_source_tables to write your SQL/Python query.
+    ALSO: If the node_id is a core/context node (not a KPI), returns all KPI nodes
+    that reference or compute from it.
+
+    SEQUENCE: Schema → get_kpi(kpi_node_id) → use kpi_python_function in run_sql_python.
+    Only fall back to get_node if the KPI lacks adequate logic/formulas.
     """
     result = _get_bkg().query({"mode": "get_kpi", "node_id": node_id})
     return json.dumps(result, default=str)
@@ -226,13 +216,13 @@ def run_sql_python(code: str, timeout_seconds: int = 30) -> str:
 # ─────────────────────────────────────────────
 
 def get_all_tools() -> list:
-    """Return all tools for the traversal agent, ordered by recommended usage."""
+    """Return all tools for the traversal agent, ordered by KPI-first priority."""
     return [
-        find_relevant,
-        get_node,
-        traverse_graph,
         get_kpi,
-        run_cypher,
+        get_node,
+        find_relevant,
+        traverse_graph,
         run_sql_python,
         run_python,
+        run_cypher,
     ]
