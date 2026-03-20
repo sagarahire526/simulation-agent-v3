@@ -278,9 +278,9 @@ class PythonSandbox:
             escaped = code.replace("\\", "\\\\").replace('"""', '\\"\\"\\"')
             code = f'result = pd.read_sql("""{escaped}""", conn).to_dict(orient="records")'
 
-        def _execute_query(sql, db=None, max_rows=None):
+        def _execute_query(sql, params=None, db=None, max_rows=None):
             """Helper: run SQL and return list[dict] (not a DataFrame)."""
-            df = pd.read_sql(sql, self.conn)
+            df = pd.read_sql(sql, self.conn, params=params)
             if max_rows is not None:
                 df = df.head(max_rows)
             return df.to_dict(orient="records")
@@ -362,10 +362,10 @@ class PythonSandbox:
             return response
 
         except Exception as e:
+            # print(f"status is ERROR and error message is {str(e)} and traceback is {traceback.format_exc()}")
             return {
                 "status": "error",
                 "error": str(e),
-                "traceback": traceback.format_exc(),
             }
 
     def close(self):

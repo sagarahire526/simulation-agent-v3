@@ -137,17 +137,17 @@ class BKGTool:
             MATCH (n:BKGNode {node_id: $nid})
             RETURN
                 n.node_id            AS node_id,
-                n.name               AS name,
                 n.label              AS label,
                 n.entity_type        AS entity_type,
                 n.definition         AS definition,
-                n.nl_description     AS nl_description,
+                n.map_python_function AS map_python_function,
                 n.map_table_name     AS map_table_name,
+                n.map_contract       AS map_contract,
                 n.map_database_name  AS map_database_name,
+                n.nl_description     AS nl_description,
                 n.map_key_column     AS map_key_column,
                 n.map_label_column   AS map_label_column,
-                n.map_python_function AS map_python_function,
-                n.map_contract       AS map_contract
+                n.name               AS name
             """,
             nid=node_id,
         )
@@ -407,25 +407,25 @@ class BKGTool:
             WHERE n.entity_type = 'kpi'
             RETURN
                 n.node_id                   AS node_id,
-                n.name                      AS name,
                 n.label                     AS label,
-                n.entity_type               AS entity_type,
                 n.definition                AS definition,
+                n.entity_type               AS entity_type,
+                n.kpi_python_function       AS kpi_python_function,
                 n.nl_description            AS nl_description,
+                n.kpi_formula_description   AS kpi_formula_description,
+                n.kpi_source_tables         AS kpi_source_tables,
+                n.kpi_source_columns        AS kpi_source_columns,
+                n.kpi_business_logic        AS kpi_business_logic,
+                n.kpi_contract              AS kpi_contract,
+                n.kpi_filters               AS kpi_filters,
                 n.kpi_name                  AS kpi_name,
                 n.kpi_kpi_id                AS kpi_kpi_id,
                 n.kpi_description           AS kpi_description,
-                n.kpi_formula_description   AS kpi_formula_description,
-                n.kpi_business_logic        AS kpi_business_logic,
-                n.kpi_python_function       AS kpi_python_function,
-                n.kpi_contract              AS kpi_contract,
                 n.kpi_relationship_type     AS kpi_relationship_type,
                 n.kpi_related_core_node_ids AS kpi_related_core_node_ids,
-                n.kpi_source_tables         AS kpi_source_tables,
-                n.kpi_source_columns        AS kpi_source_columns,
                 n.kpi_dimensions            AS kpi_dimensions,
-                n.kpi_filters               AS kpi_filters,
-                n.kpi_output_schema         AS kpi_output_schema
+                n.kpi_output_schema         AS kpi_output_schema,
+                n.name                      AS name
             """,
             nid=node_id,
         )
@@ -490,8 +490,16 @@ class BKGTool:
                         for r in related_kpis
                     ],
                 }
+            else:
+                return {
+                    "note": (
+                        f"'{node_id}' is a {core_check[0]['et']} node with no KPIs linked to it. "
+                        f"Use get_node('{node_id}') to get its database mapping (map_table_name, "
+                        f"map_python_function) for direct SQL queries."
+                    ),
+                }
 
-        return {"error": f"KPI node '{raw_id}' not found. Try find_relevant to search by keyword."}
+        return {"error": f"Node '{raw_id}' not found. Try find_relevant to search by keyword."}
 
     # ── Mode: schema ─────────────────────────────────────────────────────────
 

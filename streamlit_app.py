@@ -1,16 +1,19 @@
 """
-Streamlit chatbot UI for the Simulation Agent.
+Streamlit chatbot UI for the Simulation Agent (SSE streaming).
 
 Run backend first:  uvicorn main:app --reload --port 8000
 Run UI:             streamlit run streamlit_app.py
 
+Uses GET /api/v1/simulate/stream (SSE) for real-time progress updates.
+
 HITL flow:
   - When the agent needs clarification, a special card is shown with questions.
-  - The user answers in a dedicated form; the answer is sent to /simulate/resume.
+  - The user answers in a dedicated form; the answer is sent to /simulate/stream/resume.
   - thread_id is stored in session state to link requests within one conversation.
 """
 import uuid
 import time
+import json
 
 import streamlit as st
 import requests
@@ -34,7 +37,7 @@ if "health_data" not in st.session_state:
 if "thread_id" not in st.session_state:
     st.session_state.thread_id = str(uuid.uuid4())
 if "pending_clarification" not in st.session_state:
-    st.session_state.pending_clarification = None  # Set when HITL is paused
+    st.session_state.pending_clarification = None
 if "user_id" not in st.session_state:
     st.session_state.user_id = ""
 
@@ -54,23 +57,120 @@ def _fetch_health() -> dict | None:
         return {"error": str(e)}
 
 
-def _run_simulation(query: str) -> dict:
-    r = requests.post(
-        f"{API_BASE}/simulate",
-        json={
-            "user_id": st.session_state.user_id,
-            "query": query,
-            "thread_id": st.session_state.thread_id,
-        },
-        timeout=300,
-    )
-    r.raise_for_status()
-    return r.json()
+# ── SSE event labels for progress display ─────────────────────────────────────
+_EVENT_LABELS = {
+    "stream_started":          "🚀 Stream started",
+    "query_refiner_complete":  "✅ Query refined",
+    "orchestrator_complete":   "✅ Route decided",
+    "schema_complete":         "✅ Schema discovered",
+    "planner_plan_ready":      "📋 Plan ready",
+    "planner_step_complete":   "🔧 Sub-query complete",
+    "planner_complete":        "✅ Planning complete",
+    "traversal_complete":      "✅ Traversal complete",
+    "response_complete":       "✅ Response generated",
+    "hitl_start":              "💬 Clarification needed",
+    "hitl_complete":           "✅ Clarification received",
+}
 
 
-def _resume_simulation(clarification: str) -> dict:
+def _parse_sse_line(raw_line: str, current_event: str) -> tuple[str | None, dict | None, str]:
+    """
+    Parse one line of an SSE stream.
+    Returns (event_name, data_dict, updated_current_event).
+    """
+    line = raw_line.strip()
+    if not line or line.startswith(":"):
+        return None, None, current_event
+    if line.startswith("event: "):
+        return None, None, line[7:]
+    if line.startswith("data: "):
+        try:
+            data = json.loads(line[6:])
+        except json.JSONDecodeError:
+            data = {"raw": line[6:]}
+        return current_event, data, ""
+    return None, None, current_event
+
+
+def _stream_simulation(query: str, progress_placeholder, response_placeholder):
+    """
+    Connect to the SSE endpoint, render progress events in real time,
+    and return the final response data dict.
+    """
+    params = {
+        "query": query,
+        "user_id": st.session_state.user_id,
+        "thread_id": st.session_state.thread_id,
+    }
+
+    with requests.get(
+        f"{API_BASE}/simulate/stream",
+        params=params,
+        stream=True,
+        timeout=600,
+    ) as resp:
+        resp.raise_for_status()
+
+        current_event = ""
+        progress_lines = []
+        final_data = {}
+        hitl_payload = None
+
+        for raw_line in resp.iter_lines(decode_unicode=True):
+            event_name, data, current_event = _parse_sse_line(
+                raw_line or "", current_event
+            )
+            if event_name is None or data is None:
+                continue
+
+            # ── HITL: agent needs clarification ──
+            if event_name == "hitl_start":
+                hitl_payload = data
+                return {"status": "clarification_needed", "clarification": hitl_payload}
+
+            # ── Final complete event ──
+            if event_name == "complete":
+                final_data = data
+                break
+
+            # ── Error ──
+            if event_name == "error":
+                return {"status": "error", "error": data.get("message", str(data))}
+
+            # ── Progress events ──
+            label = _EVENT_LABELS.get(event_name, f"⏳ {event_name}")
+
+            # Enrich label with event-specific details
+            if event_name == "query_refiner_complete" and data.get("refined_query"):
+                label += f" — _{data['refined_query'][:80]}_"
+            elif event_name == "orchestrator_complete" and data.get("routing_decision"):
+                label += f" — route: **{data['routing_decision']}**"
+            elif event_name == "planner_plan_ready":
+                steps = data.get("steps", [])
+                label += f" — {len(steps)} sub-queries"
+                for i, s in enumerate(steps, 1):
+                    progress_lines.append(f"&nbsp;&nbsp;&nbsp;&nbsp;Step {i}: {s}")
+            elif event_name == "planner_step_complete":
+                idx = data.get("step_index", "?")
+                total = data.get("step_total", "?")
+                step_q = data.get("step_query", "")[:60]
+                status = data.get("status", "complete")
+                icon = "✅" if status == "complete" else "❌"
+                label = f"&nbsp;&nbsp;&nbsp;&nbsp;{icon} Step {int(idx)+1}/{total}: {step_q}"
+            elif event_name == "response_complete" and data.get("final_response"):
+                # Stream the final response into the response placeholder
+                response_placeholder.markdown(data["final_response"])
+
+            progress_lines.append(label)
+            progress_placeholder.markdown("\n\n".join(progress_lines))
+
+        return final_data
+
+
+def _resume_simulation_stream(clarification: str, progress_placeholder, response_placeholder):
+    """Resume a paused stream via POST, then re-read SSE events from the still-open connection."""
     r = requests.post(
-        f"{API_BASE}/simulate/resume",
+        f"{API_BASE}/simulate/stream/resume",
         json={
             "thread_id": st.session_state.thread_id,
             "clarification": clarification,
@@ -88,27 +188,16 @@ def _render_response_meta(meta: dict):
             for err in meta["errors"]:
                 st.warning(err)
 
-    if meta.get("data_summary"):
-        with st.expander("📊 Data Summary"):
-            st.json(meta["data_summary"])
-
-    if meta.get("calculations"):
-        with st.expander("🔢 Calculation Trace"):
-            st.code(meta["calculations"], language="text")
-
     if meta.get("planner_steps"):
-        label = f"📋 Analysis Plan — {len(meta['planner_steps'])} steps (business intent)"
+        label = f"📋 Analysis Plan — {len(meta['planner_steps'])} steps"
         with st.expander(label, expanded=False):
             if meta.get("planning_rationale"):
                 st.info(f"**Why these steps?** {meta['planning_rationale']}", icon="💡")
             for i, step in enumerate(meta["planner_steps"], 1):
-                # Strip "Sub-query N: " prefix for clean business-intent display
                 display = step.split(": ", 1)[1] if ": " in step else step
                 st.markdown(f"**Step {i}:** {display}")
 
     parts = []
-    if meta.get("traversal_steps"):
-        parts.append(f"{meta['traversal_steps']} tool call(s)")
     if meta.get("routing_decision"):
         parts.append(f"route: {meta['routing_decision']}")
     if meta.get("elapsed_s") is not None:
@@ -117,10 +206,9 @@ def _render_response_meta(meta: dict):
         st.caption(" · ".join(parts))
 
 
-def _handle_api_response(data: dict, elapsed_s: float):
+def _handle_stream_response(data: dict, elapsed_s: float):
     """
-    Process an API response — either a final answer or a clarification request.
-    Renders UI and updates session state.
+    Process the final SSE data — either a final answer or a clarification request.
     """
     status = data.get("status", "complete")
 
@@ -149,6 +237,16 @@ def _handle_api_response(data: dict, elapsed_s: float):
         })
         return
 
+    if status == "error":
+        error_msg = data.get("error", "Unknown error occurred.")
+        st.error(f"Simulation error: {error_msg}")
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": f"Error: {error_msg}",
+            "meta": {},
+        })
+        return
+
     # ── Final response ─────────────────────────────────────────────────────
     st.session_state.pending_clarification = None
 
@@ -160,13 +258,9 @@ def _handle_api_response(data: dict, elapsed_s: float):
 
     meta = {
         "errors": data.get("errors", []),
-        "data_summary": data.get("data_summary", {}),
-        "calculations": data.get("calculations", ""),
-        "traversal_steps": data.get("traversal_steps", 0),
-        "elapsed_s": elapsed_s,
         "routing_decision": data.get("routing_decision", ""),
-        "planning_rationale": data.get("planning_rationale", ""),
         "planner_steps": data.get("planner_steps", []),
+        "elapsed_s": elapsed_s,
         "is_clarification": False,
     }
     _render_response_meta(meta)
@@ -281,19 +375,15 @@ if st.session_state.pending_clarification:
         st.session_state.messages.append({"role": "user", "content": answer})
 
         with st.chat_message("assistant"):
-            placeholder = st.empty()
-            placeholder.markdown("_Resuming simulation…_")
             try:
-                with st.spinner(""):
-                    t0 = time.perf_counter()
-                    data = _resume_simulation(answer)
-                    elapsed_s = round(time.perf_counter() - t0, 1)
-                placeholder.empty()
-                _handle_api_response(data, elapsed_s)
+                t0 = time.perf_counter()
+                data = _resume_simulation_stream(answer, st.empty(), st.empty())
+                elapsed_s = round(time.perf_counter() - t0, 1)
+                _handle_stream_response(data, elapsed_s)
             except requests.HTTPError as e:
-                placeholder.error(f"API error ({e.response.status_code}): {e.response.text}")
+                st.error(f"API error ({e.response.status_code}): {e.response.text}")
             except Exception as e:
-                placeholder.error(f"Could not reach the API: {e}")
+                st.error(f"Could not reach the API: {e}")
 
 
 # ── Normal chat input ─────────────────────────────────────────────────────────
@@ -307,23 +397,28 @@ elif prompt := st.chat_input(
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        placeholder = st.empty()
-        placeholder.markdown("_Thinking…_")
+        progress_placeholder = st.empty()
+        response_placeholder = st.empty()
 
         try:
-            with st.spinner(""):
-                t0 = time.perf_counter()
-                data = _run_simulation(prompt)
-                elapsed_s = round(time.perf_counter() - t0, 1)
-            placeholder.empty()
-            _handle_api_response(data, elapsed_s)
+            t0 = time.perf_counter()
+            data = _stream_simulation(prompt, progress_placeholder, response_placeholder)
+            elapsed_s = round(time.perf_counter() - t0, 1)
+
+            # Clear the progress display once we have the final response
+            progress_placeholder.empty()
+            response_placeholder.empty()
+
+            _handle_stream_response(data, elapsed_s)
 
         except requests.HTTPError as e:
+            progress_placeholder.empty()
             error_text = f"API error ({e.response.status_code}): {e.response.text}"
-            placeholder.error(error_text)
+            st.error(error_text)
             st.session_state.messages.append({"role": "assistant", "content": error_text, "meta": {}})
 
         except Exception as e:
+            progress_placeholder.empty()
             error_text = f"Could not reach the API: {e}"
-            placeholder.error(error_text)
+            st.error(error_text)
             st.session_state.messages.append({"role": "assistant", "content": error_text, "meta": {}})

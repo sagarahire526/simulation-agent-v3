@@ -39,6 +39,98 @@ def _get_bkg() -> BKGTool:
 
 
 # ─────────────────────────────────────────────
+# Tool output truncation — prevents context overflow
+# ─────────────────────────────────────────────
+# Per-tool char limits for what gets returned to the LLM.
+# get_kpi is generous because kpi_python_function must stay intact for SQL writing.
+# Data tools (run_sql_python, run_cypher) are capped tighter — the agent only needs
+# sample rows + counts, not the full dataset.
+
+_TOOL_CHAR_LIMITS = {
+    "get_kpi":        50000,
+    "get_node":       50000,
+    "find_relevant":  6000,
+    "traverse_graph": 6000,
+    "run_sql_python": 10000,
+    "run_python":     10000,
+    "run_cypher":     6000,
+}
+
+
+def _truncate_tool_output(tool_name: str, raw_json: str) -> str:
+    """
+    Truncate a tool's JSON output to fit within the tool's char budget.
+    Preserves structure: for list results, keeps first N rows + total count.
+    For errors, always returns full output (errors are small and needed for retry).
+
+    This is the primary defense against context overflow. Each parallel
+    traversal agent has its own message history — truncation is local,
+    no cross-agent interference.
+    """
+    limit = _TOOL_CHAR_LIMITS.get(tool_name, 3000)
+
+    if len(raw_json) <= limit:
+        return raw_json
+
+    # Try to intelligently truncate structured data
+    try:
+        parsed = json.loads(raw_json)
+    except (json.JSONDecodeError, TypeError):
+        # Not JSON — hard truncate
+        return raw_json[:limit] + '\n... (truncated by tool trimmer)'
+
+    if isinstance(parsed, dict):
+        # Errors: always keep full
+        if parsed.get("status") == "error" or "error" in parsed:
+            return raw_json
+
+        # run_sql_python / run_python: truncate the 'result' list
+        if "result" in parsed and isinstance(parsed["result"], list):
+            rows = parsed["result"]
+            total = len(rows)
+            # Binary search for how many rows fit
+            keep = total
+            while keep > 0:
+                parsed["result"] = rows[:keep]
+                parsed["_truncated"] = {
+                    "total_rows": total,
+                    "rows_shown": keep,
+                    "message": f"Showing {keep} of {total} rows. Use aggregations/GROUP BY to reduce."
+                }
+                candidate = json.dumps(parsed, default=str)
+                if len(candidate) <= limit:
+                    return candidate
+                keep = keep // 2
+            # Even 0 rows too big — shouldn't happen but fallback
+            parsed["result"] = []
+            parsed["_truncated"] = {"total_rows": total, "rows_shown": 0}
+            return json.dumps(parsed, default=str)[:limit]
+
+        # run_cypher: truncate 'records' list
+        if "records" in parsed and isinstance(parsed["records"], list):
+            rows = parsed["records"]
+            total = len(rows)
+            keep = total
+            while keep > 0:
+                parsed["records"] = rows[:keep]
+                parsed["count"] = total
+                parsed["_truncated"] = f"Showing {keep} of {total} records"
+                candidate = json.dumps(parsed, default=str)
+                if len(candidate) <= limit:
+                    return candidate
+                keep = keep // 2
+
+        # get_kpi / get_node / find_relevant: truncate large string fields
+        compact = json.dumps(parsed, default=str)
+        if len(compact) <= limit:
+            return compact
+        return compact[:limit] + '\n... (truncated by tool trimmer)'
+
+    # Fallback: hard truncate
+    return raw_json[:limit] + '\n... (truncated by tool trimmer)'
+
+
+# ─────────────────────────────────────────────
 # Neo4j Tools
 # ─────────────────────────────────────────────
 
@@ -59,7 +151,7 @@ def run_cypher(query: str) -> str:
     RETURNS: JSON with 'status', 'records', 'count', and 'elapsed_ms'.
     """
     result = neo4j_tool.run_cypher_safe(query)
-    return json.dumps(result, default=str)
+    return _truncate_tool_output("run_cypher", json.dumps(result, default=str))
 
 
 # ─────────────────────────────────────────────
@@ -81,7 +173,7 @@ def get_node(node_id: str) -> str:
     Supports aliases: 'GC' → general_contractor, 'BOM' → bill_of_materials, etc.
     """
     result = _get_bkg().query({"mode": "get_node", "node_id": node_id})
-    return json.dumps(result, default=str)
+    return _truncate_tool_output("get_node", json.dumps(result, default=str))
 
 
 @tool
@@ -99,7 +191,7 @@ def find_relevant(question: str) -> str:
     definition, and neighbor preview.
     """
     result = _get_bkg().query({"mode": "find_relevant", "question": question})
-    return json.dumps(result, default=str)
+    return _truncate_tool_output("find_relevant", json.dumps(result, default=str))
 
 
 @tool
@@ -123,7 +215,7 @@ def traverse_graph(start: str, depth: int = 2, rel_type: Optional[str] = None) -
     if rel_type:
         req["rel_type"] = rel_type
     result = _get_bkg().query(req)
-    return json.dumps(result, default=str)
+    return _truncate_tool_output("traverse_graph", json.dumps(result, default=str))
 
 
 @tool
@@ -149,7 +241,7 @@ def get_kpi(node_id: str) -> str:
     Only fall back to get_node if the KPI lacks adequate logic/formulas.
     """
     result = _get_bkg().query({"mode": "get_kpi", "node_id": node_id})
-    return json.dumps(result, default=str)
+    return _truncate_tool_output("get_kpi", json.dumps(result, default=str))
 
 
 
@@ -179,7 +271,7 @@ def run_python(code: str) -> str:
     and 'elapsed_ms'. On error: 'error' and 'traceback' fields.
     """
     result = execute_python(code)
-    return json.dumps(result, default=str)
+    return _truncate_tool_output("run_python", json.dumps(result, default=str))
 
 
 @tool
@@ -208,7 +300,7 @@ def run_sql_python(code: str, timeout_seconds: int = 30) -> str:
     """
     sandbox = PythonSandbox()
     result = sandbox.execute(code, timeout_seconds)
-    return json.dumps(result, default=str)
+    return _truncate_tool_output("run_sql_python", json.dumps(result, default=str))
 
 
 # ─────────────────────────────────────────────

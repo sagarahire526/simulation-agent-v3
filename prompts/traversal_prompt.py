@@ -116,14 +116,34 @@ that don't match any node_id or label in the schema.
 When `get_kpi` returns `kpi_python_function` or `get_node` returns `map_python_function`:
 - These are **ready-to-use code**. Adapt them rather than writing SQL from scratch.
 - `kpi_contract` / `map_contract` describe the function interface (inputs, outputs, params).
-- **CRITICAL**: When using `kpi_python_function` in `run_sql_python`, include the **FULL \
-function definition** in your code block. The sandbox has NO pre-loaded functions. \
-Copy the entire function body, then call it correctly:
+
+### ⚠️ MANDATORY: Include Full Function Code in run_sql_python
+The sandbox is a BLANK environment — it has ZERO pre-loaded functions. \
+If you call `any_method_from_core_or_kpi_node(execute_query, filters)` without defining it first, \
+you WILL get `NameError: name 'any_method_from_core_or_kpi_node' is not defined`.
+
+**YOU MUST copy-paste the ENTIRE `kpi_python_function` / `map_python_function` code into your \
+`run_sql_python` code block BEFORE calling it.**
+
+WRONG (will crash with NameError):
 ```python
-# paste full function def here
 filters = dict(market="CHICAGO")
-result = get_some_kpi(execute_query, filters)
+result = any_method_from_core_or_kpi_node(execute_query, filters)
 ```
+
+CORRECT:
+```python
+def any_method_from_core_or_kpi_node(execute_query, filters):
+    # ... paste the FULL function body from kpi_python_function here ...
+    sql = "SELECT ..."
+    rows = execute_query(sql)
+    return rows
+
+filters = dict(market="CHICAGO")
+result = any_method_from_core_or_kpi_node(execute_query, filters)
+```
+
+Remember: EVERY function you call must be DEFINED in the same code block.
 
 ## Step 5 — Retrieve Data
 Use `run_sql_python` to pull data from PostgreSQL. Prefer adapting `kpi_python_function` \

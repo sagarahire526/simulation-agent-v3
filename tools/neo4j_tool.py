@@ -145,21 +145,31 @@ class Neo4jTool:
             tgt = ":".join(row["tgtLabels"])
             schema_lines.append(f"  (:{src})-[:{row['relType']}]->(:{tgt})")
 
-        # -- BKG Nodes by entity_type --
+        # -- BKG Nodes by entity_type (deduplicated) --
         schema_lines.append("\n── BKG Nodes (by entity type) ──")
         current_type = None
+        seen_nodes = set()
         for row in node_instances:
+            nid = row.get("node_id", "")
+            if nid in seen_nodes:
+                continue
+            seen_nodes.add(nid)
             et = row.get("entity_type", "unknown")
             if et != current_type:
                 current_type = et
                 schema_lines.append(f"\n  [{et}]")
             label_str = f" — {row['label']}" if row.get("label") else ""
-            schema_lines.append(f"    • {row['node_id']}{label_str}")
+            schema_lines.append(f"    • {nid}{label_str}")
 
-        # -- Actual relationships between nodes --
+        # -- Actual relationships between nodes (deduplicated) --
         schema_lines.append("\n── Node Relationships ──")
+        seen_rels = set()
         for row in node_relationships:
             rel = row.get("rel_type") or "RELATES_TO"
+            key = (row["source"], rel, row["target"])
+            if key in seen_rels:
+                continue
+            seen_rels.add(key)
             schema_lines.append(
                 f"  ({row['source']}) —[{rel}]→ ({row['target']})"
             )
