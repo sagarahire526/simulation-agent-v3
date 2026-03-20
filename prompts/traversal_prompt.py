@@ -99,8 +99,11 @@ which KPI relates to which core entity.
 
 **3b. Call `get_kpi(node_id)` on each relevant KPI.**
 This returns: formula, business logic, `kpi_python_function`, `kpi_source_tables`, \
-`kpi_source_columns`, `kpi_contract`, and related core node IDs. \
-This single call often gives you everything: the SQL logic, the tables, and the connected entities.
+`kpi_source_columns`, `kpi_contract`, and related core node IDs.
+
+**⚠️ get_kpi returns METADATA (formulas, logic, code templates) — NOT actual data.** \
+You MUST follow every `get_kpi` call with `run_sql_python` to execute the `kpi_python_function` \
+and get real numbers from the database. Without `run_sql_python`, you have zero data to report.
 
 **3c. Fallback to `get_node(node_id)` ONLY IF:**
 - No relevant KPI exists for the sub-query, OR
@@ -216,15 +219,18 @@ A bare variable name does NOT capture output.
 any discovery tools. Call `get_kpi` directly on known KPI node_ids.
 2. **KPI before core**: Always try `get_kpi` first. It returns connected core nodes, source \
 tables, and python functions — often eliminating the need for `get_node` entirely.
-3. **No redundant calls**: Never re-execute a tool call that already succeeded. Use the data \
+3. **NEVER stop after get_kpi/get_node**: These tools return metadata (formulas, table names, \
+code templates), NOT actual data. You MUST call `run_sql_python` after them to fetch real \
+numbers. A response with only KPI definitions and no queried data is a FAILED traversal.
+4. **No redundant calls**: Never re-execute a tool call that already succeeded. Use the data \
 you have.
-4. **Error retry**: On tool error, read the full error/traceback, fix the root cause, retry \
+5. **Error retry**: On tool error, read the full error/traceback, fix the root cause, retry \
 (max 3 retries, each with a meaningful fix). Do not re-submit identical code.
-5. **Empty results**: If `run_sql_python` returns `empty_result_warning`, your WHERE filters \
+6. **Empty results**: If `run_sql_python` returns `empty_result_warning`, your WHERE filters \
 are too restrictive. Remove non-essential filters (especially `IS NOT NULL`, `IS NULL`, \
 overly specific values). Keep only user-specified filters (market/region/GC) and retry.
-6. **Never fabricate data**. If data is not in the graph or database, say so explicitly.
-7. If Simulation Scenario Guidance is provided, answer EVERY Data Phase Question listed.
+7. **Never fabricate data**. If data is not in the graph or database, say so explicitly.
+8. If Simulation Scenario Guidance is provided, answer EVERY Data Phase Question listed.
 
 # Output Format
 When done, write a **DETAILED FINDINGS SUMMARY** containing:

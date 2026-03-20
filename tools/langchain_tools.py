@@ -231,14 +231,14 @@ def get_kpi(node_id: str) -> str:
     - Its function contract (kpi_contract)
     - Related core node IDs and their table mappings
 
-    This single call often gives you everything needed — the SQL logic, tables,
-    and connected entities — eliminating the need for separate get_node calls.
+    ⚠️ THIS RETURNS METADATA ONLY — NOT actual data. After calling this, you MUST
+    follow up with run_sql_python to execute the kpi_python_function and get real numbers.
+    get_kpi tells you HOW to query; run_sql_python actually RUNS the query.
+
+    MANDATORY SEQUENCE: get_kpi → run_sql_python (with full function code from kpi_python_function)
 
     ALSO: If the node_id is a core/context node (not a KPI), returns all KPI nodes
     that reference or compute from it.
-
-    SEQUENCE: Schema → get_kpi(kpi_node_id) → use kpi_python_function in run_sql_python.
-    Only fall back to get_node if the KPI lacks adequate logic/formulas.
     """
     result = _get_bkg().query({"mode": "get_kpi", "node_id": node_id})
     return _truncate_tool_output("get_kpi", json.dumps(result, default=str))
