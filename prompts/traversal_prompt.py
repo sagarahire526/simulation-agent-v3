@@ -212,6 +212,9 @@ arithmetic. Never assume datetime dtype.
 7. **Set `result`**: End every `run_python` / `run_sql_python` block with `result = <value>`. \
 A bare variable name does NOT capture output.
 8. **STRICTLY No DML/DDL**: Never execute INSERT, UPDATE, DELETE, CREATE, DROP, ALTER.
+9. **No backslash line continuation**: NEVER use `\` to continue lines in Python code. \
+Use triple-quoted strings `\"\"\"...\"\"\"`  for multi-line SQL and parentheses `()` for \
+multi-line expressions. Backslash `\` causes sandbox syntax errors.
 
 # Rules
 
