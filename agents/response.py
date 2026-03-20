@@ -18,6 +18,7 @@ from models.state import SimulationState
 from services.llm_provider import LLMProvider
 from tools.python_sandbox import execute_python
 from prompts.response_prompt import RESPONSE_SYSTEM
+from prompts.chart_prompt import CHART_SYSTEM
 
 
 logger = logging.getLogger(__name__)
@@ -101,6 +102,50 @@ def _compact_output(raw: str, max_len: int = 200) -> str:
         pass
     text = str(raw)
     return text[:max_len] + "…" if len(text) > max_len else text
+
+
+def _generate_chart(llm, user_query: str, data_context: str) -> dict[str, Any]:
+    """
+    Ask the LLM to produce a Highcharts-compatible chart spec from the
+    traversal data and the already-generated response.
+
+    Returns a dict with "charts" and "rationale" keys, or an empty-charts
+    fallback on any error.
+    """
+    empty = {"charts": [], "rationale": "Chart generation skipped."}
+
+    try:
+        chart_user_msg = (
+            f"## User Query\n{user_query}\n\n"
+            f"## Collected Data\n{data_context}\n\n"
+            "Based on the data above, produce the chart JSON."
+        )
+        chart_resp = llm.invoke([
+            SystemMessage(content=CHART_SYSTEM),
+            HumanMessage(content=chart_user_msg),
+        ])
+
+        raw = chart_resp.content.strip()
+        # Strip markdown fences if the LLM wraps it anyway
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+
+        graph_data = json.loads(raw)
+
+        # Basic validation
+        if not isinstance(graph_data, dict) or "charts" not in graph_data:
+            logger.warning("Chart LLM returned unexpected structure; skipping.")
+            return empty
+
+        logger.info("Chart generated: %d chart(s)", len(graph_data.get("charts", [])))
+        return graph_data
+
+    except (json.JSONDecodeError, TypeError) as exc:
+        logger.warning("Chart JSON parsing failed: %s", exc)
+        return empty
+    except Exception as exc:
+        logger.error("Chart generation failed: %s", exc)
+        return empty
 
 
 def response_node(state: SimulationState) -> dict[str, Any]:
@@ -201,12 +246,17 @@ def response_node(state: SimulationState) -> dict[str, Any]:
             except (json.JSONDecodeError, TypeError):
                 data_summary[f"call_{i}_{tc['tool_name']}"] = tc["tool_output"]
 
+    # ── Chart generation (fast tier — structured JSON, no deep reasoning) ──
+    chart_llm = LLMProvider.get_llm("fast", temperature=0.0)
+    graph_data = _generate_chart(chart_llm, user_query, data_context)
+
     logger.info("Response agent generated final output")
 
     return {
         "final_response": final_response,
         "calculations": calculations_output,
         "data_summary": data_summary,
+        "graph_data": graph_data,
         "current_phase": "complete",
         "messages": [{"agent": "response", "content": "Generated final response"}],
     }

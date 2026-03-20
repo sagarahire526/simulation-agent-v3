@@ -45,6 +45,7 @@ def _shape_response(state: dict) -> dict:
         "errors": state.get("errors", []),
         "routing_decision": state.get("routing_decision", ""),
         "planner_steps": state.get("planner_steps", []),
+        "graph": state.get("graph_data", {}),
     }
 
 
@@ -104,6 +105,7 @@ def run_query(
             planner_steps=state.get("planner_steps", []),
             final_response=state.get("final_response", ""),
             duration_ms=duration_ms,
+            graph_data=state.get("graph_data"),
         )
 
     return response
@@ -152,6 +154,7 @@ def resume_query(clarification: str, thread_id: str) -> dict:
                 planner_steps=state.get("planner_steps", []),
                 final_response=state.get("final_response", ""),
                 duration_ms=duration_ms,
+                graph_data=state.get("graph_data"),
             )
         else:
             db_svc.update_query_error(query_id, duration_ms)

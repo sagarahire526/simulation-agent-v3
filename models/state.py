@@ -69,6 +69,7 @@ class SimulationState(TypedDict):
     final_response: str
     calculations: str  # Show-your-work for transparency
     data_summary: dict[str, Any]  # Structured data for downstream
+    graph_data: dict[str, Any]  # Highcharts-compatible chart JSON for visualization
 
     # ── Error handling ──
     errors: Annotated[list[str], operator.add]

@@ -151,6 +151,7 @@ def _make_initial_state(query: str, max_steps: int) -> SimulationState:
         "final_response": "",
         "calculations": "",
         "data_summary": {},
+        "graph_data": {},
         "errors": [],
         "created_at": datetime.now().isoformat(),
         "messages": [],

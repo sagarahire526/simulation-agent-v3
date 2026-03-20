@@ -103,11 +103,13 @@ def _run_stream_thread(
             planner_steps=final_state.get("planner_steps", []),
             final_response=final_state.get("final_response", ""),
             duration_ms=duration_ms,
+            graph_data=final_state.get("graph_data"),
         )
         sse_manager.put_sync(query_id, "complete", {
             "final_response":    final_state.get("final_response", ""),
             "routing_decision":  final_state.get("routing_decision", ""),
             "planner_steps":     final_state.get("planner_steps", []),
+            "graph":             final_state.get("graph_data", {}),
             "status":            "complete",
             "errors":            final_state.get("errors", []),
         })
