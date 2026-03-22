@@ -55,15 +55,20 @@ _CHART_HTML_TEMPLATE = """\
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: #f5f5f5; padding: 24px; color: #333;
     }
-    .header { margin-bottom: 20px; }
-    .header h1 { font-size: 18px; font-weight: 600; color: #1a1a1a; }
+    .header { margin-bottom: 24px; }
+    .header h1 { font-size: 20px; font-weight: 600; color: #1a1a1a; }
     .header p { font-size: 13px; color: #666; margin-top: 4px; }
-    #chart-container {
+    .charts-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(540px, 1fr));
+      gap: 20px;
+    }
+    .chart-card {
       background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-      padding: 16px; min-height: 420px;
+      padding: 16px; min-height: 400px;
     }
     .rationale {
-      margin-top: 16px; padding: 12px 16px; background: #f0f4ff;
+      margin-top: 20px; padding: 12px 16px; background: #f0f4ff;
       border-left: 3px solid #4a7cf7; border-radius: 4px; font-size: 13px; color: #555;
     }
     .error { color: #c0392b; text-align: center; padding: 60px 20px; }
@@ -74,39 +79,48 @@ _CHART_HTML_TEMPLATE = """\
     <h1>__TITLE__</h1>
     <p>Query ID: <code>__QUERY_ID__</code></p>
   </div>
-  <div id="chart-container"></div>
+  <div class="charts-grid" id="charts-grid"></div>
   <div id="rationale"></div>
 
   <script>
     fetch('http://127.0.0.1:8000/api/v1/chart/__QUERY_ID__')
       .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
       .then(data => {
+        const grid = document.getElementById('charts-grid');
+
         if (!data.charts || data.charts.length === 0) {
-          document.getElementById('chart-container').innerHTML =
-            '<p class="error">No chart data available.</p>';
+          grid.innerHTML = '<p class="error">No chart data available.</p>';
           return;
         }
-        const spec = data.charts[0];
-        Highcharts.chart('chart-container', {
-          chart:       { type: spec.type || 'column' },
-          title:       { text: spec.title || '' },
-          subtitle:    { text: spec.subtitle || '' },
-          xAxis:       spec.xAxis || {},
-          yAxis:       spec.yAxis || {},
-          series:      spec.series || [],
-          legend:      spec.legend || { enabled: true },
-          tooltip:     spec.tooltip || {},
-          plotOptions: spec.plotOptions || {},
-          credits:     { enabled: false },
+
+        data.charts.forEach((spec, idx) => {
+          const card = document.createElement('div');
+          card.className = 'chart-card';
+          card.id = 'chart-' + idx;
+          grid.appendChild(card);
+
+          Highcharts.chart(card.id, {
+            chart:       { type: 'column' },
+            title:       { text: spec.title || '' },
+            subtitle:    { text: spec.subtitle || '' },
+            xAxis:       spec.xAxis || {},
+            yAxis:       spec.yAxis || {},
+            series:      spec.series || [],
+            legend:      spec.legend || { enabled: true },
+            tooltip:     spec.tooltip || {},
+            plotOptions: spec.plotOptions || {},
+            credits:     { enabled: false },
+          });
         });
+
         if (data.rationale) {
           document.getElementById('rationale').innerHTML =
             '<div class="rationale"><strong>Rationale:</strong> ' + data.rationale + '</div>';
         }
       })
       .catch(err => {
-        document.getElementById('chart-container').innerHTML =
-          '<p class="error">Failed to load chart: ' + err.message + '</p>';
+        document.getElementById('charts-grid').innerHTML =
+          '<p class="error">Failed to load charts: ' + err.message + '</p>';
       });
   </script>
 </body>

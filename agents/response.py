@@ -155,7 +155,7 @@ def response_node(state: SimulationState) -> dict[str, Any]:
     Reads: refined_query (or user_query), traversal/planner data, errors
     Writes: final_response, calculations, data_summary, current_phase, messages
     """
-    llm = LLMProvider.get_llm("heavy", temperature=0.1)
+    llm = LLMProvider.get_llm("default", temperature=0.1)
 
     # Prefer the query refiner's cleaned-up version
     user_query = state.get("refined_query") or state["user_query"]

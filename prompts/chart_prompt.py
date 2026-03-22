@@ -20,7 +20,7 @@ Return ONLY valid JSON — no markdown fences, no explanation, no extra text. Th
 {
   "charts": [
     {
-      "type": "<line|column|bar|pie|area|scatter|spline|areaspline|stacked_column|stacked_bar>",
+      "type": "<line|column|bar|pie|area|scatter|spline|areaspline|>",
       "title": "Chart Title",
       "subtitle": "Optional subtitle",
       "xAxis": { "categories": ["cat1", "cat2"], "title": { "text": "X Label" } },
