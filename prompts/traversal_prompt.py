@@ -212,9 +212,12 @@ arithmetic. Never assume datetime dtype.
 7. **Set `result`**: End every `run_python` / `run_sql_python` block with `result = <value>`. \
 A bare variable name does NOT capture output.
 8. **STRICTLY No DML/DDL**: Never execute INSERT, UPDATE, DELETE, CREATE, DROP, ALTER.
-9. **No backslash line continuation**: NEVER use `\` to continue lines in Python code. \
-Use triple-quoted strings `\"\"\"...\"\"\"`  for multi-line SQL and parentheses `()` for \
-multi-line expressions. Backslash `\` causes sandbox syntax errors.
+9. **NEVER use backslash `\` in code**: The sandbox WILL crash with "unexpected character \
+after line continuation character" if you use `\` anywhere. Instead:
+   - Multi-line SQL → use triple-quoted strings: `\"\"\"SELECT ... FROM ...  WHERE ...\"\"\"`
+   - Multi-line expressions → use parentheses: `x = (value1 + value2 + value3)`
+   - String concatenation → use f-strings or `+`, NEVER `\` at end of line
+   This is the #1 cause of tool errors. NEVER write `\` in any code block.
 
 # Rules
 

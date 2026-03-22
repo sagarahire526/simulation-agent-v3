@@ -84,6 +84,16 @@ def _validate_code(code: str) -> tuple[bool, str]:
     return True, "OK"
 
 
+def _sanitize_continuations(code: str) -> str:
+    """Remove backslash line continuations that LLMs generate.
+
+    Joins `\\\\ \\n` sequences into a single line so the code doesn't crash with
+    'unexpected character after line continuation character'.
+    """
+    # Replace `\` followed by optional whitespace and a newline → single space
+    return re.sub(r"\\\s*\n", " ", code)
+
+
 def execute_python(code: str, context: dict[str, Any] | None = None) -> dict:
     """
     Execute Python code in a restricted sandbox.
@@ -97,6 +107,7 @@ def execute_python(code: str, context: dict[str, Any] | None = None) -> dict:
     """
     # Strip trailing whitespace per line to fix LLM-generated `\` continuation errors
     code = "\n".join(line.rstrip() for line in code.splitlines())
+    code = _sanitize_continuations(code)
 
     is_safe, reason = _validate_code(code)
     if not is_safe:
@@ -260,6 +271,7 @@ class PythonSandbox:
 
         # Strip trailing whitespace per line to fix LLM-generated `\` continuation errors
         code = "\n".join(line.rstrip() for line in code.splitlines())
+        code = _sanitize_continuations(code)
 
         # Block DML/DDL before any execution
         is_safe, reason = self._validate_sql(code)
