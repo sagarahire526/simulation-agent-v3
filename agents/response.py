@@ -126,9 +126,26 @@ def _generate_chart(llm, user_query: str, data_context: str) -> dict[str, Any]:
         ])
 
         raw = chart_resp.content.strip()
-        # Strip markdown fences if the LLM wraps it anyway
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+
+        # Strip markdown fences — GPT-4o often wraps JSON in ```json ... ```
+        # or adds prose before/after the block
+        if "```" in raw:
+            # Extract content between first ``` and last ```
+            parts = raw.split("```")
+            # parts[1] is the content inside the first fence pair
+            if len(parts) >= 3:
+                fenced = parts[1]
+                # Remove optional language tag (e.g., "json\n")
+                if fenced.startswith(("json", "JSON")):
+                    fenced = fenced.split("\n", 1)[1] if "\n" in fenced else fenced[4:]
+                raw = fenced.strip()
+
+        # Last resort: find the outermost { ... } if there's still junk around it
+        if not raw.startswith("{"):
+            start = raw.find("{")
+            end = raw.rfind("}")
+            if start != -1 and end != -1:
+                raw = raw[start:end + 1]
 
         graph_data = json.loads(raw)
 
@@ -141,7 +158,7 @@ def _generate_chart(llm, user_query: str, data_context: str) -> dict[str, Any]:
         return graph_data
 
     except (json.JSONDecodeError, TypeError) as exc:
-        logger.warning("Chart JSON parsing failed: %s", exc)
+        logger.warning("Chart JSON parsing failed: %s — raw response: %.500s", exc, raw)
         return empty
     except Exception as exc:
         logger.error("Chart generation failed: %s", exc)
