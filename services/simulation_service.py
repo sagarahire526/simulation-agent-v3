@@ -21,6 +21,60 @@ import services.db_service as db_svc
 logger = logging.getLogger(__name__)
 
 
+def _build_traces(state: dict, duration_ms: float) -> dict:
+    """
+    Build a structured trace JSON from the final graph state.
+
+    For the simulation path (planner), traces are grouped by planner step.
+    For the traversal path, all tool calls appear under a single step.
+    """
+    routing = state.get("routing_decision", "")
+    steps = []
+
+    if routing == "simulation":
+        planner_steps = state.get("planner_steps", [])
+        planner_results = state.get("planner_step_results", [])
+        for i, step_result in enumerate(planner_results):
+            step_label = planner_steps[i] if i < len(planner_steps) else f"Step {i + 1}"
+            tool_calls = step_result.get("traversal_tool_calls", [])
+            steps.append({
+                "step": step_label,
+                "tool_calls": tool_calls,
+            })
+    elif routing == "traversal":
+        tool_calls = state.get("traversal_tool_calls", [])
+        query = state.get("refined_query") or state.get("user_query", "")
+        steps.append({
+            "step": query,
+            "tool_calls": tool_calls,
+        })
+
+    total_tool_calls = sum(len(s["tool_calls"]) for s in steps)
+
+    nodes_executed = []
+    for node in ["query_refiner", "orchestrator", "discover_schema", "planner", "traversal", "response"]:
+        # Infer which nodes ran based on state fields they set
+        if node == "query_refiner" and state.get("refined_query"):
+            nodes_executed.append(node)
+        elif node == "orchestrator" and routing:
+            nodes_executed.append(node)
+        elif node == "discover_schema" and state.get("kg_schema"):
+            nodes_executed.append(node)
+        elif node == "planner" and state.get("planner_steps"):
+            nodes_executed.append(node)
+        elif node == "traversal" and (state.get("traversal_findings") or state.get("planner_step_results")):
+            nodes_executed.append(node)
+        elif node == "response" and state.get("final_response"):
+            nodes_executed.append(node)
+
+    return {
+        "nodes_executed": nodes_executed,
+        "steps": steps,
+        "total_tool_calls": total_tool_calls,
+        "total_execution_time_ms": duration_ms,
+    }
+
+
 def _shape_response(state: dict) -> dict:
     """
     Convert a raw SimulationState dict into the API response shape.
@@ -98,6 +152,7 @@ def run_query(
             assumptions_offered=clarification.get("assumptions_if_skipped", []),
         )
     else:
+        traces = _build_traces(state, duration_ms)
         db_svc.update_query_complete(
             query_id=query_id,
             refined_query=state.get("refined_query", ""),
@@ -106,7 +161,9 @@ def run_query(
             final_response=state.get("final_response", ""),
             duration_ms=duration_ms,
             graph_data=state.get("graph_data"),
+            traces=traces,
         )
+        response["traces"] = traces
 
     return response
 
@@ -147,6 +204,7 @@ def resume_query(clarification: str, thread_id: str) -> dict:
 
     if query_id:
         if response["status"] == "complete":
+            traces = _build_traces(state, duration_ms)
             db_svc.update_query_complete(
                 query_id=query_id,
                 refined_query=state.get("refined_query", ""),
@@ -155,7 +213,9 @@ def resume_query(clarification: str, thread_id: str) -> dict:
                 final_response=state.get("final_response", ""),
                 duration_ms=duration_ms,
                 graph_data=state.get("graph_data"),
+                traces=traces,
             )
+            response["traces"] = traces
         else:
             db_svc.update_query_error(query_id, duration_ms)
 

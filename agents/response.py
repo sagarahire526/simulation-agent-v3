@@ -172,7 +172,7 @@ def response_node(state: SimulationState) -> dict[str, Any]:
     Reads: refined_query (or user_query), traversal/planner data, errors
     Writes: final_response, calculations, data_summary, current_phase, messages
     """
-    llm = LLMProvider.get_llm("default", temperature=0.1)
+    llm = LLMProvider.get_llm("gpt-5-mini", reasoning_effort="low")
 
     # Prefer the query refiner's cleaned-up version
     user_query = state.get("refined_query") or state["user_query"]
@@ -212,12 +212,17 @@ def response_node(state: SimulationState) -> dict[str, Any]:
 
     user_message_parts.append(
         "\n## Instructions"
-        "\nAnalyze the collected data above and generate a comprehensive, "
-        "PM-readable response. Use the Simulation Guidance above (if provided) "
-        "as a reference for how to structure your calculations and output only for used approaches to calculate data— "
-        "adapt it to what was actually retrieved. "
-        "If data is missing or queries failed, acknowledge "
-        "it explicitly."
+        "\nAnalyze the collected data above and generate an executive-ready response."
+        "\n\nIMPORTANT:"
+        "\n- Use the Simulation Guidance (if provided) as a methodology reference — "
+        "adapt it to the data that was actually retrieved."
+        "\n- Show ALL fetched data in consolidated tables BEFORE drawing conclusions."
+        "\n- For simulation/scheduling: show your math, build week-by-week plans, "
+        "quantify capacity gaps and buffer impacts."
+        "\n- DEDUPLICATE: Multiple sub-queries may return overlapping data. "
+        "Present each data point ONCE. Merge related tables."
+        "\n- Every insight must pass the 'so what' test — no filler, no generic statements."
+        "\n- If data is missing or queries failed, acknowledge it in one line and move on."
     )
 
     user_message = "\n".join(user_message_parts)

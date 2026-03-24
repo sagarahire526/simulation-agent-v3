@@ -30,6 +30,7 @@ from pydantic import BaseModel
 
 import services.db_service as db_svc
 from graph import stream_simulation
+from services.simulation_service import _build_traces
 from services.sse_manager import sse_manager
 
 logger = logging.getLogger(__name__)
@@ -96,6 +97,7 @@ def _run_stream_thread(
         )
         duration_ms = round((time.perf_counter() - t0) * 1000, 1)
 
+        traces = _build_traces(final_state, duration_ms)
         db_svc.update_query_complete(
             query_id=query_id,
             refined_query=final_state.get("refined_query", ""),
@@ -104,12 +106,14 @@ def _run_stream_thread(
             final_response=final_state.get("final_response", ""),
             duration_ms=duration_ms,
             graph_data=final_state.get("graph_data"),
+            traces=traces,
         )
         sse_manager.put_sync(query_id, "complete", {
             "final_response":    final_state.get("final_response", ""),
             "routing_decision":  final_state.get("routing_decision", ""),
             "planner_steps":     final_state.get("planner_steps", []),
             "graph":             final_state.get("graph_data", {}),
+            "traces":            traces,
             "status":            "complete",
             "errors":            final_state.get("errors", []),
         })

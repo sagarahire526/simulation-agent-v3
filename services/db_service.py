@@ -72,7 +72,8 @@ def ensure_tables() -> None:
             started_at          TIMESTAMP       NOT NULL DEFAULT NOW(),
             completed_at        TIMESTAMP,
             duration_ms         NUMERIC(12, 2),
-            status              VARCHAR(20)     NOT NULL DEFAULT 'running'
+            status              VARCHAR(20)     NOT NULL DEFAULT 'running',
+            traces              JSONB
         );
 
         CREATE TABLE IF NOT EXISTS {_SCHEMA}.simulation_agent_hitl_clarifications (
@@ -89,16 +90,21 @@ def ensure_tables() -> None:
             was_skipped         BOOLEAN         DEFAULT FALSE
         );
     """
-    # Migration: add graph column if missing (safe for existing deployments)
+    # Migration: add graph and traces columns if missing (safe for existing deployments)
     migrate_graph_col = f"""
         ALTER TABLE {_SCHEMA}.simulation_agent_queries
             ADD COLUMN IF NOT EXISTS graph JSONB;
+    """
+    migrate_traces_col = f"""
+        ALTER TABLE {_SCHEMA}.simulation_agent_queries
+            ADD COLUMN IF NOT EXISTS traces JSONB;
     """
     try:
         with _conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(ddl)
                 cur.execute(migrate_graph_col)
+                cur.execute(migrate_traces_col)
         logger.info("pwc_simulation_agent_schema tables verified / created.")
     except Exception as exc:
         logger.error("ensure_tables failed: %s", exc)
@@ -221,14 +227,17 @@ def update_query_complete(
     final_response: str,
     duration_ms: float,
     graph_data: dict | None = None,
+    traces: dict | None = None,
 ) -> None:
     """
     Finalize a completed query.
     planning_rationale is stored as a JSON array of the planner steps.
     graph is stored as a Highcharts-compatible chart JSON object.
+    traces is stored as a JSONB object with full execution trace.
     """
     planning_rationale = json.dumps(planner_steps) if planner_steps else None
     graph_json = json.dumps(graph_data) if graph_data else None
+    traces_json = json.dumps(traces) if traces else None
     _exec(
         f"""
         UPDATE {_SCHEMA}.simulation_agent_queries SET
@@ -237,6 +246,7 @@ def update_query_complete(
             planning_rationale = %s,
             final_response     = %s,
             graph              = %s,
+            traces             = %s,
             completed_at       = NOW(),
             duration_ms        = %s,
             status             = 'complete'
@@ -248,6 +258,7 @@ def update_query_complete(
             planning_rationale,
             final_response,
             graph_json,
+            traces_json,
             duration_ms,
             query_id,
         ),
@@ -423,6 +434,7 @@ def get_messages_by_thread(thread_id: str) -> list[dict]:
             planning_rationale,
             final_response,
             graph,
+            traces,
             started_at,
             completed_at,
             duration_ms,
