@@ -84,6 +84,19 @@ def _validate_code(code: str) -> tuple[bool, str]:
     return True, "OK"
 
 
+def _strip_markdown_fences(code: str) -> str:
+    """Strip markdown code fences that LLMs sometimes wrap around code.
+
+    Handles ```python ... ``` and ``` ... ```.
+    """
+    lines = code.strip().splitlines()
+    if lines and lines[0].strip().startswith("```"):
+        lines = lines[1:]  # remove opening fence
+    if lines and lines[-1].strip() == "```":
+        lines = lines[:-1]  # remove closing fence
+    return "\n".join(lines)
+
+
 def _sanitize_continuations(code: str) -> str:
     """Remove backslash line continuations that LLMs generate.
 
@@ -91,7 +104,10 @@ def _sanitize_continuations(code: str) -> str:
     'unexpected character after line continuation character'.
     """
     # Replace `\` followed by optional whitespace and a newline → single space
-    return re.sub(r"\\\s*\n", " ", code)
+    code = re.sub(r"\\\s*\n", " ", code)
+    # Remove trailing `\` on the last line (no newline follows, so the above misses it)
+    code = re.sub(r"\\\s*$", "", code)
+    return code
 
 
 def execute_python(code: str, context: dict[str, Any] | None = None) -> dict:
@@ -105,7 +121,8 @@ def execute_python(code: str, context: dict[str, Any] | None = None) -> dict:
     Returns:
         dict with status, output (stdout), result (last expression), error
     """
-    # Strip trailing whitespace per line to fix LLM-generated `\` continuation errors
+    # Clean up LLM-generated code: markdown fences, trailing whitespace, backslash continuations
+    code = _strip_markdown_fences(code)
     code = "\n".join(line.rstrip() for line in code.splitlines())
     code = _sanitize_continuations(code)
 
@@ -269,7 +286,8 @@ class PythonSandbox:
         if self.conn is None:
             self._connect()
 
-        # Strip trailing whitespace per line to fix LLM-generated `\` continuation errors
+        # Clean up LLM-generated code: markdown fences, trailing whitespace, backslash continuations
+        code = _strip_markdown_fences(code)
         code = "\n".join(line.rstrip() for line in code.splitlines())
         code = _sanitize_continuations(code)
 
