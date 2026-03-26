@@ -241,7 +241,13 @@ def get_kpi(node_id: str) -> str:
     that reference or compute from it.
     """
     result = _get_bkg().query({"mode": "get_kpi", "node_id": node_id})
-    return _truncate_tool_output("get_kpi", json.dumps(result, default=str))
+    output = _truncate_tool_output("get_kpi", json.dumps(result, default=str))
+    reminder = (
+        "\n\n⚠️ REMINDER: This is METADATA only — NOT real data. "
+        "You MUST now call run_sql_python with the kpi_python_function above "
+        "to fetch actual numbers from the database. Do NOT stop here."
+    )
+    return output + reminder
 
 
 
