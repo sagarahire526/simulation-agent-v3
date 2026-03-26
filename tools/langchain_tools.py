@@ -51,8 +51,8 @@ _TOOL_CHAR_LIMITS = {
     "get_node":       50000,
     "find_relevant":  6000,
     "traverse_graph": 6000,
-    "run_sql_python": 10000,
-    "run_python":     10000,
+    "run_sql_python": 30000,
+    "run_python":     30000,
     "run_cypher":     6000,
 }
 
