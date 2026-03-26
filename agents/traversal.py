@@ -462,7 +462,7 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
     # Suppress pandas SQLAlchemy warnings
     warnings.filterwarnings("ignore", message=".*pandas only supports SQLAlchemy.*")
 
-    llm = LLMProvider.get_llm("o3-mini")
+    llm = LLMProvider.get_llm("gpt-5-mini")
 
     # Build system prompt with KG schema injected
     kg_schema = state.get("kg_schema", "Schema not available")
@@ -618,7 +618,7 @@ async def atraversal_node(state: SimulationState) -> dict[str, Any]:
     """
     warnings.filterwarnings("ignore", message=".*pandas only supports SQLAlchemy.*")
 
-    llm = LLMProvider.get_llm("o3-mini")
+    llm = LLMProvider.get_llm("gpt-5-mini")
 
     kg_schema = state.get("kg_schema", "Schema not available")
     # Planner always pre-fetches and injects semantic context — reuse it.
