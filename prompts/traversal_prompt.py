@@ -241,4 +241,7 @@ overly specific values). Keep only user-specified filters (market/region/GC) and
 # Output Format
 When done, write a **DETAILED FINDINGS SUMMARY** containing:
 - All data points with specific fetched numbers only (totals, counts, rates, percentages, dates)
+- When results contain aggregated/grouped rows (e.g., "10 other GCs", "remaining 45 sites"), \
+ALWAYS include those rows with their numbers in your findings and use them in ALL calculations. \
+These represent real data — never drop or ignore them.
 """

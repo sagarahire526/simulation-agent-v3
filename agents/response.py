@@ -2,6 +2,8 @@
 Response Agent — Interprets traversal findings, performs calculations
 via Python sandbox, and generates a PM-readable response.
 
+Uses gpt-5-mini (reasoning model, low effort) for structured, format-strict output.
+
 Handles two upstream paths:
   • Direct traversal path: reads traversal_findings + traversal_tool_calls
   • Planner path: reads planner_steps + planner_step_results (N parallel traversals)
@@ -210,15 +212,29 @@ def response_node(state: SimulationState) -> dict[str, Any]:
     if simulation_guidance:
         user_message_parts.append(f"\n{simulation_guidance}")
 
+    # Tell the response agent which route was taken so it picks the right format
+    routing = state.get("routing_decision", "traversal")
+    if routing == "traversal" and not planner_steps:
+        query_type_hint = (
+            "This is a simple data fetch query (direct traversal, no planner). "
+            "Use TYPE 1 format: one-line answer + data table. Nothing else."
+        )
+    else:
+        query_type_hint = (
+            "This is a simulation query. Identify whether it is scheduling, what-if, "
+            "or general analysis and use the matching TYPE format from your instructions."
+        )
+
     user_message_parts.append(
-        "\n## Instructions"
-        "\nAnalyze the collected data above and generate an executive-ready response."
+        f"\n## Query Type Hint\n{query_type_hint}"
+        "\n\n## Instructions"
+        "\nAnalyze the collected data above and generate the response in the exact format "
+        "specified by your system prompt for this query type."
         "\n\nIMPORTANT:"
         "\n- Use the Simulation Guidance (if provided) as a methodology reference — "
         "adapt it to the data that was actually retrieved."
-        "\n- Show ALL fetched data in consolidated tables BEFORE drawing conclusions."
-        "\n- For simulation/scheduling: show your math, build week-by-week plans, "
-        "quantify capacity gaps and buffer impacts."
+        "\n- Show ALL fetched data in consolidated tables with human-readable column names."
+        "\n- NEVER use database column names — always use full readable labels."
         "\n- DEDUPLICATE: Multiple sub-queries may return overlapping data. "
         "Present each data point ONCE. Merge related tables."
         "\n- Every insight must pass the 'so what' test — no filler, no generic statements."
