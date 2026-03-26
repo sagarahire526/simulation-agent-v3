@@ -241,6 +241,9 @@ overly specific values). Keep only user-specified filters (market/region/GC) and
 # Output Format
 When done, write a **DETAILED FINDINGS SUMMARY** containing:
 - All data points with specific fetched numbers only (totals, counts, rates, percentages, dates)
+- **INCLUDE EVERY ROW** from query results in your findings — do NOT summarize "top 7" and skip \
+the rest. If a query returned 17 GCs, list ALL 17 with their data. The Response Agent cannot \
+access the database — it can only use what you provide here.
 - When results contain aggregated/grouped rows (e.g., "10 other GCs", "remaining 45 sites"), \
 ALWAYS include those rows with their numbers in your findings and use them in ALL calculations. \
 These represent real data — never drop or ignore them.
