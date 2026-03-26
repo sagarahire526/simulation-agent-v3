@@ -38,6 +38,9 @@ _TIER_MAP: dict[str, str] = {
     "heavy":   _MODEL_HEAVY,
 }
 
+# Models that use reasoning and do NOT support the `temperature` parameter
+_REASONING_MODELS = {"o3-mini", "o3", "o1", "o1-mini"}
+
 # ── Per-tier default kwargs (merged into ChatOpenAI, caller kwargs take precedence) ──
 _TIER_KWARGS: dict[str, dict] = {
     "heavy": {"reasoning_effort": "low"},
@@ -83,6 +86,12 @@ class LLMProvider:
         tier_defaults = _TIER_KWARGS.get(tier, {})
         merged_kwargs = {**tier_defaults, **kwargs}
 
+        # Reasoning models (o3-mini, o1, etc.) reject the temperature param
+        is_reasoning = model in _REASONING_MODELS
+        base_kwargs: dict = {"model": model, "max_tokens": max_tokens}
+        if not is_reasoning:
+            base_kwargs["temperature"] = temperature
+
         if _USE_GATEWAY:
             headers: dict[str, str] = {_API_KEY_HEADER: _API_KEY_VALUE}
             if _WORKSPACE:
@@ -90,18 +99,14 @@ class LLMProvider:
 
             return ChatOpenAI(
                 api_key="NONE",
-                model=model,
                 base_url=_BASE_URL,
                 default_headers=headers,
-                temperature=temperature,
-                max_tokens=max_tokens,
+                **base_kwargs,
                 **merged_kwargs,
             )
 
         # Standard OpenAI
         return ChatOpenAI(
-            model=model,
-            temperature=temperature,
-            max_tokens=max_tokens,
+            **base_kwargs,
             **merged_kwargs,
         )
