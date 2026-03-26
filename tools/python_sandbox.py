@@ -97,6 +97,19 @@ def _strip_markdown_fences(code: str) -> str:
     return "\n".join(lines)
 
 
+def _fix_literal_escapes(code: str) -> str:
+    """Fix LLM sending literal backslash-n instead of real newlines.
+
+    When the entire code appears on one line with literal '\\n' sequences,
+    convert them to real newlines so the code can be parsed properly.
+    """
+    # If code has no real newlines but contains literal \n sequences → convert
+    if "\n" not in code and "\\n" in code:
+        code = code.replace("\\n", "\n")
+        code = code.replace("\\t", "\t")
+    return code
+
+
 def _sanitize_continuations(code: str) -> str:
     """Remove backslash line continuations that LLMs generate.
 
@@ -121,7 +134,8 @@ def execute_python(code: str, context: dict[str, Any] | None = None) -> dict:
     Returns:
         dict with status, output (stdout), result (last expression), error
     """
-    # Clean up LLM-generated code: markdown fences, trailing whitespace, backslash continuations
+    # Clean up LLM-generated code: literal escapes, markdown fences, trailing whitespace, continuations
+    code = _fix_literal_escapes(code)
     code = _strip_markdown_fences(code)
     code = "\n".join(line.rstrip() for line in code.splitlines())
     code = _sanitize_continuations(code)

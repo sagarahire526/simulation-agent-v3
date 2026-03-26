@@ -241,13 +241,18 @@ def get_kpi(node_id: str) -> str:
     that reference or compute from it.
     """
     result = _get_bkg().query({"mode": "get_kpi", "node_id": node_id})
-    output = _truncate_tool_output("get_kpi", json.dumps(result, default=str))
-    reminder = (
-        "\n\n⚠️ REMINDER: This is METADATA only — NOT real data. "
-        "You MUST now call run_sql_python with the kpi_python_function above "
-        "to fetch actual numbers from the database. Do NOT stop here."
-    )
-    return output + reminder
+
+    # Inject a structured next-step directive into the result — LLMs at low
+    # reasoning effort often treat KPI metadata as actual data and stop here.
+    if isinstance(result, dict):
+        result["⚠️_NEXT_STEP"] = (
+            "STOP — you have METADATA only, NOT real data. "
+            "You MUST call run_sql_python now with the kpi_python_function "
+            "code above to fetch actual numbers. Skipping this = FAILED traversal."
+        )
+        result["_data_type"] = "metadata_only"
+
+    return _truncate_tool_output("get_kpi", json.dumps(result, default=str))
 
 
 
