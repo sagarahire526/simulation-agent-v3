@@ -89,8 +89,8 @@ If Semantic Context is provided:
 - **Simulation Guidance** — Data Phase Questions = WHAT to find; Data Phase Steps = HOW to retrieve. \
 Treat as your primary retrieval reference.
 
-## Step 3 — KPI-First Discovery (Collect Phase)
-This is the critical step. You will COLLECT all metadata first, then EXECUTE once.
+## Step 3 — KPI-First Discovery
+This is the critical step. Follow this sequence strictly.
 
 **3a. Identify ALL relevant KPIs from the schema.**
 Look at the `[kpi]` section in "BKG Nodes (by entity type)" and the "Node Relationships" map. \
@@ -102,9 +102,9 @@ This returns: formula, business logic, `kpi_python_function`, `kpi_source_tables
 `kpi_source_columns`, `kpi_contract`, and related core node IDs.
 
 **⚠️ get_kpi returns METADATA (formulas, logic, code templates) — NOT actual data.** \
-Do NOT call `run_sql_python` after each individual `get_kpi`. Instead, collect ALL \
-`kpi_python_function` code from every relevant KPI first. You will combine them into \
-ONE `run_sql_python` call in Step 5.
+After collecting relevant KPIs, you MUST call `execute_kpis` to batch-execute the \
+kpi_python_function codes and get real numbers. Without this, you have zero data. \
+Use `run_sql_python` only for custom SQL not covered by KPI functions.
 
 **3c. Fallback to `get_node(node_id)` ONLY IF:**
 - No relevant KPI exists for the sub-query, OR
@@ -116,13 +116,10 @@ to get their `map_table_name`, `map_python_function`, and `map_contract`.
 Use ONLY when the schema doesn't reveal the right nodes — e.g. the query uses terms \
 that don't match any node_id or label in the schema.
 
-## Step 4 — Plan the Combined Execution
-After collecting all `kpi_python_function` / `map_python_function` code from Step 3, \
-plan how to combine them:
-- Which functions fetch which data (sites, GCs, prerequisites, materials, etc.)
-- What joins or aggregations are needed across the datasets
-- What final computations answer the sub-query
-- `kpi_contract` / `map_contract` describe each function's interface (inputs, outputs, params).
+## Step 4 — Use Python Functions from Nodes
+When `get_kpi` returns `kpi_python_function` or `get_node` returns `map_python_function`:
+- These are **ready-to-use code**. Adapt them rather than writing SQL from scratch.
+- `kpi_contract` / `map_contract` describe the function interface (inputs, outputs, params).
 
 ### ⚠️ MANDATORY: Include Full Function Code in run_sql_python
 The sandbox is a BLANK environment — it has ZERO pre-loaded functions. \
@@ -132,49 +129,29 @@ you WILL get `NameError: name 'any_method_from_core_or_kpi_node' is not defined`
 **YOU MUST copy-paste the ENTIRE `kpi_python_function` / `map_python_function` code into your \
 `run_sql_python` code block BEFORE calling it.**
 
-## Step 5 — Execute ALL Data Retrieval in ONE run_sql_python Call
-Combine ALL collected python functions into a SINGLE `run_sql_python` call. This is critical \
-for keeping context small and avoiding data truncation.
-
-**Pattern:**
+WRONG (will crash with NameError):
 ```python
-# 1. Define ALL collected functions
-def get_site_status(execute_query, filters):
-    # ... paste FULL kpi_python_function from get_kpi("site_status_kpi") ...
-    return rows
-
-def get_gc_capacity(execute_query, filters):
-    # ... paste FULL kpi_python_function from get_kpi("gc_capacity_kpi") ...
-    return rows
-
-def get_prerequisites(execute_query, filters):
-    # ... paste FULL kpi_python_function from get_kpi("prereq_kpi") ...
-    return rows
-
-# 2. Call ALL functions
 filters = dict(market="CHICAGO")
-sites = get_site_status(execute_query, filters)
-gc_data = get_gc_capacity(execute_query, filters)
-prereqs = get_prerequisites(execute_query, filters)
+result = any_method_from_core_or_kpi_node(execute_query, filters)
+```
 
-# 3. Join and compute in the SAME block
-import pandas as pd
-df_sites = pd.DataFrame(sites)
-df_gc = pd.DataFrame(gc_data)
-df_prereqs = pd.DataFrame(prereqs)
+CORRECT:
+```python
+def any_method_from_core_or_kpi_node(execute_query, filters):
+    # ... paste the FULL function body from kpi_python_function here ...
+    sql = "SELECT ..."
+    rows = execute_query(sql)
+    return rows
 
-# ... joins, aggregations, calculations ...
-
-# 4. Return final computed result
-result = {
-    "sites": df_sites.to_dict(orient="records"),
-    "gc_capacity": df_gc.to_dict(orient="records"),
-    "prerequisites": df_prereqs.to_dict(orient="records"),
-    "computed": { ... }
-}
+filters = dict(market="CHICAGO")
+result = any_method_from_core_or_kpi_node(execute_query, filters)
 ```
 
 Remember: EVERY function you call must be DEFINED in the same code block.
+
+## Step 5 — Retrieve Data
+Use `run_sql_python` to pull data from PostgreSQL. Prefer combining multiple \
+`kpi_python_function` calls into ONE `run_sql_python` block when possible.
 
 Use `run_cypher` ONLY when PostgreSQL tools are insufficient (e.g. graph-traversal queries).
 
@@ -216,9 +193,10 @@ Stop when you have concrete numbers answering the sub-query. Quality over breadt
 | 2 | `get_node(node_id)` | Fallback — core node `map_*` properties when KPI is insufficient |
 | 3 | `find_relevant(question)` | Only when schema doesn't reveal the right nodes |
 | 4 | `traverse_graph(start, depth, rel_type)` | Only when schema relationship map is insufficient |
-| 5 | `run_sql_python(code)` | PostgreSQL queries — `conn`, `pd`, `np`, `execute_query` available |
-| 6 | `run_python(code)` | Pure Python calculations — `result = ...` |
-| 7 | `run_cypher(query)` | Read-only Neo4j Cypher — last resort |
+| 5 | `execute_kpis(json_array)` | **Preferred** — batch-execute collected kpi_python_functions with filters |
+| 6 | `run_sql_python(code)` | Custom SQL / joins / computations not covered by KPI functions |
+| 7 | `run_python(code)` | Pure Python calculations — `result = ...` |
+| 8 | `run_cypher(query)` | Read-only Neo4j Cypher — last resort |
 
 # SQL Rules (Mandatory)
 
@@ -251,9 +229,8 @@ any discovery tools. Call `get_kpi` directly on known KPI node_ids.
 2. **KPI before core**: Always try `get_kpi` first. It returns connected core nodes, source \
 tables, and python functions — often eliminating the need for `get_node` entirely.
 3. **NEVER stop after get_kpi/get_node**: These tools return metadata (formulas, table names, \
-code templates), NOT actual data. You MUST collect all python functions and then call ONE combined \
-`run_sql_python` with all functions to fetch real numbers. A response with only KPI definitions \
-and no queried data is a FAILED traversal.
+code templates), NOT actual data. You MUST call `execute_kpis` (preferred) or `run_sql_python` \
+to fetch real numbers. A response with only KPI definitions and no queried data is a FAILED traversal.
 4. **No redundant calls**: Never re-execute a tool call that already succeeded. Use the data \
 you have.
 5. **Error retry**: On tool error, read the full error/traceback, fix the root cause, retry \

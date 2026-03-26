@@ -24,6 +24,7 @@ from langchain_core.tools import tool
 from tools.neo4j_tool import neo4j_tool
 from tools.bkg_tool import BKGTool
 from tools.python_sandbox import execute_python, PythonSandbox
+from tools.kpi_executor import execute_kpis
 
 logger = logging.getLogger(__name__)
 
@@ -232,11 +233,10 @@ def get_kpi(node_id: str) -> str:
     - Related core node IDs and their table mappings
 
     ⚠️ THIS RETURNS METADATA ONLY — NOT actual data.
-    Do NOT call run_sql_python after each get_kpi individually.
-    Instead: call get_kpi on ALL relevant KPIs first to collect their python functions,
-    then combine ALL functions into ONE run_sql_python call at the end.
+    After collecting all relevant KPIs, call execute_kpis with the collected
+    kpi_python_function codes and filters to get real numbers in one batch.
 
-    MANDATORY SEQUENCE: get_kpi(kpi_1) → get_kpi(kpi_2) → ... → ONE run_sql_python(all functions combined)
+    MANDATORY: get_kpi (all relevant) → execute_kpis (one batch call)
 
     ALSO: If the node_id is a core/context node (not a KPI), returns all KPI nodes
     that reference or compute from it.
@@ -247,10 +247,9 @@ def get_kpi(node_id: str) -> str:
     # effort often treat KPI metadata as actual data and stop here.
     if isinstance(result, dict):
         result["⚠️_NEXT_STEP"] = (
-            "This is METADATA, NOT real data. Save the kpi_python_function above. "
-            "Call get_kpi on ALL other relevant KPIs first, then combine ALL "
-            "collected functions into ONE run_sql_python call. "
-            "Do NOT call run_sql_python yet if you still have more KPIs to collect."
+            "This is METADATA only, NOT real data. Collect all relevant KPI "
+            "functions first, then call execute_kpis with the function codes "
+            "and filters to get actual numbers in one batch."
         )
         result["_data_type"] = "metadata_only"
 
@@ -327,6 +326,7 @@ def get_all_tools() -> list:
         get_node,
         find_relevant,
         traverse_graph,
+        execute_kpis,
         run_sql_python,
         run_python,
         run_cypher,
