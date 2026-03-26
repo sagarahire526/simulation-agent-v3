@@ -296,7 +296,7 @@ class PythonSandbox:
                     )
         return True, "OK"
 
-    def execute(self, code: str, timeout_seconds: int = 30) -> dict:
+    def execute(self, code: str, timeout_seconds: int = 60) -> dict:
         if self.conn is None:
             self._connect()
 

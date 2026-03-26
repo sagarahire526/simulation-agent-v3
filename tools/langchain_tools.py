@@ -231,24 +231,26 @@ def get_kpi(node_id: str) -> str:
     - Its function contract (kpi_contract)
     - Related core node IDs and their table mappings
 
-    ⚠️ THIS RETURNS METADATA ONLY — NOT actual data. After calling this, you MUST
-    follow up with run_sql_python to execute the kpi_python_function and get real numbers.
-    get_kpi tells you HOW to query; run_sql_python actually RUNS the query.
+    ⚠️ THIS RETURNS METADATA ONLY — NOT actual data.
+    Do NOT call run_sql_python after each get_kpi individually.
+    Instead: call get_kpi on ALL relevant KPIs first to collect their python functions,
+    then combine ALL functions into ONE run_sql_python call at the end.
 
-    MANDATORY SEQUENCE: get_kpi → run_sql_python (with full function code from kpi_python_function)
+    MANDATORY SEQUENCE: get_kpi(kpi_1) → get_kpi(kpi_2) → ... → ONE run_sql_python(all functions combined)
 
     ALSO: If the node_id is a core/context node (not a KPI), returns all KPI nodes
     that reference or compute from it.
     """
     result = _get_bkg().query({"mode": "get_kpi", "node_id": node_id})
 
-    # Inject a structured next-step directive into the result — LLMs at low
-    # reasoning effort often treat KPI metadata as actual data and stop here.
+    # Inject a structured directive into the result — LLMs at low reasoning
+    # effort often treat KPI metadata as actual data and stop here.
     if isinstance(result, dict):
         result["⚠️_NEXT_STEP"] = (
-            "STOP — you have METADATA only, NOT real data. "
-            "You MUST call run_sql_python now with the kpi_python_function "
-            "code above to fetch actual numbers. Skipping this = FAILED traversal."
+            "This is METADATA, NOT real data. Save the kpi_python_function above. "
+            "Call get_kpi on ALL other relevant KPIs first, then combine ALL "
+            "collected functions into ONE run_sql_python call. "
+            "Do NOT call run_sql_python yet if you still have more KPIs to collect."
         )
         result["_data_type"] = "metadata_only"
 
@@ -286,7 +288,7 @@ def run_python(code: str) -> str:
 
 
 @tool
-def run_sql_python(code: str, timeout_seconds: int = 30) -> str:
+def run_sql_python(code: str, timeout_seconds: int = 60) -> str:
     """Execute Python code with access to a read-only PostgreSQL database connection.
 
     USE WHEN: You need to query the PostgreSQL database for actual operational data.
