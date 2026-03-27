@@ -111,15 +111,19 @@ def _fix_literal_escapes(code: str) -> str:
 
 
 def _sanitize_continuations(code: str) -> str:
-    """Remove backslash line continuations that LLMs generate.
+    """Remove backslash line continuations and stray backslashes that LLMs generate.
 
-    Joins `\\\\ \\n` sequences into a single line so the code doesn't crash with
-    'unexpected character after line continuation character'.
+    Joins `\\\\ \\n` sequences into a single line and strips any remaining
+    backslashes that are not part of valid Python escape sequences, so the code
+    never crashes with 'unexpected character after line continuation character'.
     """
-    # Replace `\` followed by optional whitespace and a newline → single space
+    # 1. Replace `\` followed by optional whitespace and a newline → single space
     code = re.sub(r"\\\s*\n", " ", code)
-    # Remove trailing `\` on the last line (no newline follows, so the above misses it)
+    # 2. Remove trailing `\` on the last line (no newline follows, so the above misses it)
     code = re.sub(r"\\\s*$", "", code)
+    # 3. Remove any remaining stray `\` NOT part of a valid Python escape sequence.
+    #    Valid: \\, \n, \t, \r, \', \", \a, \b, \f, \v, \0, \x, \u, \U, \N, \1-\7 (octal)
+    code = re.sub(r"\\(?![\\ntrfavb0'\"xuUN1-7])", "", code)
     return code
 
 
@@ -300,7 +304,8 @@ class PythonSandbox:
         if self.conn is None:
             self._connect()
 
-        # Clean up LLM-generated code: markdown fences, trailing whitespace, backslash continuations
+        # Clean up LLM-generated code: literal escapes, markdown fences, trailing whitespace, continuations
+        code = _fix_literal_escapes(code)
         code = _strip_markdown_fences(code)
         code = "\n".join(line.rstrip() for line in code.splitlines())
         code = _sanitize_continuations(code)
