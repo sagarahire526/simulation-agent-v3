@@ -34,6 +34,7 @@ class SimulationState(TypedDict):
     # ── Input ──
     user_query: str
     refined_query: str           # Finalized query after query_refiner validation
+    project_type: str            # "NTM" or "AHLOB Modernization" — maps to smp_name filter
 
     # ── Phase tracking ──
     current_phase: Literal[

@@ -76,6 +76,7 @@ async def _run_traversal_step_async(
     step_state: SimulationState = {
         **base_state,
         "user_query": step_query,
+        "refined_query": step_query,
         "max_traversal_steps": max_steps,
     }
     try:

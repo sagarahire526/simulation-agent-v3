@@ -135,6 +135,7 @@ def _make_initial_state(query: str, max_steps: int) -> SimulationState:
     return {
         "user_query": query,
         "refined_query": "",
+        "project_type": "",
         "current_phase": "query_refinement",
         "routing_decision": "",
         "routing_context": "",

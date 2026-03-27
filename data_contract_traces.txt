@@ -1,0 +1,14 @@
+{
+  "nodes_executed": ["query_refiner", "orchestrator", "discover_schema", "planner", "traversal", "response"],
+  "steps": [
+    {
+      "step": "string — planner step label (simulation) or the query itself (traversal)",
+      "tool_calls": [
+        // array of tool call objects from traversal agent
+        // (contents depend on traversal_tool_calls shape)
+      ]
+    }
+  ],
+  "total_tool_calls": 12,          // int — sum of all tool_calls across steps
+  "total_execution_time_ms": 4523.7 // float — total wall-clock time in ms
+}

@@ -479,7 +479,7 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
     else:
         try:
             semantic = SemanticService()
-            context_data = semantic.get_all_context(state["user_query"])
+            context_data = semantic.get_all_context(state.get("refined_query") or state["user_query"])
 
             kpi_hits = len(context_data.get("kpi", []))
             qb_hits  = len(context_data.get("question_bank", []))
@@ -499,14 +499,35 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
         except Exception as e:
             logger.warning("Semantic search failed (non-fatal): %s", e)
 
+    # ── Build project-type filter instruction for the prompt ─────────
+    project_type = state.get("project_type", "")
+    print(f"  {_DIM}Project type in state: '{project_type}'{_RESET}", flush=True)
+    if project_type:
+        project_type_filter = (
+            f'10. **MANDATORY Project Type Filter**: The user selected project type '
+            f'**{project_type}**. Whenever you query the table '
+            f'`pwc_macro_staging_schema.stg_ndpd_mbt_tmobile_macro_combined`, '
+            f'you MUST include `WHERE smp_name = \'{project_type}\'` (or add it as '
+            f'an AND condition if other WHERE clauses exist). This filter is NON-NEGOTIABLE '
+            f'— every single SQL query touching this table must have it. '
+            f'This filter applies ONLY to `stg_ndpd_mbt_tmobile_macro_combined` — '
+            f'do NOT add it to other tables.'
+        )
+        print(f"  {_GREEN}✓ Project type filter injected: smp_name = '{project_type}'{_RESET}", flush=True)
+    else:
+        project_type_filter = ""
+        print(f"  {_YELLOW}⚠ No project type in state — smp_name filter NOT applied{_RESET}", flush=True)
+
     # Escape literal { } in dynamic content to avoid str.format() KeyError
     safe_kg_schema = kg_schema.replace("{", "{{").replace("}", "}}")
     safe_semantic  = semantic_context.replace("{", "{{").replace("}", "}}")
+    safe_pt_filter = project_type_filter.replace("{", "{{").replace("}", "}}")
 
     system_prompt = TRAVERSAL_SYSTEM.format(
         today_date=date.today(),
         kg_schema=safe_kg_schema,
         semantic_context=safe_semantic,
+        project_type_filter=safe_pt_filter,
     )
 
     max_steps = state.get("max_traversal_steps", DEFAULT_MAX_STEPS)
@@ -537,8 +558,10 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
     # Invoke the agent
     start_time = time.perf_counter()
     try:
+        # Use refined_query (includes HITL clarification) if available
+        traversal_query = state.get("refined_query") or state["user_query"]
         result = agent.invoke(
-            {"messages": [("human", state["user_query"])]},
+            {"messages": [("human", traversal_query)]},
             config={
                 "recursion_limit": max_steps * 3 + 10,
                 "callbacks": [llm_capture],
@@ -625,18 +648,37 @@ async def atraversal_node(state: SimulationState) -> dict[str, Any]:
     semantic_context = state.get("planner_semantic_context", "")
     simulation_guidance = state.get("scenario_simulation_guidance", "")
 
+    # ── Build project-type filter instruction for the prompt ─────────
+    project_type = state.get("project_type", "")
+    if project_type:
+        project_type_filter = (
+            f'10. **MANDATORY Project Type Filter**: The user selected project type '
+            f'**{project_type}**. Whenever you query the table '
+            f'`pwc_macro_staging_schema.stg_ndpd_mbt_tmobile_macro_combined`, '
+            f'you MUST include `WHERE smp_name = \'{project_type}\'` (or add it as '
+            f'an AND condition if other WHERE clauses exist). This filter is NON-NEGOTIABLE '
+            f'— every single SQL query touching this table must have it. '
+            f'This filter applies ONLY to `stg_ndpd_mbt_tmobile_macro_combined` — '
+            f'do NOT add it to other tables.'
+        )
+    else:
+        project_type_filter = ""
+
     safe_kg_schema = kg_schema.replace("{", "{{").replace("}", "}}")
     safe_semantic  = semantic_context.replace("{", "{{").replace("}", "}}")
+    safe_pt_filter = project_type_filter.replace("{", "{{").replace("}", "}}")
     system_prompt = TRAVERSAL_SYSTEM.format(
         today_date=date.today(),
         kg_schema=safe_kg_schema,
         semantic_context=safe_semantic,
+        project_type_filter=safe_pt_filter,
     )
 
     max_steps = state.get("max_traversal_steps", DEFAULT_MAX_STEPS)
     tools = get_all_tools()
 
-    query = state["user_query"]
+    # Use refined_query (includes HITL clarification) if available
+    query = state.get("refined_query") or state["user_query"]
 
     # ── Debug: log token breakdown before agent starts ──────────────────
     _log_traversal_debug(
