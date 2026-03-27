@@ -111,21 +111,24 @@ def _fix_literal_escapes(code: str) -> str:
 
 
 def _sanitize_continuations(code: str) -> str:
-    """Remove backslash line continuations and stray backslashes that LLMs generate.
+    """Fix backslash line-continuation errors that LLMs generate.
 
-    Joins `\\\\ \\n` sequences into a single line, strips obviously invalid
-    backslashes, then uses Python's own compiler to find and fix any remaining
-    offenders — guaranteeing the 'unexpected character after line continuation
-    character' error can never reach exec().
+    Strategy: try to compile first — if the code is valid, return it untouched.
+    Only when there is an actual 'line continuation' SyntaxError do we apply
+    targeted fixes (on the offending lines only).  This avoids the previous
+    approach of global regex that corrupted content inside triple-quoted
+    strings (causing 'unterminated triple-quoted string literal' errors).
     """
-    # 1. Replace `\` followed by optional whitespace and a newline → single space
-    code = re.sub(r"\\\s*\n", " ", code)
-    # 2. Remove trailing `\` on the last line (no newline follows, so the above misses it)
-    code = re.sub(r"\\\s*$", "", code)
-    # 3. Remove obviously stray `\` NOT part of a valid Python escape sequence.
-    code = re.sub(r"\\(?![\\ntrfavb0'\"xuUN1-7])", "", code)
-    # 4. Compile-and-fix loop: use Python's parser to catch any remaining invalid
-    #    backslashes (e.g. \n outside string literals) that regex cannot distinguish.
+    # Fast path: code already compiles — don't touch it
+    try:
+        compile(code, "<sanitize>", "exec")
+        return code
+    except SyntaxError as e:
+        if "line continuation" not in str(e):
+            return code  # different error — not our problem
+
+    # Targeted fix loop: let Python's parser tell us which line is broken,
+    # then remove the stray backslash(es) on that line only.
     for _ in range(10):
         try:
             compile(code, "<sanitize>", "exec")
@@ -138,7 +141,7 @@ def _sanitize_continuations(code: str) -> str:
             lines = code.splitlines()
             if e.lineno > len(lines):
                 break
-            # Remove all backslashes from the offending line
+            # Remove backslashes from the offending line
             lines[e.lineno - 1] = lines[e.lineno - 1].replace("\\", "")
             code = "\n".join(lines)
     return code
