@@ -38,7 +38,7 @@ _DIM    = "\033[2m"
 _RESET  = "\033[0m"
 
 _MAX_PARALLEL_STEPS = 6    # Hard cap — prompt targets 4-6 focused steps
-_PLANNER_STEP_MAX_STEPS = 15  # Hard cap — sub-queries get at most 15 tool calls
+_PLANNER_STEP_MAX_STEPS = 6   # Hard cap — fixed protocol needs at most 6 tool calls
 _STEP_TIMEOUT_SEC = 300   # Kill a runaway sub-traversal after 5 minutes
 
 

@@ -47,8 +47,6 @@ def _get_bkg() -> BKGTool:
 # sample rows + counts, not the full dataset.
 
 _TOOL_CHAR_LIMITS = {
-    "get_kpi":        50000,
-    "get_node":       50000,
     "find_relevant":  6000,
     "traverse_graph": 6000,
     "run_sql_python": 30000,
@@ -173,7 +171,7 @@ def get_node(node_id: str) -> str:
     Supports aliases: 'GC' → general_contractor, 'BOM' → bill_of_materials, etc.
     """
     result = _get_bkg().query({"mode": "get_node", "node_id": node_id})
-    return _truncate_tool_output("get_node", json.dumps(result, default=str))
+    return json.dumps(result, default=str)
 
 
 @tool
@@ -252,7 +250,7 @@ def get_kpi(node_id: str) -> str:
         )
         result["_data_type"] = "metadata_only"
 
-    return _truncate_tool_output("get_kpi", json.dumps(result, default=str))
+    return json.dumps(result, default=str)
 
 
 
@@ -328,4 +326,19 @@ def get_all_tools() -> list:
         run_sql_python,
         run_python,
         run_cypher,
+    ]
+
+
+def get_fast_tools() -> list:
+    """Minimal tool set for the fixed-step traversal protocol.
+
+    Removes find_relevant (schema is in prompt), traverse_graph (never used
+    in logs), and run_cypher (run_sql_python covers all cases).
+    Smaller decision surface = faster LLM reasoning per round trip.
+    """
+    return [
+        get_kpi,
+        get_node,
+        run_sql_python,
+        run_python,
     ]

@@ -104,8 +104,8 @@ class Neo4jTool:
         # ── Build formatted output ──
         schema_lines = ["=== KNOWLEDGE GRAPH SCHEMA ===\n"]
 
-        # -- Node Labels & Properties --
-        schema_lines.append("── Node Labels & Properties ──")
+        # -- Node Properties (what fields exist on BKGNode) --
+        schema_lines.append("── Node Properties ──")
         for row in node_info:
             node_type = row["nodeType"]
             props_list = []
@@ -118,61 +118,48 @@ class Neo4jTool:
             schema_lines.append(f"  {node_type}")
             for prop in props_list:
                 schema_lines.append(f"    - {prop}")
-            if not props_list:
-                schema_lines.append("    (no properties)")
 
-        # -- Relationship Types & Properties --
-        schema_lines.append("\n── Relationship Types & Properties ──")
-        for row in rel_info:
-            rel_type = row["relType"]
-            props_list = []
-            for p in row["properties"]:
-                if not p["name"]:
-                    continue
-                types_str = "/".join(p["types"]) if p["types"] else "Unknown"
-                req = " (required)" if p.get("mandatory") else ""
-                props_list.append(f"{p['name']}: {types_str}{req}")
-            schema_lines.append(f"  {rel_type}")
-            for prop in props_list:
-                schema_lines.append(f"    - {prop}")
-            if not props_list:
-                schema_lines.append("    (no properties)")
-
-        # -- Relationship Patterns (meta-level) --
-        schema_lines.append("\n── Relationship Patterns ──")
-        for row in rel_patterns:
-            src = ":".join(row["srcLabels"])
-            tgt = ":".join(row["tgtLabels"])
-            schema_lines.append(f"  (:{src})-[:{row['relType']}]->(:{tgt})")
-
-        # -- BKG Nodes by entity_type (deduplicated) --
-        schema_lines.append("\n── BKG Nodes (by entity type) ──")
-        current_type = None
-        seen_nodes = set()
+        # -- Build node_id → (label, entity_type) lookup --
+        _id_to_label: dict[str, str] = {}
+        _id_to_type: dict[str, str] = {}
+        seen_nodes: set[str] = set()
         for row in node_instances:
             nid = row.get("node_id", "")
-            if nid in seen_nodes:
+            if not nid or nid in seen_nodes:
                 continue
             seen_nodes.add(nid)
-            et = row.get("entity_type", "unknown")
-            if et != current_type:
-                current_type = et
-                schema_lines.append(f"\n  [{et}]")
-            label_str = f" — {row['label']}" if row.get("label") else ""
-            schema_lines.append(f"    • {nid}{label_str}")
+            _id_to_label[nid] = row.get("label", nid)
+            _id_to_type[nid] = row.get("entity_type", "unknown")
 
-        # -- Actual relationships between nodes (deduplicated) --
-        schema_lines.append("\n── Node Relationships ──")
-        seen_rels = set()
+        def _display(nid: str) -> str:
+            """Compact display: always label (id) so the agent has both."""
+            label = _id_to_label.get(nid, nid)
+            return f"{label} ({nid})"
+
+        # -- Graph: compact label (id) —[rel]→ label (id) --
+        schema_lines.append("\n── Graph Relationships ──")
+        schema_lines.append("  Format: source_label (node_id) —[relationship]→ target_label (node_id)")
+        seen_rels: set[tuple] = set()
+        nodes_in_rels: set[str] = set()
         for row in node_relationships:
             rel = row.get("rel_type") or "RELATES_TO"
             key = (row["source"], rel, row["target"])
             if key in seen_rels:
                 continue
             seen_rels.add(key)
+            nodes_in_rels.add(row["source"])
+            nodes_in_rels.add(row["target"])
             schema_lines.append(
-                f"  ({row['source']}) —[{rel}]→ ({row['target']})"
+                f"  {_display(row['source'])} —[{rel}]→ {_display(row['target'])}"
             )
+
+        # -- Orphan nodes (no relationships) — listed briefly so they aren't lost --
+        orphans = seen_nodes - nodes_in_rels
+        if orphans:
+            schema_lines.append("\n── Unconnected Nodes ──")
+            for nid in sorted(orphans):
+                et = _id_to_type.get(nid, "unknown")
+                schema_lines.append(f"  [{et}] {_display(nid)}")
 
         logger.debug("Schema discovery complete: %d lines", len(schema_lines))
         return "\n".join(schema_lines)

@@ -18,7 +18,7 @@ from langgraph.prebuilt import create_react_agent
 
 from models.state import SimulationState, ToolCallRecord
 from services.llm_provider import LLMProvider
-from tools.langchain_tools import get_all_tools
+from tools.langchain_tools import get_fast_tools
 from prompts.traversal_prompt import TRAVERSAL_SYSTEM
 from services.semantic_service import SemanticService
 
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # Suppress noisy Neo4j deprecation warnings
 logging.getLogger("neo4j.notifications").setLevel(logging.ERROR)
 
-DEFAULT_MAX_STEPS = 15
+DEFAULT_MAX_STEPS = 6
 
 # ─── ANSI colors for terminal output ───
 _CYAN = "\033[96m"
@@ -462,7 +462,7 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
     # Suppress pandas SQLAlchemy warnings
     warnings.filterwarnings("ignore", message=".*pandas only supports SQLAlchemy.*")
 
-    llm = LLMProvider.get_llm("default")
+    llm = LLMProvider.get_llm("gpt-5-mini", reasoning_effort="low")
 
     # Build system prompt with KG schema injected
     kg_schema = state.get("kg_schema", "Schema not available")
@@ -522,7 +522,7 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
     safe_kg_schema = kg_schema.replace("{", "{{").replace("}", "}}")
     safe_semantic  = semantic_context.replace("{", "{{").replace("}", "}}")
     safe_pt_filter = project_type_filter.replace("{", "{{").replace("}", "}}")
-
+    print(f"FETCHED KNOWLEDGE GRAPH SCHEMA IS AS FOLLOWS: {safe_kg_schema}")
     system_prompt = TRAVERSAL_SYSTEM.format(
         today_date=date.today(),
         kg_schema=safe_kg_schema,
@@ -533,7 +533,7 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
     max_steps = state.get("max_traversal_steps", DEFAULT_MAX_STEPS)
 
     # Create the ReAct agent with all available tools
-    tools = get_all_tools()
+    tools = get_fast_tools()
 
     print(f"  {_DIM}Traversal: {len(tools)} tools | max {max_steps} steps{_RESET}", flush=True)
 
@@ -641,7 +641,7 @@ async def atraversal_node(state: SimulationState) -> dict[str, Any]:
     """
     warnings.filterwarnings("ignore", message=".*pandas only supports SQLAlchemy.*")
 
-    llm = LLMProvider.get_llm("default")
+    llm = LLMProvider.get_llm("gpt-5-mini", reasoning_effort="low")
 
     kg_schema = state.get("kg_schema", "Schema not available")
     # Planner always pre-fetches and injects semantic context — reuse it.
@@ -667,6 +667,7 @@ async def atraversal_node(state: SimulationState) -> dict[str, Any]:
     safe_kg_schema = kg_schema.replace("{", "{{").replace("}", "}}")
     safe_semantic  = semantic_context.replace("{", "{{").replace("}", "}}")
     safe_pt_filter = project_type_filter.replace("{", "{{").replace("}", "}}")
+    print(f"FETCHED KNOWLEDGE GRAPH SCHEMA IS AS FOLLOWS: {safe_kg_schema}")
     system_prompt = TRAVERSAL_SYSTEM.format(
         today_date=date.today(),
         kg_schema=safe_kg_schema,
@@ -675,7 +676,7 @@ async def atraversal_node(state: SimulationState) -> dict[str, Any]:
     )
 
     max_steps = state.get("max_traversal_steps", DEFAULT_MAX_STEPS)
-    tools = get_all_tools()
+    tools = get_fast_tools()
 
     # Use refined_query (includes HITL clarification) if available
     query = state.get("refined_query") or state["user_query"]
