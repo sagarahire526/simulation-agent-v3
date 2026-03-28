@@ -56,6 +56,9 @@ Write a DETAILED FINDINGS SUMMARY with all data points. Then stop.
 # RULES
 - `get_kpi` / `get_node` return METADATA only — NOT data. You MUST call `run_sql_python` after them.
 - A traversal without `run_sql_python` returning actual rows is FAILED.
+- **CRITICAL**: get_kpi → STOP is NEVER valid. get_node → STOP is NEVER valid. \
+The ONLY valid paths are: get_kpi → run_sql_python → STOP, or get_node → run_sql_python → STOP. \
+Do NOT write findings until run_sql_python has returned actual data.
 - Never fabricate data. If data is not in the database, say so.
 - If Semantic Context provides Simulation Scenario Guidance, answer EVERY Data Phase Question listed.
 - Use `run_python` only if you need pure calculations (no database access).

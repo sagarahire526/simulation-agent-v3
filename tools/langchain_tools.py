@@ -192,19 +192,31 @@ def run_cypher(query: str) -> str:
 
 @tool
 def get_node(node_id: str) -> str:
-    """FALLBACK — Fetch a core/context/transaction node's database mapping details.
+    """⚠️ MANDATORY: After calling this tool, you MUST call run_sql_python. No exceptions.
+
+    FALLBACK — Returns node metadata ONLY — NOT actual data. You MUST follow up with
+    run_sql_python to execute the map_python_function and get real numbers.
+
+    ONLY VALID SEQUENCE: get_node → run_sql_python → write findings.
+    INVALID: get_node → write findings (this is a FAILED traversal).
 
     USE ONLY WHEN: get_kpi did not return adequate logic/formulas for your query,
     and you need the core node's map_* properties (map_table_name, map_python_function,
     map_contract, map_key_column, map_label_column, map_database_name).
-
-    DO NOT use this tool if get_kpi already gave you the source tables and python function.
 
     Returns: node_id, name, label, entity_type, definition, nl_description,
     map_* properties, plus outgoing and incoming relationships.
     Supports aliases: 'GC' → general_contractor, 'BOM' → bill_of_materials, etc.
     """
     result = _get_bkg().query({"mode": "get_node", "node_id": node_id})
+
+    if isinstance(result, dict):
+        result["⚠️_MANDATORY_NEXT_ACTION"] = (
+            "CALL run_sql_python WITH THE map_python_function CODE ABOVE"
+        )
+        result["_data_type"] = "metadata_only — NOT real data"
+        result["_traversal_status"] = "INCOMPLETE — requires run_sql_python to finish"
+
     return json.dumps(result, default=str)
 
 
@@ -252,9 +264,15 @@ def traverse_graph(start: str, depth: int = 2, rel_type: Optional[str] = None) -
 
 @tool
 def get_kpi(node_id: str) -> str:
-    """YOUR FIRST TOOL — Get KPI computation details including connected core nodes.
+    """⚠️ MANDATORY: After calling this tool, you MUST call run_sql_python. No exceptions.
 
-    ALWAYS call this BEFORE get_node. KPI nodes contain:
+    Returns KPI metadata ONLY — NOT actual data. You MUST follow up with run_sql_python
+    to execute the kpi_python_function and get real numbers.
+
+    ONLY VALID SEQUENCE: get_kpi → run_sql_python → write findings.
+    INVALID: get_kpi → write findings (this is a FAILED traversal).
+
+    KPI nodes contain:
     - What it measures (kpi_description, kpi_formula_description)
     - How to compute it (kpi_business_logic, kpi_python_function)
     - What data it needs (kpi_source_tables, kpi_source_columns, kpi_dimensions)
@@ -263,26 +281,17 @@ def get_kpi(node_id: str) -> str:
     - Its function contract (kpi_contract)
     - Related core node IDs and their table mappings
 
-    ⚠️ THIS RETURNS METADATA ONLY — NOT actual data. After calling this, you MUST
-    follow up with run_sql_python to execute the kpi_python_function and get real numbers.
-    get_kpi tells you HOW to query; run_sql_python actually RUNS the query.
-
-    MANDATORY SEQUENCE: get_kpi → run_sql_python (with full function code from kpi_python_function)
-
-    ALSO: If the node_id is a core/context node (not a KPI), returns all KPI nodes
+    If the node_id is a core/context node (not a KPI), returns all KPI nodes
     that reference or compute from it.
     """
     result = _get_bkg().query({"mode": "get_kpi", "node_id": node_id})
 
-    # Inject a structured next-step directive into the result — LLMs at low
-    # reasoning effort often treat KPI metadata as actual data and stop here.
     if isinstance(result, dict):
-        result["⚠️_NEXT_STEP"] = (
-            "STOP — you have METADATA only, NOT real data. "
-            "You MUST call run_sql_python now with the kpi_python_function "
-            "code above to fetch actual numbers. Skipping this = FAILED traversal."
+        result["⚠️_MANDATORY_NEXT_ACTION"] = (
+            "CALL run_sql_python WITH THE kpi_python_function CODE ABOVE"
         )
-        result["_data_type"] = "metadata_only"
+        result["_data_type"] = "metadata_only — NOT real data"
+        result["_traversal_status"] = "INCOMPLETE — requires run_sql_python to finish"
 
     return json.dumps(result, default=str)
 
