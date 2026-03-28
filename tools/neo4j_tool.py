@@ -132,9 +132,10 @@ class Neo4jTool:
             _id_to_type[nid] = row.get("entity_type", "unknown")
 
         def _display(nid: str) -> str:
-            """Compact display: always label (id) so the agent has both."""
+            """Compact display: [type] label (id) so the agent knows entity_type."""
             label = _id_to_label.get(nid, nid)
-            return f"{label} ({nid})"
+            et = _id_to_type.get(nid, "unknown")
+            return f"[{et}] {label} ({nid})"
 
         # -- Graph: compact label (id) —[rel]→ label (id) --
         schema_lines.append("\n── Graph Relationships ──")
