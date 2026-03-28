@@ -571,6 +571,23 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
         elapsed = time.perf_counter() - start_time
         agent_messages = result.get("messages", [])
 
+        # ── Diagnostic: log message flow to identify gateway issues ──
+        print(f"\n  {_DIM}── Message flow ({len(agent_messages)} messages) ──{_RESET}", flush=True)
+        for i, msg in enumerate(agent_messages):
+            msg_type = getattr(msg, "type", "unknown")
+            has_tool_calls = bool(getattr(msg, "tool_calls", None))
+            content_len = len(getattr(msg, "content", "") or "")
+            if msg_type == "ai" and has_tool_calls:
+                tool_names = [tc.get("name", "?") for tc in msg.tool_calls]
+                print(f"  {_DIM}  [{i}] AI → tool_calls: {tool_names}{_RESET}", flush=True)
+            elif msg_type == "ai":
+                print(f"  {_DIM}  [{i}] AI → findings ({content_len} chars){_RESET}", flush=True)
+            elif msg_type == "tool":
+                print(f"  {_DIM}  [{i}] TOOL response ({content_len} chars){_RESET}", flush=True)
+            elif msg_type == "human":
+                print(f"  {_DIM}  [{i}] HUMAN ({content_len} chars){_RESET}", flush=True)
+        print(f"  {_DIM}── End message flow ──{_RESET}", flush=True)
+
         # ── Debug: log per-message token breakdown after agent completes ──
         _log_message_breakdown(query=state["user_query"], messages=agent_messages, elapsed=elapsed)
 
