@@ -66,9 +66,14 @@ your steps — these are the exact questions the system knows how to answer.
 Each sub-query must:
 1. Be independently answerable by a single traversal agent run
 2. Target a specific data dimension needed to answer the overall question
-3. Be concrete — name the specific metric, entity, market, or relationship to retrieve
-4. Be non-overlapping — never ask the same thing twice
-5. Use specific field names, node labels, or metric names from the KG Schema when possible
+3. **Include the exact KPI label** from the schema when possible — e.g., \
+"Retrieve data using KPI node `kpi_site_completion_rate` for..." This eliminates guessing.
+4. **Carry ALL user-specified filters** — if the user mentioned a market, region, GC, \
+date range, or status, EVERY sub-query that touches filtered data MUST include those \
+filters explicitly. Example: user says "in Chicago market" → every sub-query must say \
+"...for Chicago market" or "...filtered by market=CHICAGO".
+5. Be non-overlapping — never ask the same thing twice
+6. Use specific field names, node labels, or metric names from the KG Schema when possible
 
 ## Step Count Guidance
 - Minimum: 2 steps (never fewer)
@@ -91,6 +96,16 @@ Schema:
 
 ## Rules
 - Each step string MUST start with "Sub-query N: " where N is the step number.
+- **KPI TARGETING from KG Schema**: The KG Schema is your primary source of truth for what \
+data is available. For each sub-query, scan the `[kpi]` and `[core]` node labels in the schema \
+to find which nodes can answer that part of the question. Include the matching KPI label in the \
+sub-query text. If the Semantic Context does not match the user query, rely on the KG Schema \
+labels and relationships to identify the right KPIs and core nodes to answer the question. \
+Example: "Sub-query 1: Using 'Site Status Breakdown' KPI, retrieve site status for CHICAGO market."
+- **FILTER PROPAGATION**: Extract ALL filters from the user query (market, region, GC name, \
+date range, project status, time period) and append them to EVERY relevant sub-query. \
+If the user says "south region next 6 weeks", every sub-query must include "for south region, \
+next 6 weeks from {today_date}". Missing filters = wrong results.
 - If the Semantic Context above includes **Data Phase Questions**, only REFER them while keeping user's actual query in mind (adapt wording to match the actual market/timeframe/target from the user query).
 - If the Semantic Context includes **Data Phase Steps**, reference them in your rationale to explain the retrieval approach.
 - Prefer specificity over breadth — narrower sub-queries produce better traversal results.
@@ -98,45 +113,4 @@ Schema:
 - Include a GC/crew capacity step for any query about feasibility, targets, or planning appropriately.
 - Do NOT add markdown code fences — return raw JSON only.
 
-## Examples
-- The below examples are only for reference DO NOT USE these unless and untill required to answer user's-query
-### Weekly Rollout Planning
-User query: "Share me the weekly plan for Chicago market to complete 100 sites in next 3 weeks"
-
-→ {{
-    "planning_rationale": "To build a realistic week-by-week plan, we need the current site pipeline (completed, WIP, pending), the prerequisite readiness status per site, historical GC run rates for Chicago, and current crew capacity. These four dimensions are retrieved in parallel and synthesised into a prioritised weekly schedule.",
-    "steps": [
-        "Sub-query 1: What is the total number of sites in the Chicago market, broken down by status — completed, WIP (construction in progress), and pending?",
-        "Sub-query 2: What are the ready sites (all prerequisites met) vs blocked sites for Chicago, with a breakdown of each blocking prerequisite (NTP, Permits, Power, Civil, Material, BOM, Fiber)?",
-        "Sub-query 3: What is the mean and median lead time for each prerequisite step (NTP, Permits, Power, Civil, Fiber, Material) for Chicago — i.e., how long does each gate typically take to clear?",
-        "Sub-query 4: What is the GC/vendor capacity for the Chicago market — how many GCs are assigned, how many active crews per GC, and what is the current weekly run rate per GC?",
-        "Sub-query 5: What is the historical weekly site completion throughput for Chicago over the past 4 weeks, including planned vs actual delivery per GC?"
-    ]
-}}
-
-### Crew Requirement Calculation
-User query: "How many GC crews are required to complete 300 sites in Chicago in 2 weeks?"
-
-→ {{
-    "planning_rationale": "To calculate the required crew count, we need the current site readiness (how many of the 300 are actually ready to start), the historical daily crew throughput (sites per crew per day), and the current active crew headcount to identify the gap.",
-    "steps": [
-        "Sub-query 1: What is the current site pipeline for Chicago — total, completed, WIP, and pending — and how many of the remaining sites are ready to start (all prerequisites met)?",
-        "Sub-query 2: What is the current GC/crew capacity and weekly run rate for Chicago — number of GCs, active crews per GC, and average sites completed per crew per week?",
-        "Sub-query 3: What are the blocking prerequisites for non-ready sites in Chicago, and what percentage of the 300 target sites are likely to become ready within the 2-week window?"
-    ]
-}}
-
-### Delay Recovery
-User query: "Recover the delayed Chicago rollout and give me a realistic plan to meet the target date"
-
-→ {{
-    "planning_rationale": "Recovery planning requires understanding the current backlog size, root causes of the delay (prerequisite blockers vs crew shortfalls vs material issues), current crew capacity, and the trajectory needed to close the gap before the target date.",
-    "steps": [
-        "Sub-query 1: What is the current site completion status for Chicago — how many are completed, in-progress, and pending — and how far behind is the plan vs actual?",
-        "Sub-query 2: What are the primary blockers for pending sites in Chicago — broken down by prerequisite type (NTP, Permits, Power, Material, Civil, Fiber) — and how many sites does each blocker affect?",
-        "Sub-query 3: What is the current GC/crew capacity in Chicago — active crews per GC, weekly output, and any underperforming or over-utilized vendors?",
-        "Sub-query 4: Based on historical prerequisite lead times for Chicago, how many blocked sites are expected to become ready each week over the next 4 weeks?",
-        "Sub-query 5: What is the material forecast and pickup status for Chicago — pending material orders, expected delivery dates, and sites waiting on material?"
-    ]
-}}
 """
