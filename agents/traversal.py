@@ -29,6 +29,13 @@ logging.getLogger("neo4j.notifications").setLevel(logging.ERROR)
 
 DEFAULT_MAX_STEPS = 10
 
+_SQL_RETRY_MESSAGE = (
+    "INCOMPLETE TRAVERSAL — you collected metadata but did NOT call run_sql_python. "
+    "Metadata alone is NOT data. You MUST now call run_sql_python with the "
+    "kpi_python_function (or map_python_function) from the metadata above to fetch "
+    "actual data. Then write your findings summary."
+)
+
 # ─── ANSI colors for terminal output ───
 _CYAN = "\033[96m"
 _GREEN = "\033[92m"
@@ -451,6 +458,16 @@ def _extract_and_print(messages: list) -> tuple[list[ToolCallRecord], str]:
     return records, findings
 
 
+def _has_data_tool_call(messages: list) -> bool:
+    """Check if any message in the agent history contains a run_sql_python call."""
+    for msg in messages:
+        if hasattr(msg, "tool_calls") and msg.tool_calls:
+            for tc in msg.tool_calls:
+                if tc.get("name") == "run_sql_python":
+                    return True
+    return False
+
+
 def traversal_node(state: SimulationState) -> dict[str, Any]:
     """
     LangGraph node: Autonomous Traversal Agent.
@@ -568,8 +585,21 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
             },
         )
 
-        elapsed = time.perf_counter() - start_time
         agent_messages = result.get("messages", [])
+
+        # ── Enforce run_sql_python: retry once if agent stopped at metadata ──
+        if not _has_data_tool_call(agent_messages):
+            print(f"\n  {_YELLOW}⚠ No run_sql_python call detected — forcing SQL execution…{_RESET}", flush=True)
+            result = agent.invoke(
+                {"messages": agent_messages + [("human", _SQL_RETRY_MESSAGE)]},
+                config={
+                    "recursion_limit": max_steps * 3 + 10,
+                    "callbacks": [llm_capture],
+                },
+            )
+            agent_messages = result.get("messages", [])
+
+        elapsed = time.perf_counter() - start_time
 
         # ── Debug: log per-message token breakdown after agent completes ──
         _log_message_breakdown(query=state["user_query"], messages=agent_messages, elapsed=elapsed)
@@ -704,8 +734,22 @@ async def atraversal_node(state: SimulationState) -> dict[str, Any]:
                 "callbacks": [llm_capture],
             },
         )
-        elapsed = time.perf_counter() - start_time
+
         agent_messages = result.get("messages", [])
+
+        # ── Enforce run_sql_python: retry once if agent stopped at metadata ──
+        if not _has_data_tool_call(agent_messages):
+            print(f"\n  {_YELLOW}⚠ No run_sql_python call detected — forcing SQL execution…{_RESET}", flush=True)
+            result = await agent.ainvoke(
+                {"messages": agent_messages + [("human", _SQL_RETRY_MESSAGE)]},
+                config={
+                    "recursion_limit": max_steps * 3 + 10,
+                    "callbacks": [llm_capture],
+                },
+            )
+            agent_messages = result.get("messages", [])
+
+        elapsed = time.perf_counter() - start_time
 
         # ── Debug: log per-message token breakdown after agent completes ──
         _log_message_breakdown(query=query, messages=agent_messages, elapsed=elapsed)
