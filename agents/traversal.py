@@ -29,13 +29,6 @@ logging.getLogger("neo4j.notifications").setLevel(logging.ERROR)
 
 DEFAULT_MAX_STEPS = 10
 
-_SQL_RETRY_MESSAGE = (
-    "INCOMPLETE TRAVERSAL — you collected metadata but did NOT call run_sql_python. "
-    "Metadata alone is NOT data. You MUST now call run_sql_python with the "
-    "kpi_python_function (or map_python_function) from the metadata above to fetch "
-    "actual data. Then write your findings summary."
-)
-
 # ─── ANSI colors for terminal output ───
 _CYAN = "\033[96m"
 _GREEN = "\033[92m"
@@ -458,31 +451,6 @@ def _extract_and_print(messages: list) -> tuple[list[ToolCallRecord], str]:
     return records, findings
 
 
-def _has_data_tool_call(messages: list) -> bool:
-    """Check if any message in the agent history contains a run_sql_python call."""
-    for msg in messages:
-        if hasattr(msg, "tool_calls") and msg.tool_calls:
-            for tc in msg.tool_calls:
-                if tc.get("name") == "run_sql_python":
-                    return True
-    return False
-
-
-def _extract_metadata_for_retry(messages: list) -> str:
-    """
-    Extract KPI/node metadata from tool responses so we can pass it to a
-    fresh agent invocation without replaying the broken message history.
-    """
-    metadata_parts = []
-    for msg in messages:
-        if msg.type == "tool":
-            content = msg.content or ""
-            # Only grab get_kpi / get_node outputs (they contain the python function)
-            if "kpi_python_function" in content or "map_python_function" in content:
-                metadata_parts.append(content)
-    return "\n\n".join(metadata_parts) if metadata_parts else ""
-
-
 def traversal_node(state: SimulationState) -> dict[str, Any]:
     """
     LangGraph node: Autonomous Traversal Agent.
@@ -600,39 +568,14 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
             },
         )
 
-        agent_messages = result.get("messages", [])
-
-        # ── Enforce run_sql_python: retry once if agent stopped at metadata ──
-        first_run_records: list[ToolCallRecord] = []
-        if not _has_data_tool_call(agent_messages):
-            print(f"\n  {_YELLOW}⚠ No run_sql_python call detected — forcing SQL execution…{_RESET}", flush=True)
-            # Save tool records from first run before starting fresh
-            first_run_records, _ = _extract_and_print(agent_messages)
-            # Extract metadata (kpi_python_function etc.) from first run's tool responses
-            metadata = _extract_metadata_for_retry(agent_messages)
-            retry_prompt = (
-                f"{_SQL_RETRY_MESSAGE}\n\n"
-                f"Here is the metadata from the previous get_kpi/get_node call:\n{metadata}"
-            ) if metadata else f"{_SQL_RETRY_MESSAGE}\n\nRe-run STEP 1 (get_kpi) then STEP 2 (run_sql_python)."
-            # Fresh invocation — clean message history, no tool call ordering issues
-            result = agent.invoke(
-                {"messages": [("human", retry_prompt)]},
-                config={
-                    "recursion_limit": max_steps * 3 + 10,
-                    "callbacks": [llm_capture],
-                },
-            )
-            agent_messages = result.get("messages", [])
-
         elapsed = time.perf_counter() - start_time
+        agent_messages = result.get("messages", [])
 
         # ── Debug: log per-message token breakdown after agent completes ──
         _log_message_breakdown(query=state["user_query"], messages=agent_messages, elapsed=elapsed)
 
         # Extract + print all tool calls and reasoning
         tool_call_records, findings = _extract_and_print(agent_messages)
-        # Merge first run's records if retry happened
-        tool_call_records = first_run_records + tool_call_records
         steps_taken = len(tool_call_records)
 
         print(f"  {_DIM}Total time: {elapsed:.1f}s{_RESET}\n", flush=True)
@@ -762,38 +705,13 @@ async def atraversal_node(state: SimulationState) -> dict[str, Any]:
             },
         )
 
-        agent_messages = result.get("messages", [])
-
-        # ── Enforce run_sql_python: retry once if agent stopped at metadata ──
-        first_run_records: list[ToolCallRecord] = []
-        if not _has_data_tool_call(agent_messages):
-            print(f"\n  {_YELLOW}⚠ No run_sql_python call detected — forcing SQL execution…{_RESET}", flush=True)
-            # Save tool records from first run before starting fresh
-            first_run_records, _ = _extract_and_print(agent_messages)
-            # Extract metadata (kpi_python_function etc.) from first run's tool responses
-            metadata = _extract_metadata_for_retry(agent_messages)
-            retry_prompt = (
-                f"{_SQL_RETRY_MESSAGE}\n\n"
-                f"Here is the metadata from the previous get_kpi/get_node call:\n{metadata}"
-            ) if metadata else f"{_SQL_RETRY_MESSAGE}\n\nRe-run STEP 1 (get_kpi) then STEP 2 (run_sql_python)."
-            # Fresh invocation — clean message history, no tool call ordering issues
-            result = await agent.ainvoke(
-                {"messages": [("human", retry_prompt)]},
-                config={
-                    "recursion_limit": max_steps * 3 + 10,
-                    "callbacks": [llm_capture],
-                },
-            )
-            agent_messages = result.get("messages", [])
-
         elapsed = time.perf_counter() - start_time
+        agent_messages = result.get("messages", [])
 
         # ── Debug: log per-message token breakdown after agent completes ──
         _log_message_breakdown(query=query, messages=agent_messages, elapsed=elapsed)
 
         tool_call_records, findings = _extract_and_print(agent_messages)
-        # Merge first run's records if retry happened
-        tool_call_records = first_run_records + tool_call_records
         steps_taken = len(tool_call_records)
 
         logger.info(
