@@ -82,10 +82,44 @@ def _truncate_tool_output(tool_name: str, raw_json: str) -> str:
         if parsed.get("status") == "error" or "error" in parsed:
             return raw_json
 
+        # Structured aggregate result: {"summary": ..., "detail_rows": [...], "total_rows": N}
+        # Preserve summary intact, only truncate detail_rows if needed.
+        if isinstance(parsed.get("result"), dict) and "summary" in parsed["result"]:
+            candidate = json.dumps(parsed, default=str)
+            if len(candidate) <= limit:
+                return candidate
+            detail = parsed["result"].get("detail_rows", [])
+            if isinstance(detail, list):
+                keep = len(detail)
+                while keep > 0:
+                    parsed["result"]["detail_rows"] = detail[:keep]
+                    candidate = json.dumps(parsed, default=str)
+                    if len(candidate) <= limit:
+                        return candidate
+                    keep = keep // 2
+                parsed["result"]["detail_rows"] = []
+            return json.dumps(parsed, default=str)[:limit]
+
         # run_sql_python / run_python: truncate the 'result' list
         if "result" in parsed and isinstance(parsed["result"], list):
             rows = parsed["result"]
             total = len(rows)
+
+            # Auto-aggregate safety net: compute basic stats from FULL data
+            # before truncating rows. This ensures accurate totals survive truncation.
+            if total > 0:
+                try:
+                    import pandas as pd
+                    df = pd.DataFrame(rows)
+                    agg: dict = {"total_rows": total}
+                    for col in df.columns:
+                        if pd.api.types.is_numeric_dtype(df[col]):
+                            agg[f"{col}__sum"] = float(df[col].sum())
+                            agg[f"{col}__avg"] = round(float(df[col].mean()), 2)
+                    parsed["_full_data_aggregates"] = agg
+                except Exception:
+                    parsed["_full_data_aggregates"] = {"total_rows": total}
+
             # Binary search for how many rows fit
             keep = total
             while keep > 0:
@@ -93,7 +127,7 @@ def _truncate_tool_output(tool_name: str, raw_json: str) -> str:
                 parsed["_truncated"] = {
                     "total_rows": total,
                     "rows_shown": keep,
-                    "message": f"Showing {keep} of {total} rows. Use aggregations/GROUP BY to reduce."
+                    "message": f"Showing {keep} of {total} rows. Aggregates in _full_data_aggregates are from FULL dataset."
                 }
                 candidate = json.dumps(parsed, default=str)
                 if len(candidate) <= limit:

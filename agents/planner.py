@@ -38,7 +38,7 @@ _DIM    = "\033[2m"
 _RESET  = "\033[0m"
 
 _MAX_PARALLEL_STEPS = 6    # Hard cap — prompt targets 4-6 focused steps
-_PLANNER_STEP_MAX_STEPS = 6   # Hard cap — fixed protocol needs at most 6 tool calls
+_PLANNER_STEP_MAX_STEPS = 10  # Budget: get_kpi + run_sql_python + 3 retries + get_node fallback + run_sql_python + spare
 _STEP_TIMEOUT_SEC = 300   # Kill a runaway sub-traversal after 5 minutes
 
 

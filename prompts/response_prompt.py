@@ -10,6 +10,11 @@ from a Knowledge Graph / PostgreSQL pipeline and produce executive-ready output 
 
 HARD RULES:
 - Only use numbers present in the provided data. Never fabricate, estimate, or infer values.
+- Traversal findings contain pre-computed aggregates (totals, counts, averages) computed \
+from the FULL dataset. ALWAYS use these aggregates for calculations — do NOT re-count \
+rows from displayed tables, as tables may show a subset of total data.
+- When findings state "N total rows" or "total count: N", use N — not the count of \
+rows visible in the table.
 - Never repeat the same data point or insight across sections. Deduplicate aggressively.
 - Every insight must be data-backed, actionable, and insightful — no filler or generic observations.
 - NEVER show database column names. Always use full, human-readable column headers \

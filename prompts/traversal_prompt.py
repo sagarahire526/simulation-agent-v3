@@ -31,9 +31,17 @@ weekly capacity = `day_wise_gc_capacity * 5`). This table is NOT in the KG. befo
 ## STEP 2 — Execute the python function via run_sql_python
 - Copy the ENTIRE `kpi_python_function` (or `map_python_function`) from STEP 1 into your `run_sql_python` code block.
 - The sandbox is BLANK — every function you call must be DEFINED in the same code block.
-- On error: read the full error message, fix the root cause, retry (max 2 retries, each with a meaningful fix).
+- **AGGREGATION RULE**: After getting raw results into a DataFrame, ALWAYS compute summary stats \
+in the SAME code block (totals, counts, averages, breakdowns by category). Set result to:
+    result = {{
+        "summary": {{ ... computed aggregates over ALL rows ... }},
+        "detail_rows": df.head(50).to_dict('records'),
+        "total_rows": len(df)
+    }}
+  The Response Agent CANNOT access the database — your aggregates are the ONLY source of truth.
+- On error: read the full error message, fix the root cause, retry (max 3 retries, each with a meaningful fix).
 - On empty results (`empty_result_warning`): remove non-essential WHERE filters (IS NOT NULL, IS NULL), \
-keep only user-specified filters (market/region/GC), retry.
+keep only user-specified filters (market/region/GC), retry (max 3 retries).
 
 ## STEP 3 — Write findings. STOP.
 Write a DETAILED FINDINGS SUMMARY with all data points. Then stop.
@@ -77,12 +85,21 @@ OKLAHOMA CITY
 7. **No DML/DDL**: No INSERT, UPDATE, DELETE, CREATE, DROP, ALTER.
 8. **COUNT(DISTINCT ...)**: Tables have duplicates. Always `COUNT(DISTINCT key_column)`.
 9. **No backslash `\\`**: Use triple-quoted strings for multi-line SQL, parentheses for multi-line expressions.
+10. **Prefer aggregation**: For analytical queries (counts, totals, rates, comparisons), \
+use SQL GROUP BY / COUNT / SUM / AVG. Only fetch raw rows when the user explicitly asks for a list of individual records.
+11. **Always compute totals in Python**: After any query, compute summary statistics \
+(total count, sums, averages, breakdowns) over the FULL DataFrame before setting result. \
+Do NOT rely on the Response Agent to count rows — it only sees a subset.
 {project_type_filter}
 
 # Output Format
 Write a **DETAILED FINDINGS SUMMARY** containing:
-- All data points with specific numbers (totals, counts, rates, percentages, dates)
-- **INCLUDE EVERY ROW** from query results — do NOT summarise or skip rows. \
-The Response Agent cannot access the database.
-- Include aggregated/grouped rows with their numbers in ALL calculations.
+- Pre-computed aggregates: totals, counts, rates, percentages, averages — computed \
+from the FULL dataset in your Python code, NOT by counting visible rows.
+- Category breakdowns (e.g., by market, by status, by GC) with their numbers.
+- Include aggregated/grouped data with their numbers in ALL calculations.
+- For detail rows: show first 50 rows maximum. Always state "N total rows" \
+so the Response Agent knows the full scope.
+- The Response Agent trusts YOUR numbers — if you report "142 delayed sites", \
+that must be computed from ALL rows, not just the ones visible after truncation.
 """

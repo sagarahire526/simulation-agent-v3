@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # Suppress noisy Neo4j deprecation warnings
 logging.getLogger("neo4j.notifications").setLevel(logging.ERROR)
 
-DEFAULT_MAX_STEPS = 6
+DEFAULT_MAX_STEPS = 10
 
 # ─── ANSI colors for terminal output ───
 _CYAN = "\033[96m"
@@ -462,7 +462,7 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
     # Suppress pandas SQLAlchemy warnings
     warnings.filterwarnings("ignore", message=".*pandas only supports SQLAlchemy.*")
 
-    llm = LLMProvider.get_llm("gpt-5-mini", reasoning_effort="low")
+    llm = LLMProvider.get_llm("default")
 
     # Build system prompt with KG schema injected
     kg_schema = state.get("kg_schema", "Schema not available")
@@ -522,7 +522,7 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
     safe_kg_schema = kg_schema.replace("{", "{{").replace("}", "}}")
     safe_semantic  = semantic_context.replace("{", "{{").replace("}", "}}")
     safe_pt_filter = project_type_filter.replace("{", "{{").replace("}", "}}")
-    print(f"FETCHED KNOWLEDGE GRAPH SCHEMA IS AS FOLLOWS: {safe_kg_schema}")
+    # print(f"FETCHED KNOWLEDGE GRAPH SCHEMA IS AS FOLLOWS: {safe_kg_schema}")
     system_prompt = TRAVERSAL_SYSTEM.format(
         today_date=date.today(),
         kg_schema=safe_kg_schema,
@@ -641,7 +641,7 @@ async def atraversal_node(state: SimulationState) -> dict[str, Any]:
     """
     warnings.filterwarnings("ignore", message=".*pandas only supports SQLAlchemy.*")
 
-    llm = LLMProvider.get_llm("gpt-5-mini", reasoning_effort="low")
+    llm = LLMProvider.get_llm("default")
 
     kg_schema = state.get("kg_schema", "Schema not available")
     # Planner always pre-fetches and injects semantic context — reuse it.
@@ -667,7 +667,7 @@ async def atraversal_node(state: SimulationState) -> dict[str, Any]:
     safe_kg_schema = kg_schema.replace("{", "{{").replace("}", "}}")
     safe_semantic  = semantic_context.replace("{", "{{").replace("}", "}}")
     safe_pt_filter = project_type_filter.replace("{", "{{").replace("}", "}}")
-    print(f"FETCHED KNOWLEDGE GRAPH SCHEMA IS AS FOLLOWS: {safe_kg_schema}")
+    # print(f"FETCHED KNOWLEDGE GRAPH SCHEMA IS AS FOLLOWS: {safe_kg_schema}")
     system_prompt = TRAVERSAL_SYSTEM.format(
         today_date=date.today(),
         kg_schema=safe_kg_schema,
