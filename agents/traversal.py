@@ -504,14 +504,18 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
     print(f"  {_DIM}Project type in state: '{project_type}'{_RESET}", flush=True)
     if project_type:
         project_type_filter = (
-            f'10. **MANDATORY Project Type Filter**: The user selected project type '
+            f'12. **MANDATORY Project Type Filter**: The user selected project type '
             f'**{project_type}**. Whenever you query the table '
             f'`pwc_macro_staging_schema.stg_ndpd_mbt_tmobile_macro_combined`, '
             f'you MUST include `WHERE smp_name = \'{project_type}\'` (or add it as '
             f'an AND condition if other WHERE clauses exist). This filter is NON-NEGOTIABLE '
             f'— every single SQL query touching this table must have it. '
             f'This filter applies ONLY to `stg_ndpd_mbt_tmobile_macro_combined` — '
-            f'do NOT add it to other tables.'
+            f'do NOT add it to other tables.\n'
+            f'13. **NEVER use `pj_project_type`** to filter project type (AHLOA, NTM, etc.). '
+            f'The correct column is ALWAYS `smp_name`. `pj_project_type` does NOT exist for '
+            f'this purpose. If you see project type values like AHLOA, NTM, AHLOB — filter '
+            f'with `smp_name`, never `pj_project_type`.'
         )
         print(f"  {_GREEN}✓ Project type filter injected: smp_name = '{project_type}'{_RESET}", flush=True)
     else:
@@ -669,14 +673,18 @@ async def atraversal_node(state: SimulationState) -> dict[str, Any]:
     project_type = state.get("project_type", "")
     if project_type:
         project_type_filter = (
-            f'10. **MANDATORY Project Type Filter**: The user selected project type '
+            f'12. **MANDATORY Project Type Filter**: The user selected project type '
             f'**{project_type}**. Whenever you query the table '
             f'`pwc_macro_staging_schema.stg_ndpd_mbt_tmobile_macro_combined`, '
             f'you MUST include `WHERE smp_name = \'{project_type}\'` (or add it as '
             f'an AND condition if other WHERE clauses exist). This filter is NON-NEGOTIABLE '
             f'— every single SQL query touching this table must have it. '
             f'This filter applies ONLY to `stg_ndpd_mbt_tmobile_macro_combined` — '
-            f'do NOT add it to other tables.'
+            f'do NOT add it to other tables.\n'
+            f'13. **NEVER use `pj_project_type`** to filter project type (AHLOA, NTM, etc.). '
+            f'The correct column is ALWAYS `smp_name`. `pj_project_type` does NOT exist for '
+            f'this purpose. If you see project type values like AHLOA, NTM, AHLOB — filter '
+            f'with `smp_name`, never `pj_project_type`.'
         )
     else:
         project_type_filter = ""
