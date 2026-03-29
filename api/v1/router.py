@@ -3,7 +3,7 @@ v1 router — aggregates all v1 endpoint routers under the /v1 prefix.
 """
 from fastapi import APIRouter
 
-from api.v1.endpoints import health, simulate, bkg, sandbox, semantic, threads, sse_simulate, chart
+from api.v1.endpoints import health, simulate, bkg, sandbox, semantic, threads, sse_simulate, chart, feedback
 
 router = APIRouter(prefix="/v1")
 
@@ -15,3 +15,4 @@ router.include_router(health.router)
 router.include_router(semantic.router)
 router.include_router(simulate.router)
 router.include_router(chart.router)
+router.include_router(feedback.router)

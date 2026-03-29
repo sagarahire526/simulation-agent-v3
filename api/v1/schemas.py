@@ -5,9 +5,18 @@ All models live here so endpoints stay thin and types are reusable.
 """
 from __future__ import annotations
 
+from enum import Enum
 from typing import Any, Optional
 
 from pydantic import BaseModel
+
+
+# ── Project Type Enum ─────────────────────────────────────────────────────────
+
+class ProjectType(str, Enum):
+    NTM = "NTM"
+    AHLOB = "AHLOB Modernization"
+    BOTH = "NTM,AHLOB Modernization"
 
 
 # ── Simulate ──────────────────────────────────────────────────────────────────
@@ -15,6 +24,7 @@ from pydantic import BaseModel
 class SimulateRequest(BaseModel):
     user_id: str                       # Supplied via Swagger for now; passed by frontend later
     query: str
+    project_type: ProjectType          # Dropdown: NTM, AHLOB Modernization, or Both
     thread_id: Optional[str] = None    # Caller-supplied conversation ID for HITL
 
     model_config = {
@@ -22,6 +32,7 @@ class SimulateRequest(BaseModel):
             "example": {
                 "user_id": "user-001",
                 "query": "How many active GC sites are in Chicago?",
+                "project_type": "NTM",  # Options: "NTM", "AHLOB Modernization", "NTM,AHLOB Modernization"
                 "thread_id": "session-abc-123",
             }
         }
@@ -175,6 +186,56 @@ class ClarificationStatus(BaseModel):
     questions_asked: Optional[list[str]] = None
     assumptions_offered: Optional[list[str]] = None
     asked_at: Optional[Any] = None
+
+
+# ── Feedback ──────────────────────────────────────────────────────────────────
+
+class FeedbackRequest(BaseModel):
+    thread_id: str
+    query_id: str                       # References the specific chat turn being rated
+    user_id: str
+    username: str
+    rating: Optional[int] = None        # Numeric rating (1-5)
+    is_positive: Optional[bool] = None  # Thumbs up (true) / thumbs down (false)
+    comment: Optional[str] = None
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "thread_id": "session-abc-123",
+                "query_id": "query-xyz-456",
+                "user_id": "user-001",
+                "username": "sagar.ahire",
+                "rating": 4,
+                "is_positive": True,
+                "comment": "Very accurate simulation results!",
+            }
+        }
+    }
+
+
+class FeedbackOut(BaseModel):
+    feedback_id: str
+    thread_id: str
+    query_id: str
+    user_id: str
+    username: str
+    rating: Optional[int] = None
+    is_positive: Optional[bool] = None
+    comment: Optional[str] = None
+    created_at: Any
+
+
+class FeedbackSubmitResponse(BaseModel):
+    feedback_id: str
+    status: str = "submitted"
+
+
+class FeedbackStats(BaseModel):
+    total: int
+    avg_rating: Optional[float] = None
+    thumbs_up: int
+    thumbs_down: int
 
 
 # ── Sandbox ───────────────────────────────────────────────────────────────────

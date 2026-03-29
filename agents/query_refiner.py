@@ -37,16 +37,6 @@ _DIM   = "\033[2m"
 _RESET = "\033[0m"
 
 
-def _extract_project_type(text: str) -> str | None:
-    """Extract project type from user text using keyword matching."""
-    t = text.lower()
-    # Check longer phrases first to avoid false matches
-    if "ahlob modernization" in t or "ahloa-b" in t or "ahlob" in t or "ahloa" in t:
-        return "AHLOB Modernization"
-    if "ntm" in t or "macro" in t:
-        return "NTM"
-    return None
-
 
 def _parse_refiner_response(content: str) -> dict:
     """
@@ -98,19 +88,13 @@ def query_refiner_node(state: SimulationState) -> dict[str, Any]:
     clarification_questions: list[str] = parsed.get("clarification_questions", [])
     assumptions: list[str] = parsed.get("assumptions", [])
     refined_query: str = parsed.get("refined_query", user_query) or user_query
-    project_type: str | None = parsed.get("project_type")
-    # Fallback: extract from query text if LLM missed it
-    if not project_type:
-        project_type = _extract_project_type(user_query)
 
     if assumptions:
         print(f"  {_DIM}Assumptions: {' | '.join(assumptions)}{_RESET}", flush=True)
-    if project_type:
-        print(f"  {_DIM}Project type: {project_type}{_RESET}", flush=True)
 
     if is_complete:
         print(f"  {_GREEN}✓ Query is complete — proceeding to orchestrator.{_RESET}\n", flush=True)
-        result = {
+        return {
             "refined_query": refined_query,
             "current_phase": "orchestration",
             "messages": [{
@@ -118,9 +102,6 @@ def query_refiner_node(state: SimulationState) -> dict[str, Any]:
                 "content": f"Query accepted as complete. Refined: {refined_query}",
             }],
         }
-        if project_type:
-            result["project_type"] = project_type
-        return result
 
     # ── Query is incomplete → ask the user for clarification ──────────────────
     print(f"  {_YELLOW}⚠ Query needs clarification:{_RESET}", flush=True)
@@ -150,24 +131,12 @@ def query_refiner_node(state: SimulationState) -> dict[str, Any]:
         )
         print(f"  {_GREEN}✓ Clarification received. Refined query:{_RESET}", flush=True)
         print(f"     {refined_query}\n", flush=True)
-
-        # Extract project_type from clarification if not already known
-        if not project_type:
-            project_type = _extract_project_type(user_clarification)
-        # Also check the original query in case it was there all along
-        if not project_type:
-            project_type = _extract_project_type(user_query)
-
-        if project_type:
-            print(f"  {_GREEN}✓ Project type resolved: {project_type}{_RESET}", flush=True)
-        else:
-            print(f"  {_YELLOW}⚠ Project type not found in clarification{_RESET}", flush=True)
     else:
         # User accepted assumptions; use the LLM's refined version as-is
         refined_query = refined_query or user_query
         print(f"  {_DIM}No clarification provided — proceeding with assumptions.{_RESET}\n", flush=True)
 
-    result = {
+    return {
         "refined_query": refined_query,
         "current_phase": "orchestration",
         "messages": [{
@@ -175,6 +144,3 @@ def query_refiner_node(state: SimulationState) -> dict[str, Any]:
             "content": f"Query refined after clarification. Final: {refined_query}",
         }],
     }
-    if project_type:
-        result["project_type"] = project_type
-    return result

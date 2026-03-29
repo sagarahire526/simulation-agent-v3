@@ -89,6 +89,20 @@ def ensure_tables() -> None:
             answered_at         TIMESTAMP,
             was_skipped         BOOLEAN         DEFAULT FALSE
         );
+
+        CREATE TABLE IF NOT EXISTS {_SCHEMA}.simulation_agent_feedback (
+            feedback_id     VARCHAR(100)    PRIMARY KEY,
+            thread_id       VARCHAR(100)    NOT NULL
+                                REFERENCES {_SCHEMA}.simulation_agent_threads(thread_id),
+            query_id        VARCHAR(100)    NOT NULL
+                                REFERENCES {_SCHEMA}.simulation_agent_queries(query_id),
+            user_id         VARCHAR(100)    NOT NULL,
+            username        VARCHAR(255)    NOT NULL,
+            rating          SMALLINT,
+            is_positive     BOOLEAN,
+            comment         TEXT,
+            created_at      TIMESTAMP       NOT NULL DEFAULT NOW()
+        );
     """
     # Migration: add graph and traces columns if missing (safe for existing deployments)
     migrate_graph_col = f"""
@@ -403,6 +417,10 @@ def delete_thread(thread_id: str) -> bool:
         with _conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
+                    f"DELETE FROM {_SCHEMA}.simulation_agent_feedback WHERE thread_id = %s",
+                    (thread_id,),
+                )
+                cur.execute(
                     f"DELETE FROM {_SCHEMA}.simulation_agent_hitl_clarifications WHERE thread_id = %s",
                     (thread_id,),
                 )
@@ -445,6 +463,77 @@ def get_messages_by_thread(thread_id: str) -> list[dict]:
         """,
         (thread_id,),
     )
+
+
+# ─────────────────────────────────────────────
+# feedback
+# ─────────────────────────────────────────────
+
+def create_feedback(
+    feedback_id: str,
+    thread_id: str,
+    query_id: str,
+    user_id: str,
+    username: str,
+    rating: int | None = None,
+    is_positive: bool | None = None,
+    comment: str | None = None,
+) -> None:
+    """Insert a feedback entry linked to a specific query turn."""
+    _exec(
+        f"""
+        INSERT INTO {_SCHEMA}.simulation_agent_feedback
+            (feedback_id, thread_id, query_id, user_id, username,
+             rating, is_positive, comment, created_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+        """,
+        (feedback_id, thread_id, query_id, user_id, username, rating, is_positive, comment),
+    )
+
+
+def get_feedback_for_query(query_id: str) -> list[dict]:
+    """Return all feedback entries for a specific query turn."""
+    return _fetch_rows(
+        f"""
+        SELECT feedback_id, thread_id, query_id, user_id, username,
+               rating, is_positive, comment, created_at
+        FROM {_SCHEMA}.simulation_agent_feedback
+        WHERE query_id = %s
+        ORDER BY created_at ASC
+        """,
+        (query_id,),
+    )
+
+
+def get_feedback_for_thread(thread_id: str) -> list[dict]:
+    """Return all feedback entries for a given thread."""
+    return _fetch_rows(
+        f"""
+        SELECT feedback_id, thread_id, query_id, user_id, username,
+               rating, is_positive, comment, created_at
+        FROM {_SCHEMA}.simulation_agent_feedback
+        WHERE thread_id = %s
+        ORDER BY created_at ASC
+        """,
+        (thread_id,),
+    )
+
+
+def get_feedback_stats(thread_id: str | None = None) -> dict:
+    """Return aggregate feedback stats (count, avg rating, thumbs up/down)."""
+    where = "WHERE thread_id = %s" if thread_id else ""
+    params = (thread_id,) if thread_id else ()
+    sql = f"""
+        SELECT
+            COUNT(*) AS total,
+            ROUND(AVG(rating)::numeric, 2) AS avg_rating,
+            COUNT(*) FILTER (WHERE is_positive = true) AS thumbs_up,
+            COUNT(*) FILTER (WHERE is_positive = false) AS thumbs_down
+        FROM {_SCHEMA}.simulation_agent_feedback
+        {where}
+    """
+    row = _fetch_row(sql, params)
+    return row if row else {"total": 0, "avg_rating": None, "thumbs_up": 0, "thumbs_down": 0}
 
 
 def get_pending_clarification(thread_id: str) -> dict | None:

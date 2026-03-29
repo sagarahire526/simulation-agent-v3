@@ -28,6 +28,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from api.v1.schemas import ProjectType
 import services.db_service as db_svc
 from graph import stream_simulation
 from services.simulation_service import _build_traces
@@ -61,6 +62,7 @@ def _run_stream_thread(
     query_id: str,
     thread_id: str,
     user_id: str,
+    project_type: str = "",
 ) -> None:
     """
     All blocking work runs here — inside a thread executor so the event loop
@@ -94,6 +96,7 @@ def _run_stream_thread(
             thread_id=thread_id,
             mgr=sse_manager,
             on_hitl=_on_hitl,
+            project_type=project_type,
         )
         duration_ms = round((time.perf_counter() - t0) * 1000, 1)
 
@@ -162,9 +165,10 @@ async def _event_generator(
 
 @router.get("/stream")
 async def stream_simulate(
-    query:     str = Query(..., description="The simulation query"),
-    user_id:   str = Query(..., description="User identifier"),
-    thread_id: str = Query(None, description="Conversation thread ID; auto-generated if omitted"),
+    query:        str = Query(..., description="The simulation query"),
+    user_id:      str = Query(..., description="User identifier"),
+    project_type: ProjectType = Query(..., description="Project type"),
+    thread_id:    str = Query(None, description="Conversation thread ID; auto-generated if omitted"),
 ):
     """
     Start a streaming simulation. Returns `text/event-stream`.
@@ -190,7 +194,7 @@ async def stream_simulate(
     loop.run_in_executor(
         None,
         _run_stream_thread,
-        query, query_id, thread_id, user_id,
+        query, query_id, thread_id, user_id, project_type.value,
     )
 
     async def _stream_with_preamble() -> AsyncGenerator[str, None]:

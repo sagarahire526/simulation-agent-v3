@@ -500,24 +500,30 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
             logger.warning("Semantic search failed (non-fatal): %s", e)
 
     # ── Build project-type filter instruction for the prompt ─────────
-    project_type = state.get("project_type", "")
-    print(f"  {_DIM}Project type in state: '{project_type}'{_RESET}", flush=True)
-    if project_type:
+    project_type_raw = state.get("project_type", "")
+    print(f"  {_DIM}Project type in state: '{project_type_raw}'{_RESET}", flush=True)
+    if project_type_raw:
+        types = [t.strip() for t in project_type_raw.split(",") if t.strip()]
+        if len(types) == 1:
+            sql_filter = f"smp_name = '{types[0]}'"
+            display = types[0]
+        else:
+            in_values = ", ".join(f"'{t}'" for t in types)
+            sql_filter = f"smp_name IN ({in_values})"
+            display = " & ".join(types)
+
         project_type_filter = (
-            f'12. **MANDATORY Project Type Filter**: The user selected project type '
-            f'**{project_type}**. Whenever you query the table '
-            f'`pwc_macro_staging_schema.stg_ndpd_mbt_tmobile_macro_combined`, '
-            f'you MUST include `WHERE smp_name = \'{project_type}\'` (or add it as '
-            f'an AND condition if other WHERE clauses exist). This filter is NON-NEGOTIABLE '
-            f'— every single SQL query touching this table must have it. '
-            f'This filter applies ONLY to `stg_ndpd_mbt_tmobile_macro_combined` — '
-            f'do NOT add it to other tables.\n'
-            f'13. **NEVER use `pj_project_type`** to filter project type (AHLOA, NTM, etc.). '
-            f'The correct column is ALWAYS `smp_name`. `pj_project_type` does NOT exist for '
-            f'this purpose. If you see project type values like AHLOA, NTM, AHLOB — filter '
-            f'with `smp_name`, never `pj_project_type`.'
+            f'- **⚠️ MANDATORY BEFORE YOU WRITE ANY SQL**: The user selected project type '
+            f'**{display}**. You MUST add `WHERE {sql_filter}` to EVERY SQL query on '
+            f'`pwc_macro_staging_schema.stg_ndpd_mbt_tmobile_macro_combined`. '
+            f'If the query already has a WHERE clause, add `AND {sql_filter}`. '
+            f'This is NON-NEGOTIABLE — a query without this filter returns WRONG data.\n'
+            f'- **Column name**: The column is `smp_name`, NEVER `pj_project_type`. '
+            f'`pj_project_type` does NOT exist. Always use `smp_name`.\n'
+            f'- This filter applies ONLY to `stg_ndpd_mbt_tmobile_macro_combined` — '
+            f'do NOT add it to other tables.'
         )
-        print(f"  {_GREEN}✓ Project type filter injected: smp_name = '{project_type}'{_RESET}", flush=True)
+        print(f"  {_GREEN}✓ Project type filter injected: {sql_filter}{_RESET}", flush=True)
     else:
         project_type_filter = ""
         print(f"  {_YELLOW}⚠ No project type in state — smp_name filter NOT applied{_RESET}", flush=True)
@@ -670,21 +676,27 @@ async def atraversal_node(state: SimulationState) -> dict[str, Any]:
     simulation_guidance = state.get("scenario_simulation_guidance", "")
 
     # ── Build project-type filter instruction for the prompt ─────────
-    project_type = state.get("project_type", "")
-    if project_type:
+    project_type_raw = state.get("project_type", "")
+    if project_type_raw:
+        types = [t.strip() for t in project_type_raw.split(",") if t.strip()]
+        if len(types) == 1:
+            sql_filter = f"smp_name = '{types[0]}'"
+            display = types[0]
+        else:
+            in_values = ", ".join(f"'{t}'" for t in types)
+            sql_filter = f"smp_name IN ({in_values})"
+            display = " & ".join(types)
+
         project_type_filter = (
-            f'12. **MANDATORY Project Type Filter**: The user selected project type '
-            f'**{project_type}**. Whenever you query the table '
-            f'`pwc_macro_staging_schema.stg_ndpd_mbt_tmobile_macro_combined`, '
-            f'you MUST include `WHERE smp_name = \'{project_type}\'` (or add it as '
-            f'an AND condition if other WHERE clauses exist). This filter is NON-NEGOTIABLE '
-            f'— every single SQL query touching this table must have it. '
-            f'This filter applies ONLY to `stg_ndpd_mbt_tmobile_macro_combined` — '
-            f'do NOT add it to other tables.\n'
-            f'13. **NEVER use `pj_project_type`** to filter project type (AHLOA, NTM, etc.). '
-            f'The correct column is ALWAYS `smp_name`. `pj_project_type` does NOT exist for '
-            f'this purpose. If you see project type values like AHLOA, NTM, AHLOB — filter '
-            f'with `smp_name`, never `pj_project_type`.'
+            f'- **⚠️ MANDATORY BEFORE YOU WRITE ANY SQL**: The user selected project type '
+            f'**{display}**. You MUST add `WHERE {sql_filter}` to EVERY SQL query on '
+            f'`pwc_macro_staging_schema.stg_ndpd_mbt_tmobile_macro_combined`. '
+            f'If the query already has a WHERE clause, add `AND {sql_filter}`. '
+            f'This is NON-NEGOTIABLE — a query without this filter returns WRONG data.\n'
+            f'- **Column name**: The column is `smp_name`, NEVER `pj_project_type`. '
+            f'`pj_project_type` does NOT exist. Always use `smp_name`.\n'
+            f'- This filter applies ONLY to `stg_ndpd_mbt_tmobile_macro_combined` — '
+            f'do NOT add it to other tables.'
         )
     else:
         project_type_filter = ""

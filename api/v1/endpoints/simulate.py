@@ -32,7 +32,7 @@ def simulate(req: SimulateRequest):
     """
     thread_id = req.thread_id or str(uuid.uuid4())
     try:
-        result = sim_svc.run_query(req.query, thread_id=thread_id, user_id=req.user_id)
+        result = sim_svc.run_query(req.query, thread_id=thread_id, user_id=req.user_id, project_type=req.project_type.value)
         return SimulateResponse(thread_id=thread_id, **result)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

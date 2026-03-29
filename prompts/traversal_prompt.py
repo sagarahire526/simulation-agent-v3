@@ -38,6 +38,7 @@ weekly capacity = `day_wise_gc_capacity * 5`). This table is NOT in the KG. Befo
 ## STEP 2 — Execute the python function via run_sql_python
 - Copy the ENTIRE `kpi_python_function` (or `map_python_function`) from STEP 1 into your `run_sql_python` code block.
 - The sandbox is BLANK — every function you call must be DEFINED in the same code block.
+{project_type_filter}
 - **AGGREGATION RULE**: After getting raw results into a DataFrame, ALWAYS compute summary stats \
 in the SAME code block (totals, counts, averages, breakdowns by category). Set result to:
     result = {{
@@ -103,7 +104,6 @@ use SQL GROUP BY / COUNT / SUM / AVG. Only fetch raw rows when the user explicit
 11. **Always compute totals in Python**: After any query, compute summary statistics \
 (total count, sums, averages, breakdowns) over the FULL DataFrame before setting result. \
 Do NOT rely on the Response Agent to count rows — it only sees a subset.
-{project_type_filter}
 
 # Output Format
 Write a **DETAILED FINDINGS SUMMARY** containing:

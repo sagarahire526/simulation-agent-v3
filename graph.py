@@ -131,11 +131,11 @@ def _print_phase_timings(timings: dict[str, float], total_ms: float) -> None:
     print("─" * 52 + "\n", flush=True)
 
 
-def _make_initial_state(query: str, max_steps: int) -> SimulationState:
+def _make_initial_state(query: str, max_steps: int, project_type: str = "") -> SimulationState:
     return {
         "user_query": query,
         "refined_query": "",
-        "project_type": "",
+        "project_type": project_type,
         "current_phase": "query_refinement",
         "routing_decision": "",
         "routing_context": "",
@@ -163,14 +163,16 @@ def run_simulation(
     query: str,
     max_steps: int = 20,
     thread_id: str = "default",
+    project_type: str = "",
 ) -> dict:
     """
     Start (or resume) a simulation query end-to-end.
 
     Args:
-        query:      The user's simulation question.
-        max_steps:  Maximum number of tool calls for each traversal agent run.
-        thread_id:  Conversation thread identifier for HITL state tracking.
+        query:        The user's simulation question.
+        max_steps:    Maximum number of tool calls for each traversal agent run.
+        thread_id:    Conversation thread identifier for HITL state tracking.
+        project_type: "NTM", "AHLOB Modernization", or "NTM,AHLOB Modernization".
 
     Returns:
         The final state dict — or an intermediate state with
@@ -178,7 +180,7 @@ def run_simulation(
     """
     thread_config = {"configurable": {"thread_id": thread_id}}
 
-    initial_state = _make_initial_state(query, max_steps)
+    initial_state = _make_initial_state(query, max_steps, project_type=project_type)
 
     logger.info("Starting simulation [thread=%s]: %s", thread_id, query)
 
@@ -285,6 +287,7 @@ def stream_simulation(
     mgr,                 # SSEManager instance — passed in to avoid circular import
     max_steps: int = 20,
     on_hitl=None,        # optional callable(payload) invoked just before .wait()
+    project_type: str = "",
 ) -> dict:
     """
     Stream the simulation graph end-to-end, pushing SSE events via mgr.put_sync().
@@ -300,7 +303,7 @@ def stream_simulation(
     Returns the final LangGraph state values dict.
     """
     thread_config = {"configurable": {"thread_id": thread_id}}
-    initial_state = _make_initial_state(query, max_steps)
+    initial_state = _make_initial_state(query, max_steps, project_type=project_type)
 
     logger.info(
         "Streaming simulation [thread=%s query=%s]: %.80s",

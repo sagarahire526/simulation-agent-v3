@@ -107,6 +107,7 @@ def run_query(
     query: str,
     thread_id: str = "default",
     user_id: str = "anonymous",
+    project_type: str = "",
 ) -> dict:
     """
     Start a new simulation query.
@@ -133,7 +134,7 @@ def run_query(
     logger.info("Starting query [thread=%s query=%s]: %.80s", thread_id, query_id, query)
 
     try:
-        state = run_simulation(query, thread_id=thread_id)
+        state = run_simulation(query, thread_id=thread_id, project_type=project_type)
     except Exception:
         duration_ms = round((time.perf_counter() - t0) * 1000, 1)
         db_svc.update_query_error(query_id, duration_ms)
