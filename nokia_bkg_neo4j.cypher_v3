@@ -1,0 +1,1218 @@
+// ============================================================
+//  NOKIA BKG (Business Knowledge Graph) — FULL NEO4J INGESTION
+//  Covers: 51 Concept Nodes (29 Fully Mapped + 22 Stubs)
+//          9 Metric Nodes
+//          All Edges / Relationships
+// ============================================================
+// Run sections in order:
+//   1. CONSTRAINTS & INDEXES
+//   2. CONCEPT NODES — FULLY MAPPED
+//   3. CONCEPT NODES — STUBS
+//   4. METRIC NODES
+//   5. RELATIONSHIPS
+// ============================================================
+
+
+// ============================================================
+//  SECTION 1 — CONSTRAINTS & INDEXES
+// ============================================================
+
+CREATE CONSTRAINT con_concept_node_id   IF NOT EXISTS FOR (n:ConceptNode) REQUIRE n.node_id IS UNIQUE;
+CREATE CONSTRAINT con_metric_id          IF NOT EXISTS FOR (n:MetricNode)  REQUIRE n.metric_id IS UNIQUE;
+CREATE INDEX idx_concept_domain          IF NOT EXISTS FOR (n:ConceptNode) ON (n.domain);
+CREATE INDEX idx_concept_layer           IF NOT EXISTS FOR (n:ConceptNode) ON (n.layer);
+CREATE INDEX idx_concept_stub            IF NOT EXISTS FOR (n:ConceptNode) ON (n.is_stub);
+CREATE INDEX idx_metric_domain           IF NOT EXISTS FOR (n:MetricNode)  ON (n.domain);
+
+
+// ============================================================
+//  SECTION 2 — CONCEPT NODES (FULLY MAPPED, is_stub: false)
+// ============================================================
+
+// ── 1. SITE ──────────────────────────────────────────────────
+MERGE (n:ConceptNode {node_id: 'Site'})
+SET
+  n.name            = 'Site',
+  n.phase_id        = 'SITE',
+  n.layer           = 1,
+  n.domain          = 'Core',
+  n.is_stub         = false,
+  n.primary_table   = 'stg_ndpd_mbt_tmobile_macro_combined',
+  n.primary_key     = 's_site_id',
+  n.grain           = 'One per physical tower location (s_site_id)',
+  n.definition      = 'A physical location where a tower stands or will be built. Identified by Site Code (T-Mobile identifier). Represents the "where" of the program. Has geographic coordinates, belongs to a market, and may have existing infrastructure. One site = one project in the Macro program.',
+  n.attributes      = [
+    'site_code','site_name','site_type','site_class',
+    'latitude','longitude','city','state','zip','address',
+    'structure_height_ft','rad_center_agl_ft','highest_appurtenance_ft',
+    'landlord_name','site_24x7_access','site_access_details',
+    'facility_access_gate_combo','facility_access_notes','directions_to_site',
+    'build_status','site_jurisdiction','field_tech_name',
+    'known_nest_activity','mw_topology_current','mw_topology_planned',
+    'power_provider','power_provider_contact',
+    'aav_eligibility_status','aav_vendor_name','aav_working_status',
+    'on_hold','on_hold_reason'
+  ],
+  n.column_map      = '{site_code:s_site_id, site_name:s_site_name, site_type:s_site_type, site_class:s_site_class, latitude:s_site_latitude, longitude:s_site_longitude, city:s_city, state:s_state, zip:s_zip, address:s_address, structure_height_ft:s_structure_height_in_feet, rad_center_agl_ft:s_rad_center_agl_in_feet, highest_appurtenance_ft:s_highest_appurtenance_in_feet, landlord_name:s_structure_landlord_name_siterra, site_24x7_access:s_24x7_site_access, site_access_details:s_site_access_details, facility_access_gate_combo:s_facility_access_gate_combo, facility_access_notes:s_facility_access_notes, directions_to_site:s_directions_to_site, build_status:s_build_status, site_jurisdiction:s_site_jurisdiction, field_tech_name:s_field_tech_name, known_nest_activity:s_known_historical_nest_activity, mw_topology_current:s_mw_topology_current, mw_topology_planned:s_mw_topology_planned, power_provider:s_power_provider_company_name, power_provider_contact:s_power_provider_contact_number, aav_eligibility_status:s_aav_eligibility_status_salesforce, aav_vendor_name:s_primary_aav_vendor_name_salesforce, aav_working_status:s_aav_working_status_salesforce, on_hold:site_on_hold, on_hold_reason:on_hold_reason_title}',
+  n.alternate_keys  = '{customer_site_code:"T-Mobile site identifier", smp_id:"Nokia SMP identifier (SMP-WO-XXXXXXX)"}',
+  n.notes           = 'Site is the central anchor entity. All 18 other tables join to it via site_id variants. Site Code format: 2-letter market prefix + 5 digits + letter suffix (e.g., CH90160B).',
+  n.base_query      = 'SELECT s_site_id, s_site_name, s_site_type, s_site_class, s_site_latitude, s_site_longitude, s_city, s_state, s_zip, s_address, s_structure_height_in_feet, s_structure_landlord_name_siterra, s_build_status, s_24x7_site_access, site_on_hold, on_hold_reason_title, m_market, rgn_region, region FROM stg_ndpd_mbt_tmobile_macro_combined WHERE s_site_id IS NOT NULL';
+
+
+// ── 2. PROJECT ───────────────────────────────────────────────
+MERGE (n:ConceptNode {node_id: 'Project'})
+SET
+  n.name            = 'Project',
+  n.phase_id        = 'PROJECT',
+  n.layer           = 1,
+  n.domain          = 'Project Lifecycle',
+  n.is_stub         = false,
+  n.primary_table   = 'stg_ndpd_mbt_tmobile_macro_combined',
+  n.primary_key     = 'pj_project_id',
+  n.grain           = 'One per project execution (pj_project_id)',
+  n.definition      = 'The unit of work that Nokia manages. Primary tracking entity — all 776 columns in macro_combined roll up to a Project. One project always maps to one site. Three IDs: Site Code (T-Mobile), SMP ID (Nokia), Project ID (unique execution identifier).',
+  n.attributes      = [
+    'project_id','smp_id','project_name','project_status','project_type',
+    'ntm_project_type','program_name','scope_description',
+    'por_id','por_category','por_plan_type','por_segment',
+    'por_release_version','por_current_plan_status','hc_type_civil_only',
+    'smp_name','smp_version','smp_status','deployment_reference_model',
+    'package_name','on_hold','on_hold_reason','anticipated_hold_removal_date',
+    'ticket_status','cr_id','cr_status','project_comments','completion_objective'
+  ],
+  n.column_map      = '{project_id:pj_project_id, smp_id:smp_id, project_name:pj_project_name, project_status:pj_project_status, project_type:pj_project_type, ntm_project_type:ntm_project_type, program_name:pj_program_name, scope_description:pj_description_of_project_scope, por_id:por_por_id, por_category:por_category, por_plan_type:por_plan_type, por_segment:por_segment, por_release_version:por_release_version, por_current_plan_status:por_current_plan_status, hc_type_civil_only:por_hc_type_civil_only, smp_name:smp_name, smp_version:smp_version, smp_status:smp_status, deployment_reference_model:site_deployment_reference_model, package_name:package_name, on_hold:site_on_hold, on_hold_reason:on_hold_reason_title, anticipated_hold_removal_date:anticipated_hold_removal_date, ticket_status:ticket_status, cr_id:pj_cr_id, cr_status:pj_cr_status, project_comments:pj_project_comments}',
+  n.alternate_keys  = '{smp_id:"Nokia SMP-WO-XXXXXXX", s_site_id:"T-Mobile site code", customer_site_code:"same as s_site_id", tmobile_project_id:"T-Mobile reference"}',
+  n.notes           = 'Project is synonymous with site in this program (1:1). Priority is P1/P2/P3. Status: Active/On Hold/Completed/Cancelled.',
+  n.base_query      = 'SELECT pj_project_id, smp_id, pj_project_name, pj_project_status, pj_project_type, ntm_project_type, por_category, por_plan_type, por_release_version, site_on_hold, on_hold_reason_title, m_market, pj_general_contractor FROM stg_ndpd_mbt_tmobile_macro_combined WHERE pj_project_id IS NOT NULL';
+
+
+// ── 3. GENERAL CONTRACTOR ───────────────────────────────────
+MERGE (n:ConceptNode {node_id: 'GeneralContractor'})
+SET
+  n.name            = 'General Contractor',
+  n.phase_id        = 'GENERAL_CONTRACTOR',
+  n.layer           = 1,
+  n.domain          = 'Workforce & Vendor',
+  n.is_stub         = false,
+  n.primary_table   = 'stg_ndpd_mbt_tmobile_macro_combined',
+  n.primary_key     = 'pj_general_contractor',
+  n.grain           = 'One per GC entity (denormalized across projects)',
+  n.definition      = 'General Contractor responsible for construction execution at a site. GC is assigned per market. Three GC roles: pj_general_contractor (overall), construction_gc (build), ci_gc (integration). GC name values are NOT normalized — case-insensitive matching required.',
+  n.attributes      = [
+    'gc_name','construction_gc','ci_gc','ci_gc_gdc_confirmed','gc_crew_name',
+    'gc_assigned_date','hard_cost_vendor_po','soft_cost_vendor',
+    'zi_partner_code','vendor_comments',
+    'spo_vendor_name_construction','spo_vendor_name_tower','spo_vendor_name_integration'
+  ],
+  n.column_map      = '{gc_name:pj_general_contractor, construction_gc:construction_gc, ci_gc:ci_gc, gc_crew_name:pj_gc_crew_name, gc_assigned_date:construction_gc_assigned_date, hard_cost_vendor_po:pj_hard_cost_vendor_po, soft_cost_vendor:pj_soft_cost_vendor, zi_partner_code:zi_partner_code, vendor_comments:pj_vendor_comments, spo_vendor_name_construction:ms_1551_spo_issued_p20_vendor_name, spo_vendor_name_tower:ms1555_spo_issued_p20_vendor_name, spo_vendor_name_integration:ms_1970_spo_issued_p20_vendor_name}',
+  n.notes           = 'Not a separate table — denormalized in macro_combined. GC names have inconsistent casing. NAS tables use short codes (SBA, Mastec, EWS) which may differ from macro_combined values.',
+  n.base_query      = 'SELECT DISTINCT pj_general_contractor AS gc_name, construction_gc, ci_gc, m_market, rgn_region, COUNT(*) AS site_count FROM stg_ndpd_mbt_tmobile_macro_combined WHERE pj_general_contractor IS NOT NULL GROUP BY pj_general_contractor, construction_gc, ci_gc, m_market, rgn_region ORDER BY site_count DESC';
+
+
+// ── 4. MILESTONE ────────────────────────────────────────────
+MERGE (n:ConceptNode {node_id: 'Milestone'})
+SET
+  n.name            = 'Milestone',
+  n.phase_id        = 'MILESTONE',
+  n.layer           = 1,
+  n.domain          = 'Project Lifecycle',
+  n.is_stub         = false,
+  n.primary_table   = 'stg_ndpd_mbt_tmobile_macro_combined',
+  n.primary_key     = 'pj_project_id + milestone_code (composite)',
+  n.grain           = 'One per milestone code per project (wide columns in source, 285+ columns)',
+  n.definition      = 'A named checkpoint in the project lifecycle with a planned (pj_p_*) and actual (ms_* or pj_a_*) date. Delta between planned and actual = schedule variance. Milestones are identified by numeric codes (e.g., MS 1310, MS 1555). Gate milestones trigger phase transitions.',
+  n.key_milestones  = [
+    'ms_1310_pre_construction_package_received_actual',
+    'ms_1323_ready_for_scoping_actual',
+    'ms_1406_notice_to_proceed_received_actual / ms_1406_tower_ntp_received_actual',
+    'ms_1461_pickup_tower_materials_and_validate_actual / ms_14610_gc_material_pickup_actual',
+    'ms_1507_tower_ntp_approved_actual',
+    'ms_1549_civil_construction_start_actual',
+    'ms_1550_construction_start_actual',
+    'ms_1551_civil_construction_complete_actual_date',
+    'ms_1555_construction_complete_actual',
+    'ms_1556_quality_inspection_complete_actual',
+    'ms_1558_admin_checklist_submitted_to_t_mobile_actual',
+    'ms_1559_cop_approved_by_t_mobile_actual',
+    'ms_1564_validate_scf_files_are_available_actual',
+    'ms_1899_all_planned_technologies_integrated_actual',
+    'ms_1970_integration_complete_actual',
+    'ms_2063_ssv_submitted (so_number, header, cbm_number)',
+    'ms_2123_planned_e911_test_calls_actual',
+    'ms_2400_customer_acceptance_actual',
+    'ms_2450_customer_payment_release_actual',
+    'ms_2490_project_complete_actual'
+  ],
+  n.notes           = 'ms_* columns are Nokia-authoritative; pj_a_/pj_p_ are T-Mobile MagentaBuilt system. Both may exist for same logical milestone. Wide-format in source — use unpivot query for cross-project analytics.',
+  n.base_query      = 'SELECT pj_project_id, s_site_id, ms_1310_pre_construction_package_received_actual, ms_1406_tower_ntp_received_actual, ms_1507_tower_ntp_approved_actual, ms_1549_civil_construction_start_actual, ms_1550_construction_start_actual, ms_1551_civil_construction_complete_actual_date, ms_1555_construction_complete_actual, ms_1564_validate_scf_files_are_available_actual, ms_1899_all_planned_technologies_integrated_actual, ms_1970_integration_complete_actual, ms_1559_cop_approved_by_t_mobile_actual, ms_2400_contractual_customer_acceptance_actual, ms_2450_customer_payment_release_actual, ms_2490_project_complete_actual FROM stg_ndpd_mbt_tmobile_macro_combined WHERE pj_project_id = :project_id';
+
+
+// ── 5. PROJECT PHASE ─────────────────────────────────────────
+MERGE (n:ConceptNode {node_id: 'ProjectPhase'})
+SET
+  n.name            = 'Project Phase',
+  n.phase_id        = 'PROJECT_PHASE',
+  n.layer           = 1,
+  n.domain          = 'Project Lifecycle',
+  n.is_stub         = false,
+  n.primary_table   = 'stg_ndpd_mbt_tmobile_macro_combined',
+  n.primary_key     = 'pj_project_id',
+  n.grain           = 'One per project (derived attribute — no explicit phase column)',
+  n.definition      = 'One of 7 sequential lifecycle phases: 1-Site Assignment, 2-Pre-NTP & Survey, 3-Scoping NTP & Material, 4-Construction (Pre-Construction), 4-Construction, 5-Quality (parallel with 4), 6-Integration, 7-Acceptance & Payment, 7-Complete. Phase is derived from which gate milestones have been completed.',
+  n.phases          = [
+    '1-Site Assignment',
+    '2-Pre-NTP & Survey',
+    '3-Scoping, NTP & Material',
+    '4-Pre-Construction',
+    '4-Construction',
+    '5-Quality (parallel)',
+    '6-Integration',
+    '7-Acceptance & Payment',
+    '7-Complete'
+  ],
+  n.notes           = 'Phase 5 (Quality) runs in parallel with Phase 4 (Construction). No explicit current_phase column — use CASE gate logic on milestone columns.',
+  n.base_query      = 'SELECT pj_project_id, s_site_id, m_market, pj_project_status, CASE WHEN ms_2490_project_complete_actual IS NOT NULL THEN "7-Complete" WHEN ms_1559_cop_approved_by_t_mobile_actual IS NOT NULL THEN "7-Acceptance & Payment" WHEN ms_1970_integration_complete_actual IS NOT NULL THEN "7-Acceptance & Payment" WHEN ms_1564_validate_scf_files_are_available_actual IS NOT NULL THEN "6-Integration" WHEN ms_1555_construction_complete_actual IS NOT NULL THEN "6-Integration" WHEN ms_1550_construction_start_actual IS NOT NULL OR ms_1549_civil_construction_start_actual IS NOT NULL THEN "4-Construction" WHEN ms_1507_tower_ntp_approved_actual IS NOT NULL THEN "4-Pre-Construction" WHEN ms_1323_ready_for_scoping_actual IS NOT NULL THEN "3-Scoping, NTP & Material" WHEN ms_1310_pre_construction_package_received_actual IS NOT NULL THEN "2-Pre-NTP & Survey" ELSE "1-Site Assignment" END AS current_phase FROM stg_ndpd_mbt_tmobile_macro_combined WHERE pj_project_id IS NOT NULL';
+
+
+// ── 6. PHASE TRANSITION ──────────────────────────────────────
+MERGE (n:ConceptNode {node_id: 'PhaseTransition'})
+SET
+  n.name            = 'Phase Transition',
+  n.phase_id        = 'PHASE_TRANSITION',
+  n.layer           = 1,
+  n.domain          = 'Project Lifecycle',
+  n.is_stub         = false,
+  n.primary_table   = 'stg_ndpd_mbt_tmobile_macro_combined',
+  n.primary_key     = 'pj_project_id + transition_name (composite)',
+  n.grain           = 'One per gate transition per project (derived from gate milestone pairs)',
+  n.definition      = 'A transition between two sequential project phases, triggered by the completion of a gate milestone. Captures transition date and dwell time between phases. Key simulation benchmark: tower_duration_days (MS 1550 to MS 1555) by market × GC.',
+  n.transition_pairs = [
+    'ntp_to_cx_start: ms_1507 → ms_1550',
+    'civil_duration: ms_1549 → ms_1551',
+    'tower_duration: ms_1550 → ms_1555  [PRIMARY BENCHMARK]',
+    'cx_to_ix: ms_1555 → ms_1970',
+    'ix_to_cop: ms_1970 → ms_1559',
+    'cop_to_payment: ms_1559 → ms_2450'
+  ],
+  n.notes           = 'Purely derived from milestone date pairs. "Stuck" detection: from_gate IS NOT NULL AND to_gate IS NULL.',
+  n.base_query      = 'SELECT pj_project_id, s_site_id, m_market, pj_general_contractor, ms_1507_tower_ntp_approved_actual AS ntp_approved, ms_1550_construction_start_actual AS cx_start, EXTRACT(DAY FROM ms_1550_construction_start_actual - ms_1507_tower_ntp_approved_actual) AS ntp_to_cx_start_days, ms_1549_civil_construction_start_actual AS civil_start, ms_1551_civil_construction_complete_actual_date AS civil_complete, ms_1550_construction_start_actual AS tower_start, ms_1555_construction_complete_actual AS tower_complete, EXTRACT(DAY FROM ms_1555_construction_complete_actual - ms_1550_construction_start_actual) AS tower_duration_days, ms_1970_integration_complete_actual AS ix_complete, EXTRACT(DAY FROM ms_1970_integration_complete_actual - ms_1555_construction_complete_actual) AS cx_to_ix_days, ms_1559_cop_approved_by_t_mobile_actual AS cop_approved FROM stg_ndpd_mbt_tmobile_macro_combined WHERE pj_project_id = :project_id';
+
+
+// ── 7. DELAY EVENT ───────────────────────────────────────────
+MERGE (n:ConceptNode {node_id: 'DelayEvent'})
+SET
+  n.name            = 'Delay Event',
+  n.phase_id        = 'DELAY_EVENT',
+  n.layer           = 1,
+  n.domain          = 'Project Lifecycle',
+  n.is_stub         = false,
+  n.primary_table   = 'stg_ndpd_mbt_tmobile_macro_combined',
+  n.primary_key     = 'pj_project_id + delay_type (composite)',
+  n.grain           = 'One per delay type per project (4 delay categories)',
+  n.definition      = 'A recorded delay at a specific milestone with a delay code (category) and free-text comments explaining the root cause. Impact formula: Original Date + Delay Days + Ripple Effect Days.',
+  n.attributes      = [
+    'construction_start_delay_code','construction_start_delay_comments',
+    'construction_complete_delay_code','construction_complete_delay_comments',
+    'on_air_delay_code','on_air_delay_comments',
+    'ran_entitlement_delay_code','ran_entitlement_delay_comments',
+    'entitlement_delay_codes_compiled'
+  ],
+  n.column_map      = '{construction_start_delay_code:pj_construction_start_delay_code, construction_start_delay_comments:pj_construction_start_delay_comments, construction_complete_delay_code:pj_construction_complete_delay_code, construction_complete_delay_comments:pj_construction_complete_delay_comments, on_air_delay_code:pj_on_air_delay_code, on_air_delay_comments:pj_on_air_delay_code_comments, ran_entitlement_delay_code:pj_ran_entitlement_complete_delay_code, ran_entitlement_delay_comments:pj_ran_entitlement_complete_delay_comments, entitlement_delay_codes_compiled:pj_entitlement_complete_delay_codes_compiled}',
+  n.delay_categories = ['construction_start','construction_complete','on_air','ran_entitlement'],
+  n.notes           = '4 delay categories with code + comments pairs. Delay days must be computed as actual_milestone_date - planned_milestone_date (no explicit numeric delay column). Comments contain timestamps and responsible parties for RCA.',
+  n.base_query      = 'SELECT pj_project_id, s_site_id, m_market, pj_general_contractor, pj_construction_start_delay_code, pj_construction_start_delay_comments, pj_construction_complete_delay_code, pj_construction_complete_delay_comments, pj_on_air_delay_code, pj_on_air_delay_code_comments, pj_ran_entitlement_complete_delay_code, pj_ran_entitlement_complete_delay_comments, pj_entitlement_complete_delay_codes_compiled FROM stg_ndpd_mbt_tmobile_macro_combined WHERE pj_project_id = :project_id AND (pj_construction_start_delay_code IS NOT NULL OR pj_construction_complete_delay_code IS NOT NULL OR pj_on_air_delay_code IS NOT NULL OR pj_ran_entitlement_complete_delay_code IS NOT NULL)';
+
+
+// ── 8. SITE WORKFLOW TYPE ────────────────────────────────────
+MERGE (n:ConceptNode {node_id: 'SiteWorkflowType'})
+SET
+  n.name            = 'Site Workflow Type',
+  n.phase_id        = 'SITE_WORKFLOW_TYPE',
+  n.layer           = 1,
+  n.domain          = 'Project Lifecycle',
+  n.is_stub         = false,
+  n.primary_table   = 'stg_ndpd_mbt_tmobile_macro_combined',
+  n.primary_key     = 'pj_project_id',
+  n.grain           = 'One per project (derived from multiple classification columns)',
+  n.definition      = 'The execution path a site follows through the lifecycle. Workflow types: NTP sites, LTW (License-to-Work), Anchor, Others — each with distinct milestone sequences. Determines which milestones are applicable for a given project.',
+  n.attributes      = [
+    'por_category','por_plan_type','ntm_project_type','site_type',
+    'hc_type_civil_only','deployment_model','scope_description','project_type',
+    'program_name','backhaul_type','crane_required','lift_required','split_spo',
+    'ntm_module_flags'
+  ],
+  n.column_map      = '{por_category:por_category, por_plan_type:por_plan_type, ntm_project_type:ntm_project_type, site_type:s_site_type, hc_type_civil_only:por_hc_type_civil_only, deployment_model:site_deployment_reference_model, scope_description:pj_description_of_project_scope, project_type:pj_project_type, program_name:pj_program_name, backhaul_type:pj_backhaul_task_selection, crane_required:scoping_package_crane_required, lift_required:is_lift_required, split_spo:confirm_split_spo}',
+  n.workflow_types  = ['NTP','LTW (License-to-Work)','Anchor','New Build','Site Mod','Colo Consolidation'],
+  n.ntm_module_flags = 'precon_ntm, ntp_validation_ntm, npo_design_ntm, construction_ntm, civil_construction_ntm, cnl_ntm, ssv_sss_ntm',
+  n.notes           = 'Building (rooftop) sites skip civil milestones. Site_type = Building implies no civil. deployment_model determines hardware/integration scope.',
+  n.base_query      = 'SELECT pj_project_id, s_site_id, por_category, por_plan_type, ntm_project_type, s_site_type, site_deployment_reference_model, pj_backhaul_task_selection, scoping_package_crane_required, is_lift_required, confirm_split_spo FROM stg_ndpd_mbt_tmobile_macro_combined WHERE pj_project_id = :project_id';
+
+
+// ── 9. MARKET ────────────────────────────────────────────────
+MERGE (n:ConceptNode {node_id: 'Market'})
+SET
+  n.name            = 'Market',
+  n.phase_id        = 'MARKET',
+  n.layer           = 1,
+  n.domain          = 'Geography & Territory',
+  n.is_stub         = false,
+  n.primary_table   = 'stg_ndpd_mbt_tmobile_macro_combined',
+  n.primary_key     = 'm_market',
+  n.grain           = 'One per T-Mobile market territory',
+  n.definition      = 'A geographic territory in T-Mobile network deployment. Sites and GCs are assigned to markets. Hierarchy: Region → Area → Market.',
+  n.attributes      = ['market_name','area','region','state'],
+  n.column_map      = '{market_name:m_market, area:m_area, region:rgn_region, state:s_state}',
+  n.notes           = 'Not a separate table — denormalized in macro_combined. Primary grouping dimension for all metrics.',
+  n.base_query      = 'SELECT DISTINCT m_market, m_area, rgn_region, region, COUNT(DISTINCT s_site_id) AS site_count FROM stg_ndpd_mbt_tmobile_macro_combined WHERE m_market IS NOT NULL GROUP BY m_market, m_area, rgn_region, region ORDER BY site_count DESC';
+
+
+// ── 10. CREW ─────────────────────────────────────────────────
+MERGE (n:ConceptNode {node_id: 'Crew'})
+SET
+  n.name            = 'Crew',
+  n.phase_id        = 'CREW',
+  n.layer           = 1,
+  n.domain          = 'Workforce & Vendor',
+  n.is_stub         = false,
+  n.primary_table   = 'stg_ndpd_mbt_tmobile_macro_combined',
+  n.primary_key     = 'pj_gc_crew_name',
+  n.grain           = 'One per crew per GC',
+  n.definition      = 'Field crew deployed by a GC to execute construction at a site. Crew is the atomic unit of capacity planning. Weekly delivery = Available Crews × Sites/Crew/Day × Working Days.',
+  n.attributes      = ['crew_name','gc_name','market'],
+  n.column_map      = '{crew_name:pj_gc_crew_name, gc_name:pj_general_contractor, market:m_market}',
+  n.capacity_formula = 'Weekly Delivery = Available Crews × Sites/Crew/Day × Working Days',
+  n.notes           = 'Crew names stored in pj_gc_crew_name. Capacity is computed from active site load, not explicitly stored.',
+  n.base_query      = 'SELECT DISTINCT pj_gc_crew_name AS crew_name, pj_general_contractor AS gc_name, m_market FROM stg_ndpd_mbt_tmobile_macro_combined WHERE pj_gc_crew_name IS NOT NULL';
+
+
+// ── 11. NOKIA ROLE ───────────────────────────────────────────
+MERGE (n:ConceptNode {node_id: 'NokiaRole'})
+SET
+  n.name            = 'Nokia Role',
+  n.phase_id        = 'NOKIA_ROLE',
+  n.layer           = 1,
+  n.domain          = 'Workforce & Vendor',
+  n.is_stub         = false,
+  n.primary_table   = 'stg_ndpd_mbt_tmobile_macro_combined',
+  n.primary_key     = 'role_name',
+  n.grain           = 'One per Nokia staff role type',
+  n.definition      = 'Nokia internal role responsible for coordinating and executing program activities. Roles: PM (Project Manager), CM (Construction Manager), DC (Delivery Coordinator), DEC (Delivery Excellence Coordinator), NAS Engineer.',
+  n.roles           = ['PM','CM','DC','DEC','NAS Engineer','Integration Engineer'],
+  n.attributes      = ['pm_name','construction_pm','field_tech_name','market'],
+  n.column_map      = '{pm_name:pj_project_manager, construction_pm:pj_construction_pm, field_tech_name:s_field_tech_name}',
+  n.notes           = 'NAS engineers are shift-based. Engineer Requirement = Sessions/Shift ÷ Sessions/Engineer/Shift.',
+  n.base_query      = 'SELECT DISTINCT pj_project_manager, pj_construction_pm, s_field_tech_name, m_market FROM stg_ndpd_mbt_tmobile_macro_combined WHERE pj_project_manager IS NOT NULL';
+
+
+// ── 12. SURVEY ───────────────────────────────────────────────
+MERGE (n:ConceptNode {node_id: 'Survey'})
+SET
+  n.name            = 'Survey',
+  n.phase_id        = 'SURVEY',
+  n.layer           = 1,
+  n.domain          = 'Scoping & NTP',
+  n.is_stub         = false,
+  n.primary_table   = 'stg_ndpd_mbt_tmobile_macro_combined',
+  n.primary_key     = 'pj_project_id',
+  n.grain           = 'One per project',
+  n.definition      = 'Site survey performed before scoping. Two types: automated (RFDS from customer) or manual (CM-assigned). Survey output feeds the Scoping Package. Gate: MS 1323 (Ready for Scoping).',
+  n.attributes      = [
+    'survey_type','rfds_available','ms_1310_received','ms_1323_ready_for_scoping',
+    'scoping_validated_date','rcm_site_type','rcm_scoping_specialist'
+  ],
+  n.column_map      = '{ms_1310_received:ms_1310_pre_construction_package_received_actual, ms_1323_ready_for_scoping:ms_1323_ready_for_scoping_actual, rfds_available:pj_rfds_received}',
+  n.notes           = 'CoPilot/RCM tool used for scoping. rcm_bom_accuracy measures scoping-to-actual BOM accuracy.',
+  n.base_query      = 'SELECT pj_project_id, s_site_id, ms_1310_pre_construction_package_received_actual, ms_1323_ready_for_scoping_actual FROM stg_ndpd_mbt_tmobile_macro_combined WHERE pj_project_id = :project_id';
+
+
+// ── 13. SCOPING PACKAGE ──────────────────────────────────────
+MERGE (n:ConceptNode {node_id: 'ScopingPackage'})
+SET
+  n.name            = 'Scoping Package',
+  n.phase_id        = 'SCOPING_PACKAGE',
+  n.layer           = 1,
+  n.domain          = 'Scoping & NTP',
+  n.is_stub         = false,
+  n.primary_table   = 'stg_tmo_copilot_se_rcm',
+  n.primary_key     = 'rcm_site_id',
+  n.grain           = 'One per project',
+  n.definition      = 'Output of site survey — the scoping deliverable used to generate BOM, cost quotation, and construction drawings. Validated at MS 1327. Source: CoPilot RCM tool.',
+  n.attributes      = [
+    'rcm_site_id','rcm_site_type','rcm_scoping_specialist','rcm_bom_accuracy',
+    'rcm_scope_category','rcm_task_id','ms_1327_scoping_validated'
+  ],
+  n.column_map      = '{rcm_site_id:rcm_site_id, rcm_site_type:rcm_site_type, rcm_scoping_specialist:rcm_scoping_specialist, rcm_bom_accuracy:rcm_bom_accuracy, rcm_scope_category:rcm_scope_category}',
+  n.notes           = 'Primary source table: stg_tmo_copilot_se_rcm. Join via rcm_site_id = s_site_id.',
+  n.base_query      = 'SELECT rcm_site_id, rcm_site_type, rcm_scoping_specialist, rcm_bom_accuracy, rcm_scope_category FROM stg_tmo_copilot_se_rcm WHERE rcm_site_id = :site_id';
+
+
+// ── 14. NTP ──────────────────────────────────────────────────
+MERGE (n:ConceptNode {node_id: 'NTP'})
+SET
+  n.name            = 'NTP',
+  n.phase_id        = 'NTP',
+  n.layer           = 1,
+  n.domain          = 'Scoping & NTP',
+  n.is_stub         = false,
+  n.primary_table   = 'stg_ndpd_mbt_tmobile_macro_combined',
+  n.primary_key     = 'pj_project_id',
+  n.grain           = 'One per project',
+  n.definition      = 'Notice to Proceed — authorization from T-Mobile for Nokia/GC to begin construction. Two NTP types: Tower NTP (ms_1507) and Civil NTP (derived). NTP is the critical gate between scoping and construction. iNTP is a separate integration NTP.',
+  n.attributes      = [
+    'tower_ntp_received','tower_ntp_approved','ntp_validation_ntm',
+    'i_ntp_received','intp_status','ntp_delay_reason'
+  ],
+  n.column_map      = '{tower_ntp_received:ms_1406_tower_ntp_received_actual, tower_ntp_approved:ms_1507_tower_ntp_approved_actual, ntp_validation_ntm:ntp_validation_ntm, i_ntp_received:i_ntp_received}',
+  n.notes           = 'iNTP (integration NTP) is distinct from construction NTP. Document Agent validates NTP docs.',
+  n.base_query      = 'SELECT pj_project_id, s_site_id, ms_1406_tower_ntp_received_actual, ms_1507_tower_ntp_approved_actual, i_ntp_received, ntp_validation_ntm FROM stg_ndpd_mbt_tmobile_macro_combined WHERE pj_project_id = :project_id';
+
+
+// ── 15. BILL OF MATERIALS ────────────────────────────────────
+MERGE (n:ConceptNode {node_id: 'BillOfMaterials'})
+SET
+  n.name            = 'Bill of Materials',
+  n.phase_id        = 'BILL_OF_MATERIALS',
+  n.layer           = 1,
+  n.domain          = 'Material & Logistics',
+  n.is_stub         = false,
+  n.primary_table   = 'stg_ndpd_mbt_tmobile_macro_combined',
+  n.primary_key     = 'pj_project_id',
+  n.grain           = 'One per project (aggregate BOM status, no line-item detail)',
+  n.definition      = 'Bill of Materials for a project — the complete list of hardware needed. Tracks from BOM submission through ordering, warehouse receipt, and GC pickup. BOM accuracy from scoping directly impacts construction readiness.',
+  n.attributes      = [
+    'bom_submitted','bom_in_bat','bom_in_aims','all_bat_orders_received',
+    'aav_bom_at_msl','gc_material_pickup',
+    'wms_bom_status','rcm_bom_accuracy','aav_bom_status'
+  ],
+  n.column_map      = '{bom_submitted:pj_a_2350_bom_submitted_from_market_to_region_finish, bom_in_bat:pj_a_3850_bom_submitted_bom_in_bat_finish, bom_in_aims:pj_a_3875_bom_received_bom_in_aims_finish, all_bat_orders_received:pj_a_3900_all_bat_orders_received_finish, aav_bom_at_msl:pj_a_3950_aav_bom_at_msl_finish, gc_material_pickup:ms_14610_gc_material_pickup_actual, wms_bom_status:pj_wms_bom_status, rcm_bom_accuracy:rcm_bom_accuracy}',
+  n.material_pipeline = 'BOM submitted (2350) → BOM in BAT (3850) → BOM in AIMS (3875) → Orders received (3900) → AAV BOM at MSL (3950) → GC pickup (1461)',
+  n.notes           = 'No line-item BOM detail in schema — only aggregate status columns. MS 14610 = GC pickup = material readiness gate for construction start.',
+  n.base_query      = 'SELECT pj_project_id, s_site_id, pj_a_2350_bom_submitted_from_market_to_region_finish AS bom_submitted, pj_a_3850_bom_submitted_bom_in_bat_finish AS bom_in_bat, pj_a_3875_bom_received_bom_in_aims_finish AS bom_in_aims, pj_a_3900_all_bat_orders_received_finish AS orders_received, ms_14610_gc_material_pickup_actual AS gc_pickup, pj_wms_bom_status FROM stg_ndpd_mbt_tmobile_macro_combined WHERE pj_project_id = :project_id';
+
+
+// ── 16. PREREQUISITE ─────────────────────────────────────────
+MERGE (n:ConceptNode {node_id: 'Prerequisite'})
+SET
+  n.name            = 'Prerequisite',
+  n.phase_id        = 'PREREQUISITE',
+  n.layer           = 1,
+  n.domain          = 'Regulatory & Prerequisite',
+  n.is_stub         = false,
+  n.primary_table   = 'stg_ndpd_mbt_tmobile_macro_combined',
+  n.primary_key     = 'pj_project_id + prerequisite_type (composite)',
+  n.grain           = 'One per prerequisite type per project (denormalized across milestone columns)',
+  n.definition      = 'External prerequisites that must be satisfied before construction can proceed: entitlements (RAN, AAV, MW), zoning, building permits, electrical permits, leases, structural analysis, power readiness, and mount analysis.',
+  n.attributes      = [
+    'structural_complete_actual','structural_result',
+    'mount_analysis_ordered','mount_analysis_received','mount_analysis_result',
+    'ran_leases_executed','all_leases_executed','lease_ground_status',
+    'all_regulatory_complete','ran_zoning_applied','ran_zoning_approved',
+    'ran_building_permit_applied','ran_building_permit_approved',
+    'building_permit_approved_status','building_permit_expiration','building_permit_not_required',
+    'ran_entitlement_complete','aav_entitlement_complete','mw_entitlement_complete',
+    'all_entitlement_complete','all_entitlement_complete_magenta',
+    'link_entitlement_status','link_entitlement_complete',
+    'entitlement_delay_codes','ran_entitlement_delay_code','ran_entitlement_delay_comments',
+    'electrical_permit_applied','electrical_permit_approved',
+    'power_ordered','power_walk_complete','power_design_approved',
+    'power_ready','power_installed','utility_form_submitted',
+    'power_provider','power_provider_contact',
+    'lien_release_waiver_mw','lien_release_waiver_ran',
+    'por_release_version','por_release_date','prepor_release_date','target_por_month'
+  ],
+  n.column_map      = '{structural_complete_actual:pj_a_1400_structural_complete_finish, structural_result:pj_structural_result, mount_analysis_ordered:pj_a_1525_mount_analysis_ordered_finish, mount_analysis_received:pj_a_1550_mount_analysis_received_finish, mount_analysis_result:pj_mount_analysis_result, ran_leases_executed:pj_a_2010_ran_leases_executed_finish, all_leases_executed:pj_a_2025_all_leases_executed_finish, lease_ground_status:pj_lease_ground_status, all_regulatory_complete:pj_a_3500_all_regulatory_complete_finish, ran_zoning_applied:pj_a_3550_ran_zoning_applied_finish, ran_zoning_approved:pj_a_3575_ran_zoning_approved_finish, ran_building_permit_applied:pj_a_3650_ran_building_permit_applied_finish, ran_building_permit_approved:pj_a_3675_ran_building_permit_approved_finish, building_permit_approved_status:pj_building_permit_approved_status, building_permit_expiration:pj_building_permit_expiration_date, ran_entitlement_complete:pj_a_3710_ran_entitlement_complete_finish, aav_entitlement_complete:pj_a_3715_aav_entitlement_complete_finish, mw_entitlement_complete:pj_a_3720_mw_entitlement_complete_finish, all_entitlement_complete:pj_a_3725_all_entitlement_complete_finish, all_entitlement_complete_magenta:magenta_ms_3725_actual, electrical_permit_applied:pj_a_4350_electrical_permit_applied_finish, electrical_permit_approved:pj_a_4375_electrical_permit_approved_finish, power_ordered:pj_a_4450_permanent_power_ordered_finish, power_walk_complete:pj_a_4475_complete_power_walk_finish, power_design_approved:pj_a_4500_power_design_approval_finish, power_ready:pj_a_4525_power_ready_finish, power_installed:pj_a_4550_permanent_power_installed_finish, utility_form_submitted:pj_a_4575_submit_utility_company_site_set_up_form_finish}',
+  n.prerequisite_categories = ['Structural/Mount (MS 1400,1525,1550)','Leases (MS 2010,2025)','Regulatory/Zoning/Permits (MS 3500-3675)','Entitlements (MS 3710-3725)','Power/Electrical (MS 4350-4575)'],
+  n.critical_gate   = 'MS 3725 — all_entitlement_complete is the critical aggregate gate',
+  n.notes           = 'POR release controls the overall program timeline. Power readiness is a parallel track that can extend beyond construction start. Permit expiration date must be monitored (30-day warning).',
+  n.base_query      = 'SELECT pj_project_id, s_site_id, m_market, pj_structural_result, pj_mount_analysis_result, pj_lease_ground_status, pj_building_permit_approved_status, pj_building_permit_expiration_date, pj_a_3500_all_regulatory_complete_finish AS regulatory_complete, pj_a_3575_ran_zoning_approved_finish AS zoning_approved, pj_a_3675_ran_building_permit_approved_finish AS permit_approved, pj_a_3710_ran_entitlement_complete_finish AS ran_entitlement, pj_a_3715_aav_entitlement_complete_finish AS aav_entitlement, pj_a_3720_mw_entitlement_complete_finish AS mw_entitlement, pj_a_3725_all_entitlement_complete_finish AS all_entitlement, pj_a_4375_electrical_permit_approved_finish AS elec_permit, pj_a_4525_power_ready_finish AS power_ready, pj_a_4550_permanent_power_installed_finish AS power_installed FROM stg_ndpd_mbt_tmobile_macro_combined WHERE pj_project_id = :project_id';
+
+
+// ── 17. CONSTRUCTION PROGRESS ────────────────────────────────
+MERGE (n:ConceptNode {node_id: 'ConstructionProgress'})
+SET
+  n.name            = 'Construction Progress',
+  n.phase_id        = 'CONSTRUCTION_ACTIVITY',
+  n.layer           = 1,
+  n.domain          = 'Construction',
+  n.is_stub         = false,
+  n.primary_table   = 'stg_ndpd_mbt_tmobile_macro_combined',
+  n.primary_key     = 'pj_project_id',
+  n.grain           = 'One per project',
+  n.definition      = 'Overall construction execution phase encompassing pre-construction prep, construction drawings, PO issuance, ground equipment install, tower-top equipment install, and BTS vendor construction. Wraps Civil Work and Tower Work as sub-activities.',
+  n.attributes      = [
+    'construction_gc','construction_gc_assigned_date','construction_pm','construction_start_week',
+    'construction_ntm','civil_construction_ntm',
+    'drawings_ordered_actual','drawings_received_actual','drawings_redlines_compiled','drawings_approved_actual',
+    'mw_drawings_approved','drawings_approved_doc',
+    'construction_po_pulled','construction_pos_issued',
+    'lift_rigging_plans_available','crane_required','lift_required',
+    'ground_equipment_install_actual','tower_top_equipment_install_actual','bts_vendor_complete_actual',
+    'construction_start_actual','construction_start_gc','construction_complete_actual',
+    'construction_complete_delay_code','construction_complete_delay_comments'
+  ],
+  n.column_map      = '{construction_gc:construction_gc, construction_gc_assigned_date:construction_gc_assigned_date, construction_pm:pj_construction_pm, construction_start_week:pj_construction_start_week_number, construction_ntm:construction_ntm, civil_construction_ntm:civil_construction_ntm, drawings_ordered_actual:pj_a_2200_construction_drawings_ordered_finish, drawings_received_actual:pj_a_2225_construction_drawings_received_finish, drawings_redlines_compiled:pj_a_2250_construction_drawings_redlines_compiled_finish, drawings_approved_actual:pj_a_2275_final_construction_drawings_approved_finish, construction_po_pulled:pj_a_4200_pull_construction_po_number_finish, construction_pos_issued:pj_construction_pos_issued, lift_rigging_plans_available:confirm_lift_and_rigging_plans_is_available_and_in_cup, crane_required:scoping_package_crane_required, lift_required:is_lift_required, ground_equipment_install_actual:pj_a_4725_install_ground_equipment_finish, tower_top_equipment_install_actual:pj_a_5100_install_tower_top_equipment_finish, bts_vendor_complete_actual:pj_a_5150_bts_vendor_construction_complete_finish, construction_start_actual:ms_1550_construction_start_actual, construction_start_gc:ms_15500_gc_construction_start_actual, construction_complete_actual:ms_1555_construction_complete_actual}',
+  n.notes           = 'Construction start (MS 1550) and complete (MS 1555) are the primary cycle time benchmark columns.',
+  n.base_query      = 'SELECT pj_project_id, s_site_id, m_market, construction_gc, pj_construction_pm, ms_1550_construction_start_actual AS cx_start, ms_1555_construction_complete_actual AS cx_complete, pj_a_4200_pull_construction_po_number_finish AS po_pulled, pj_construction_pos_issued, pj_a_4725_install_ground_equipment_finish AS ground_equip, pj_a_5100_install_tower_top_equipment_finish AS tower_top_equip FROM stg_ndpd_mbt_tmobile_macro_combined WHERE pj_project_id = :project_id';
+
+
+// ── 18. CIVIL CONSTRUCTION ───────────────────────────────────
+MERGE (n:ConceptNode {node_id: 'CivilConstruction'})
+SET
+  n.name            = 'Civil Construction',
+  n.phase_id        = 'CIVIL_CONSTRUCTION',
+  n.layer           = 1,
+  n.domain          = 'Construction',
+  n.is_stub         = false,
+  n.primary_table   = 'stg_ndpd_mbt_tmobile_macro_combined',
+  n.primary_key     = 'pj_project_id',
+  n.grain           = 'One per project (only if civil scope applies)',
+  n.definition      = 'Civil construction phase preceding tower work. Includes foundation, conduit, ground grid, utility connections. Only applicable for ground-based structures (not Building/rooftop sites). Gate: MS 1549 (civil start) → MS 1551 (civil complete).',
+  n.attributes      = [
+    'civil_construction_ntm','civil_start_actual','civil_complete_actual',
+    'civil_gc','civil_start_delay_code'
+  ],
+  n.column_map      = '{civil_construction_ntm:civil_construction_ntm, civil_start_actual:ms_1549_civil_construction_start_actual, civil_complete_actual:ms_1551_civil_construction_complete_actual_date}',
+  n.notes           = 'Rooftop (Building) sites skip civil phase. Civil duration SLA: <=21 days (good), 22-35 days (warning), >35 days (critical).',
+  n.base_query      = 'SELECT pj_project_id, s_site_id, ms_1549_civil_construction_start_actual AS civil_start, ms_1551_civil_construction_complete_actual_date AS civil_complete, civil_construction_ntm FROM stg_ndpd_mbt_tmobile_macro_combined WHERE ms_1549_civil_construction_start_actual IS NOT NULL AND pj_project_id = :project_id';
+
+
+// ── 19. TOWER CONSTRUCTION ───────────────────────────────────
+MERGE (n:ConceptNode {node_id: 'TowerConstruction'})
+SET
+  n.name            = 'Tower Construction',
+  n.phase_id        = 'TOWER_CONSTRUCTION',
+  n.layer           = 1,
+  n.domain          = 'Construction',
+  n.is_stub         = false,
+  n.primary_table   = 'stg_ndpd_mbt_tmobile_macro_combined',
+  n.primary_key     = 'pj_project_id',
+  n.grain           = 'One per project',
+  n.definition      = 'Tower-top construction phase: antenna installation, cable routing, RRU installation, grounding. PRIMARY BENCHMARK entity. MS 1550 (tower construction start) to MS 1555 (tower construction complete) is the primary simulation benchmark segmented by Market × GC.',
+  n.attributes      = [
+    'tower_start_actual','tower_complete_actual','tower_gc',
+    'construction_ntm','tower_duration_days'
+  ],
+  n.column_map      = '{tower_start_actual:ms_1550_construction_start_actual, tower_complete_actual:ms_1555_construction_complete_actual, construction_ntm:construction_ntm}',
+  n.sla_thresholds  = '{good:"<=21 days", warning:"22-35 days", critical:">35 days"}',
+  n.notes           = 'Tower duration (MS 1550 → MS 1555) is the PRIMARY SIMULATION BENCHMARK for the program. QC milestone (MS 1556) follows tower complete.',
+  n.base_query      = 'SELECT pj_project_id, s_site_id, m_market, pj_general_contractor, ms_1550_construction_start_actual AS tower_start, ms_1555_construction_complete_actual AS tower_complete, DATEDIFF(day, CAST(ms_1550_construction_start_actual AS DATE), CAST(ms_1555_construction_complete_actual AS DATE)) AS tower_duration_days FROM stg_ndpd_mbt_tmobile_macro_combined WHERE ms_1550_construction_start_actual IS NOT NULL';
+
+
+// ── 20. NAS SESSION ──────────────────────────────────────────
+MERGE (n:ConceptNode {node_id: 'NASSession'})
+SET
+  n.name            = 'NAS Session',
+  n.phase_id        = 'NAS_SESSION',
+  n.layer           = 1,
+  n.domain          = 'Integration & On-Air',
+  n.is_stub         = false,
+  n.primary_table   = 'stg_nas_session_level_combined_data',
+  n.primary_key     = 'nas_session_id',
+  n.grain           = 'One per session per site (multiple sessions per site possible)',
+  n.definition      = 'A NAS (Network Activity Scheduler) session — a scheduled integration window where a technician connects to the site to configure and activate technology bands. Each session has a full lifecycle: nest request → conditional approval → precheck → integration work → E911 test → CBN validation → GC checkout.',
+  n.attributes      = [
+    'session_id','site_id','market','project_category','date_period','activity_type',
+    'vendor_name','company_name','primary_gc','contact_person','workorder_id',
+    'nest_type','session_create_time','status_description','status_nest_active',
+    'last_event','status_e911_test','status_cbn_validation','status_gc_checkout',
+    'status_conditional_approval','nest_start_time_requested','nest_time_requested_hrs',
+    'nest_start_time','precheck_time','checkout_time','total_activity_duration',
+    'cbn_request_time','cbn_approve_time','checkout_approve_time',
+    'checkout_reject_time','checkout_reject_reason','checkout_gc_notes',
+    'checkout_warroom_notes','nest_rejection_notes','nest_change_notes',
+    'status_nest_ext','max_downtime_daily','max_downtime_hourly',
+    'outage_cells','nsi_outage_layers','nsi_outage_time','si_outage_layers','si_outage_time',
+    'sla_integration','sla_checkout','sla_checkout_tat','sla_nest',
+    'sla_e911','sla_alarm','sla_cbn','sla_integration_status',
+    'sla_actual_integration_date','sla_ci_days'
+  ],
+  n.column_map      = '{session_id:nas_session_id, site_id:nas_site_id, market:nas_market, project_category:nas_project_category, date_period:nas_date_period, activity_type:nas_activity_type, vendor_name:nas_vendor_name, company_name:nas_company_name, primary_gc:nas_primary_gc, contact_person:nas_contact_person, workorder_id:nas_workorder_id, nest_type:nas_nest_type, session_create_time:nas_session_create_time, status_description:nas_status_description, status_nest_active:nas_status_nest_active, last_event:nas_last_event, status_e911_test:nas_status_e911_test, status_cbn_validation:nas_status_cbn_validation, status_gc_checkout:nas_status_gc_checkout, status_conditional_approval:nas_status_conditional_approval, nest_start_time_requested:nas_nest_start_time_requested, nest_time_requested_hrs:nas_nest_time_requested_hrs, nest_start_time:nas_nest_start_time, precheck_time:nas_precheck_time, checkout_time:nas_checkout_time, total_activity_duration:nas_total_activity_duration, cbn_request_time:nas_cbn_request_time, cbn_approve_time:nas_cbn_approve_time, checkout_approve_time:nas_checkout_approve_time, checkout_reject_time:nas_checkout_reject_time, checkout_reject_reason:nas_checkout_reject_reason, checkout_gc_notes:nas_checkout_gc_notes, checkout_warroom_notes:nas_checkout_warroom_notes, nest_rejection_notes:nas_nest_rejection_notes, nest_change_notes:nas_nest_change_notes, status_nest_ext:nas_status_nest_ext, max_downtime_daily:nas_maxdowntime_daily_existinglayers_hrs, max_downtime_hourly:nas_maxdowntime_hourly_existinglayers_hrs, outage_cells:nas_outage_cells, nsi_outage_layers:nas_nsi_outage_layers, nsi_outage_time:nas_nsi_outage_time, si_outage_layers:nas_si_outage_layers, si_outage_time:nas_si_outage_time, sla_integration:nas_sla_integration, sla_checkout:nas_sla_sla_checkout, sla_checkout_tat:nas_sla_checkout_tat, sla_nest:nas_sla_sla_nest, sla_e911:nas_sla_sla_e911, sla_alarm:nas_sla_sla_alarm, sla_cbn:nas_sla_sla_cbn, sla_integration_status:nas_sla_integration_status, sla_actual_integration_date:nas_sla_actual_integration_date, sla_ci_days:nas_sla_c_i_days}',
+  n.join_key        = 'nas_site_id = s_site_id (1:many)',
+  n.notes           = 'Most granular integration data. Multiple sessions per site are normal. NAS tables use short GC codes (SBA, Mastec, EWS) — may not match macro_combined GC names. Extension table: stg_nas_nest_ext_raw_by_session. Rejection table: stg_nas_rejection_data_last_30_days.',
+  n.base_query      = 'SELECT nas_session_id, nas_site_id, nas_market, nas_activity_type, nas_vendor_name, nas_primary_gc, nas_nest_type, nas_status_description, nas_status_nest_active, nas_status_e911_test, nas_status_cbn_validation, nas_status_gc_checkout, nas_nest_start_time, nas_precheck_time, nas_checkout_time, nas_total_activity_duration, nas_nest_time_requested_hrs, nas_sla_integration_status, nas_sla_c_i_days FROM stg_nas_session_level_combined_data WHERE nas_site_id = :site_id ORDER BY nas_session_create_time DESC';
+
+
+// ── 21. TECHNOLOGY BAND ──────────────────────────────────────
+MERGE (n:ConceptNode {node_id: 'TechnologyBand'})
+SET
+  n.name            = 'Technology Band',
+  n.phase_id        = 'TECHNOLOGY_BAND',
+  n.layer           = 1,
+  n.domain          = 'Integration & On-Air',
+  n.is_stub         = false,
+  n.primary_table   = 'stg_ndpd_mbt_tmobile_macro_combined',
+  n.primary_key     = 'pj_project_id + band_code (composite)',
+  n.grain           = 'One per technology band per project (stored as wide columns)',
+  n.definition      = 'A specific radio frequency technology band being deployed at a site. Each band has a RTT (Ready to Test) and an On-Air date. 28 bands spanning 2G/3G/4G LTE/5G NR.',
+  n.band_list       = [
+    'GSM','CDMA',
+    'L600','L700','L850','L1900','L2100','L2500',
+    'N47','N600','N1900','N2100','N2500','N24','N28','N3400','N3700','N39'
+  ],
+  n.key_5g_bands    = ['N600 (low-band coverage)','N1900/N2100 (mid-band capacity)','N2500 (C-band)','N47 (mmWave)'],
+  n.column_pattern  = 'Each band has: {band}_rtt_actual and {band}_onair_actual columns in macro_combined',
+  n.notes           = '28 technology bands. Band deployment mix per market is a key network planning metric. Use unpivot query to normalize wide columns.',
+  n.base_query      = '-- Wide: SELECT pj_project_id, s_site_id, [band_rtt_col], [band_onair_col] FROM stg_ndpd_mbt_tmobile_macro_combined WHERE pj_project_id = :project_id';
+
+
+// ── 22. ON AIR ───────────────────────────────────────────────
+MERGE (n:ConceptNode {node_id: 'OnAir'})
+SET
+  n.name            = 'On Air',
+  n.phase_id        = 'ON_AIR_EVENT',
+  n.layer           = 1,
+  n.domain          = 'Integration & On-Air',
+  n.is_stub         = false,
+  n.primary_table   = 'stg_ndpd_mbt_tmobile_macro_combined',
+  n.primary_key     = 'pj_project_id + band_code (composite)',
+  n.grain           = 'One per band per project (derived from TechnologyBand on-air dates)',
+  n.definition      = 'The moment a specific technology band goes live (On-Air) at a site, preceded by RTT (Ready to Test). The aggregate of all on-air events yields MS 1899 (all planned technologies integrated) — the ultimate deliverable of the construction lifecycle.',
+  n.attributes      = ['all_tech_integrated','on_air_delay_code','on_air_delay_comments','e911_test_complete','sla_layers'],
+  n.column_map      = '{all_tech_integrated:ms_1899_all_planned_technologies_integrated_actual, on_air_delay_code:pj_on_air_delay_code, on_air_delay_comments:pj_on_air_delay_code_comments, e911_test_complete:ms_2123_planned_e911_test_calls_actual, sla_layers:nas_sla_layers}',
+  n.notes           = 'MS 1899 (all planned tech integrated) is the aggregate gate. Common on-air delay codes: ICOP not ready, OTDR missing, hardware failure, azimuth mismatch, duplicate CGI.',
+  n.base_query      = 'SELECT pj_project_id, s_site_id, m_market, ms_1899_all_planned_technologies_integrated_actual AS all_tech_integrated, pj_on_air_delay_code, pj_on_air_delay_code_comments, ms_2123_planned_e911_test_calls_actual AS e911_complete FROM stg_ndpd_mbt_tmobile_macro_combined WHERE pj_project_id = :project_id';
+
+
+// ── 23. ACCEPTANCE ───────────────────────────────────────────
+MERGE (n:ConceptNode {node_id: 'Acceptance'})
+SET
+  n.name            = 'Acceptance',
+  n.phase_id        = 'SSV_ACCEPTANCE',
+  n.layer           = 1,
+  n.domain          = 'Integration & On-Air',
+  n.is_stub         = false,
+  n.primary_table   = 'stg_ndpd_mbt_tmobile_macro_combined',
+  n.primary_key     = 'pj_project_id',
+  n.grain           = 'One per project',
+  n.definition      = 'SSV (Single Site Verification) and acceptance process. After integration and on-air, SSV validates the site meets technical standards, feeding into COP approval and customer acceptance.',
+  n.attributes      = [
+    'ssv_sss_ntm','ssv_submitted_so_number','ssv_submitted_so_header',
+    'ssv_submitted_cbm_number','ssv_submitted_notes','ssv_submitted_invoice',
+    'ssv_submitted_invoice_date','ssv_submitted_ca_date','ssv_submitted_bbr_date',
+    'ssv_submitted_cit','ssv_submitted_sog',
+    'integration_complete','cop_approved','customer_acceptance',
+    'payment_release','project_complete',
+    'admin_checklist_submitted','close_out_binder_received',
+    'close_out_binder_approved','financial_closeout',
+    'magenta_close_out_received','magenta_close_out_approved'
+  ],
+  n.column_map      = '{ssv_sss_ntm:ssv_sss_ntm, ssv_submitted_so_number:ms_2063_ssv_submitted_so_number, ssv_submitted_so_header:ms_2063_ssv_submitted_so_header, ssv_submitted_cbm_number:ms_2063_ssv_submitted_cbm_number, ssv_submitted_notes:ms_2063_ssv_submitted_notes, ssv_submitted_invoice:ms_2063_ssv_submitted_invoice, ssv_submitted_invoice_date:ms_2063_ssv_submitted_invoice_date, ssv_submitted_ca_date:ms_2063_ssv_submitted_ca_date, ssv_submitted_bbr_date:ms_2063_ssv_submitted_bbr_date, ssv_submitted_cit:ms_2063_ssv_submitted_cit, ssv_submitted_sog:ms_2063_ssv_submitted_sog, integration_complete:ms_1970_integration_complete_actual, cop_approved:ms_1559_cop_approved_by_t_mobile_actual, customer_acceptance:ms_2400_customer_acceptance_actual, payment_release:ms_2450_customer_payment_release_actual, project_complete:ms_2490_project_complete_actual, admin_checklist_submitted:ms_1558_admin_checklist_submitted_to_t_mobile_actual, close_out_binder_received:pj_a_5500_receive_close_out_binder_finish, close_out_binder_approved:pj_a_5525_approve_close_out_binder_finish, financial_closeout:pj_a_5540_financial_closeout_finish}',
+  n.sequence        = 'IX complete (1970) → SSV submitted (2063) → Admin checklist (1558) → COP approved (1559) → Customer acceptance (2400) → Payment release (2450) → Project complete (2490) → Financial closeout (5540)',
+  n.notes           = 'Financial closeout (MS 5540) is the last step. COP-to-payment duration is a key cash flow metric.',
+  n.base_query      = 'SELECT pj_project_id, s_site_id, m_market, pj_general_contractor, ssv_sss_ntm, ms_1970_integration_complete_actual AS ix_complete, ms_2063_ssv_submitted_so_number AS ssv_so, ms_1558_admin_checklist_submitted_to_t_mobile_actual AS admin_submitted, ms_1559_cop_approved_by_t_mobile_actual AS cop_approved, ms_2400_customer_acceptance_actual AS customer_accepted, ms_2450_customer_payment_release_actual AS payment_released, ms_2490_project_complete_actual AS project_complete, pj_a_5500_receive_close_out_binder_finish AS close_out_received, pj_a_5525_approve_close_out_binder_finish AS close_out_approved, pj_a_5540_financial_closeout_finish AS financial_closeout FROM stg_ndpd_mbt_tmobile_macro_combined WHERE pj_project_id = :project_id';
+
+
+// ── 24. AAV BACKHAUL ─────────────────────────────────────────
+MERGE (n:ConceptNode {node_id: 'AAVBackhaul'})
+SET
+  n.name            = 'AAV Backhaul',
+  n.phase_id        = 'AAV_BACKHAUL',
+  n.layer           = 1,
+  n.domain          = 'Regulatory & Prerequisite',
+  n.is_stub         = false,
+  n.primary_table   = 'stg_ndpd_mbt_tmobile_macro_combined',
+  n.primary_key     = 'pj_project_id',
+  n.grain           = 'One per project',
+  n.definition      = 'Alternative Access Vendor backhaul — the fiber/connectivity solution provided by vendors like Comcast or AT&T as an alternative to microwave. AAV entitlement (MS 3715) is a prerequisite gate. AAV eligibility, vendor selection, and working status tracked per site.',
+  n.attributes      = [
+    'aav_eligibility_status','aav_vendor_name','aav_working_status',
+    'aav_entitlement_complete','aav_bom_at_msl','backhaul_type'
+  ],
+  n.column_map      = '{aav_eligibility_status:s_aav_eligibility_status_salesforce, aav_vendor_name:s_primary_aav_vendor_name_salesforce, aav_working_status:s_aav_working_status_salesforce, aav_entitlement_complete:pj_a_3715_aav_entitlement_complete_finish, aav_bom_at_msl:pj_a_3950_aav_bom_at_msl_finish, backhaul_type:pj_backhaul_task_selection}',
+  n.aav_vendors     = ['COMCAST','AT&T','other ISPs'],
+  n.working_statuses = ['Contracted','BAU Not available','Pending'],
+  n.notes           = 'AAV is an integration prerequisite. Sites with microwave backhaul follow different path than AAV fiber sites.',
+  n.base_query      = 'SELECT pj_project_id, s_site_id, s_aav_eligibility_status_salesforce AS eligibility, s_primary_aav_vendor_name_salesforce AS vendor, s_aav_working_status_salesforce AS status, pj_a_3715_aav_entitlement_complete_finish AS entitlement FROM stg_ndpd_mbt_tmobile_macro_combined WHERE s_aav_eligibility_status_salesforce IS NOT NULL AND pj_project_id = :project_id';
+
+
+// ── 25. INTEGRATION (EVENT) ──────────────────────────────────
+MERGE (n:ConceptNode {node_id: 'Integration'})
+SET
+  n.name            = 'Integration',
+  n.phase_id        = 'INTEGRATION_EVENT',
+  n.layer           = 1,
+  n.domain          = 'Integration & On-Air',
+  n.is_stub         = false,
+  n.primary_table   = 'stg_nas_session_level_combined_data',
+  n.primary_key     = 'nas_site_id',
+  n.grain           = 'One per site (aggregate of NAS sessions)',
+  n.definition      = 'Integration phase — the activation of technology bands on-air. Triggered after construction complete. Requires iNTP, SCF validation (MS 1564), RIOT readiness, ICOP approval, and NAS capacity. Completed when all planned technologies integrated (MS 1899) and integration complete (MS 1970).',
+  n.attributes      = [
+    'scf_validated','intp_received','all_tech_integrated',
+    'integration_complete','e911_complete','riot_validation'
+  ],
+  n.column_map      = '{scf_validated:ms_1564_validate_scf_files_are_available_actual, intp_received:i_ntp_received, all_tech_integrated:ms_1899_all_planned_technologies_integrated_actual, integration_complete:ms_1970_integration_complete_actual, e911_complete:ms_2123_planned_e911_test_calls_actual}',
+  n.blockers        = ['SCF not validated','iNTP not received','ICOP not ready','OTDR missing','Hardware failure','Azimuth mismatch','Duplicate CGI','NAS capacity'],
+  n.notes           = 'Integration is represented by NASSession instances. cx_to_ix SLA: <=14 days (good), 15-30 (warning), >30 (critical).',
+  n.base_query      = 'SELECT customer_site_code, m_market, pj_general_contractor, ms_1555_construction_complete_actual AS cx_complete, ms_1564_validate_scf_files_are_available_actual AS scf_validated, i_ntp_received, ms_1970_integration_complete_actual AS ix_complete, ms_1899_all_planned_technologies_integrated_actual AS all_tech, pj_on_air_delay_code FROM stg_ndpd_mbt_tmobile_macro_combined WHERE ms_1555_construction_complete_actual IS NOT NULL AND pj_project_id = :project_id';
+
+
+// ── 26. PUNCH ITEM ───────────────────────────────────────────
+MERGE (n:ConceptNode {node_id: 'PunchItem'})
+SET
+  n.name            = 'Punch Item',
+  n.phase_id        = 'PUNCH_ITEM',
+  n.layer           = 1,
+  n.domain          = 'Quality & Compliance',
+  n.is_stub         = false,
+  n.primary_table   = 'stg_tmo_rejections_master_file',
+  n.primary_key     = 'trmf_site_code',
+  n.grain           = 'One per TMO rejection record per site',
+  n.definition      = 'Quality deficiency identified by T-Mobile during COP review. Captured in TMO Rejection Master File. Tracked by punch point count, category, and resolution status.',
+  n.attributes      = [
+    'site_code','smp_id','no_of_tmo_punch_points','tmo_punch_point_details',
+    'missed_in_nokia_review_count','nokia_miss_details',
+    'missing_photos','cable_routing','labeling_issue','grounding',
+    'antenna_bearing_azimuth','rru_mismatch','site_hygiene',
+    'gc_company_name','review_date'
+  ],
+  n.column_map      = '{site_code:trmf_site_code, smp_id:trmf_smp_id, no_of_tmo_punch_points:trmf_no_of_tmo_punch_points, tmo_punch_point_details:trmf_tmo_punch_point_details, missed_in_nokia_review_count:trmf_missed_in_nokia_review_count, nokia_miss_details:trmf_nokia_miss_details, missing_photos:trmf_missing_photos, cable_routing:trmf_cable_routing, labeling_issue:trmf_labeling_issue, grounding:trmf_grounding, antenna_bearing_azimuth:trmf_antenna_bearing_azimuth, rru_mismatch:trmf_rru_mismatch, site_hygiene:trmf_site_hygiene, gc_company_name:trmf_ms_1553_cw_quality_media_cl_reviewed_company}',
+  n.notes           = 'TMO rejection master file also stores whether Nokia missed issues that TMO caught — used to measure Nokia review effectiveness.',
+  n.base_query      = 'SELECT trmf_site_code, trmf_smp_id, trmf_no_of_tmo_punch_points, trmf_tmo_punch_point_details, trmf_missed_in_nokia_review_count, trmf_missing_photos, trmf_cable_routing, trmf_labeling_issue, trmf_grounding, trmf_antenna_bearing_azimuth, trmf_rru_mismatch, trmf_site_hygiene FROM stg_tmo_rejections_master_file WHERE trmf_site_code = :site_id';
+
+
+// ── 27. NEST EXTENSION ───────────────────────────────────────
+MERGE (n:ConceptNode {node_id: 'NestExtension'})
+SET
+  n.name            = 'Nest Extension',
+  n.phase_id        = 'NEST_EXTENSION',
+  n.layer           = 1,
+  n.domain          = 'Integration & On-Air',
+  n.is_stub         = false,
+  n.primary_table   = 'stg_nas_nest_ext_raw_by_session',
+  n.primary_key     = 'nas_session_id',
+  n.grain           = 'One per NAS session (extension data)',
+  n.definition      = 'A NAS session extension — when integration exceeds the allocated nest window and additional time is requested. Tracks approved/rejected extension counts and total extension hours. High extension rates indicate underestimated work or recurring blockers.',
+  n.attributes      = [
+    'session_id','market','total_ext_count_approved','total_ext_count_rejected',
+    'total_ext_time_approved','ext_reasons'
+  ],
+  n.column_map      = '{session_id:nas_session_id, market:nas_market, total_ext_count_approved:nas_total_ext_count_approved, total_ext_count_rejected:nas_total_ext_count_rejected, total_ext_time_approved:nas_total_ext_time_approved}',
+  n.sla_thresholds  = '{good:"<0.2 extensions/session", warning:"0.2-0.5", critical:">0.5"}',
+  n.notes           = 'Extension data in stg_nas_nest_ext_raw_by_session joined via nas_session_id.',
+  n.base_query      = 'SELECT nas_session_id, nas_market, nas_total_ext_count_approved, nas_total_ext_count_rejected, nas_total_ext_time_approved FROM stg_nas_nest_ext_raw_by_session WHERE nas_session_id = :session_id';
+
+
+// ── 28. CREW CAPACITY ────────────────────────────────────────
+MERGE (n:ConceptNode {node_id: 'CrewCapacity'})
+SET
+  n.name            = 'Crew Capacity',
+  n.phase_id        = 'CREW_CAPACITY',
+  n.layer           = 1,
+  n.domain          = 'Workforce & Vendor',
+  n.is_stub         = false,
+  n.primary_table   = 'stg_ndpd_mbt_tmobile_macro_combined',
+  n.primary_key     = 'm_market + pj_general_contractor (composite)',
+  n.grain           = 'Market × GC × Week (derived)',
+  n.definition      = 'Available crew capacity vs demand at market × GC × week level. KEY PLANNING STATE. Capacity formula: Weekly Delivery = Available Crews × Sites/Crew/Day × Working Days. Resource Requirement = Total Work Volume / (Individual Capacity × Available Time).',
+  n.attributes      = ['market','gc_name','active_sites','sites_in_construction','weekly_completions','weeks_to_clear'],
+  n.capacity_formula = 'Weekly Delivery = Available Crews × Sites/Crew/Day × Working Days',
+  n.resource_formula = 'Required Crews = CEIL(target_sites / (sites_per_crew_per_week × target_weeks))',
+  n.notes           = 'Capacity is derived — not stored explicitly. Computed from historical throughput (ms_1555 completion counts per week per GC per market).',
+  n.base_query      = 'SELECT m_market, pj_general_contractor, COUNT(DISTINCT customer_site_code) AS active_sites, COUNT(DISTINCT CASE WHEN ms_1550_construction_start_actual IS NOT NULL AND ms_1555_construction_complete_actual IS NULL THEN customer_site_code END) AS sites_in_construction FROM stg_ndpd_mbt_tmobile_macro_combined WHERE pj_project_status NOT IN (\'Cancelled\', \'On Hold\') GROUP BY m_market, pj_general_contractor ORDER BY active_sites DESC';
+
+
+// ── 29. GC ASSIGNMENT ────────────────────────────────────────
+// NOTE: Listed in edges as a node but has is_stub: true in source.
+// Including as ConceptNode with stub flag for completeness.
+MERGE (n:ConceptNode {node_id: 'GCAssignment'})
+SET
+  n.name            = 'GC Assignment',
+  n.phase_id        = null,
+  n.layer           = 1,
+  n.domain          = 'Workforce & Vendor',
+  n.is_stub         = true,
+  n.primary_table   = 'stg_ndpd_mbt_tmobile_macro_combined',
+  n.primary_key     = 'pj_project_id',
+  n.grain           = 'Site x GC',
+  n.definition      = 'Event when GC is assigned to site. Email Agent sends assignment, parses acceptance/rejection.',
+  n.attributes      = ['assignment_date','acceptance_date','status','forecast_period'],
+  n.column_map      = '{assignment_date:TBD, acceptance_date:TBD, status:TBD, forecast_period:TBD}',
+  n.notes           = 'Stub node — phase 6 mapping pending. Managed via Email Agent outside the database.';
+
+
+// ============================================================
+//  SECTION 3 — CONCEPT NODES (STUBS, is_stub: true)
+// ============================================================
+
+MERGE (n:ConceptNode {node_id: 'Warehouse'})
+SET n.name='Warehouse', n.layer=1, n.domain='Material & Logistics', n.is_stub=true,
+    n.primary_table='stg_ndpd_mbt_tmobile_macro_combined',
+    n.grain='Warehouse', n.definition='TMO warehouse pickup point where materials are staged.',
+    n.attributes=['warehouse_id','location','market','capacity'],
+    n.notes='Stub — phase 6 mapping pending.';
+
+MERGE (n:ConceptNode {node_id: 'MaterialAvailability'})
+SET n.name='Material Availability', n.layer=1, n.domain='Material & Logistics', n.is_stub=true,
+    n.primary_table='stg_ndpd_mbt_tmobile_macro_combined',
+    n.grain='Site x Day',
+    n.definition='Whether all BOM items for a site are available at warehouse. BLOCKING PREREQUISITE for construction start.',
+    n.attributes=['all_items_ready','missing_items','eta_for_missing','partial_delivery_flag'],
+    n.notes='Stub — phase 6 mapping pending.';
+
+MERGE (n:ConceptNode {node_id: 'MaterialPickup'})
+SET n.name='Material Pickup', n.layer=1, n.domain='Material & Logistics', n.is_stub=true,
+    n.primary_table='stg_ndpd_mbt_tmobile_macro_combined',
+    n.grain='Site x GC',
+    n.definition='GC picks up materials from warehouse before construction start.',
+    n.attributes=['pickup_date','validated_tags','discrepancies','gc_confirmation'],
+    n.notes='Stub — phase 6 mapping pending.';
+
+MERGE (n:ConceptNode {node_id: 'Radio'})
+SET n.name='Radio', n.layer=1, n.domain='Material & Logistics', n.is_stub=true,
+    n.primary_table='stg_ndpd_mbt_tmobile_macro_combined',
+    n.grain='Radio',
+    n.definition='Physical radio unit installed on a tower. 120,000+ radios. Types: RRU, BBU. Tracked via FAST Tracker.',
+    n.attributes=['radio_id','type','serial_number','fast_tracker_status','installation_date','hardware_status','technology'],
+    n.notes='Stub — phase 6 mapping pending.';
+
+MERGE (n:ConceptNode {node_id: 'PrerequisiteStatus'})
+SET n.name='Prerequisite Status', n.layer=1, n.domain='Prerequisites & Readiness', n.is_stub=true,
+    n.primary_table='stg_ndpd_mbt_tmobile_macro_combined',
+    n.grain='Site x Prerequisite x Day',
+    n.definition='Current status of a specific prerequisite at a specific site.',
+    n.attributes=['status','blocker_detail','last_updated','mitigation_attempted'],
+    n.notes='Stub — phase 6 mapping pending.';
+
+MERGE (n:ConceptNode {node_id: 'SiteReadiness'})
+SET n.name='Site Readiness', n.layer=1, n.domain='Prerequisites & Readiness', n.is_stub=true,
+    n.primary_table='stg_ndpd_mbt_tmobile_macro_combined',
+    n.grain='Site x Day',
+    n.definition='COMPOSITE readiness state — are ALL prerequisites met for construction to start? Aggregates: structural, leases, permits, power, material, BOM, site access.',
+    n.attributes=['ready_for_construction','open_blockers_count','readiness_score','days_waiting'],
+    n.notes='Stub — phase 6 mapping pending.';
+
+MERGE (n:ConceptNode {node_id: 'Outage'})
+SET n.name='Outage', n.layer=1, n.domain='Construction', n.is_stub=true,
+    n.primary_table='stg_tmo_mw_outage_schedule',
+    n.grain='Site',
+    n.definition='Planned network outage during tower construction. NAS Team coordinates maintenance windows.',
+    n.attributes=['planned_date','duration','approval_status','maintenance_window'],
+    n.notes='Stub — phase 6 mapping pending.';
+
+MERGE (n:ConceptNode {node_id: 'IntegrationArtifact'})
+SET n.name='Integration Artifact', n.layer=1, n.domain='Integration', n.is_stub=true,
+    n.primary_table='stg_ndpd_mbt_tmobile_macro_combined',
+    n.grain='Site x Artifact',
+    n.definition='Technical artifact for integration readiness. Types: SCF, iNTP, ICOP, CIQ, RIOT, CR, SCAF, OTDR.',
+    n.attributes=['artifact_type','status','validation_date','blocker_flag'],
+    n.notes='Stub — phase 6 mapping pending.';
+
+MERGE (n:ConceptNode {node_id: 'IntegrationReadiness'})
+SET n.name='Integration Readiness', n.layer=1, n.domain='Integration', n.is_stub=true,
+    n.primary_table='stg_ndpd_mbt_tmobile_macro_combined',
+    n.grain='Site x Day',
+    n.definition='Whether all integration artifacts and gates are met. iNTP is distinct from construction NTP.',
+    n.attributes=['all_artifacts_ready','missing_artifacts','intp_issued','icop_ready','otdr_available'],
+    n.notes='Stub — phase 6 mapping pending.';
+
+MERGE (n:ConceptNode {node_id: 'IntegrationCapacity'})
+SET n.name='Integration Capacity', n.layer=1, n.domain='Integration', n.is_stub=true,
+    n.primary_table='stg_nas_session_level_combined_data',
+    n.grain='Market x Shift x Day',
+    n.definition='NAS resource capacity. Engineers are shift-based. Requirement = Sessions/Shift / Sessions/Eng/Shift.',
+    n.attributes=['engineers_available','sessions_per_shift','aht_mins','sla_compliance_pct'],
+    n.notes='Stub — phase 6 mapping pending.';
+
+MERGE (n:ConceptNode {node_id: 'MaintenanceWindow'})
+SET n.name='Maintenance Window', n.layer=1, n.domain='Integration', n.is_stub=true,
+    n.primary_table='stg_tmo_mw_outage_schedule',
+    n.grain='Site x Day',
+    n.definition='Scheduled maintenance window coordinated by NAS Team.',
+    n.attributes=['window_id','scheduled_date','start_time','duration','type','approval_status'],
+    n.notes='Stub — phase 6 mapping pending.';
+
+MERGE (n:ConceptNode {node_id: 'NDPcSession'})
+SET n.name='NDPc Session', n.layer=1, n.domain='Quality & Compliance', n.is_stub=true,
+    n.primary_table='stg_services_ndpc_sessions_daily_from_sdb',
+    n.primary_key='sessionid',
+    n.grain='Site x Session',
+    n.definition='Quality inspection session. One per site, 500-600+ questions. Status: 0=submitted, 1=accepted, 2=rejected, 4=AI-rejected.',
+    n.attributes=['session_id','form_count','question_count','status','punch_point_count'],
+    n.notes='Stub — phase 6 mapping pending.';
+
+MERGE (n:ConceptNode {node_id: 'HSECheck'})
+SET n.name='HSE Check', n.layer=1, n.domain='Quality & Compliance', n.is_stub=true,
+    n.primary_table='stg_ndpd_hse_site_checklist',
+    n.primary_key='site_id',
+    n.grain='Site x Day',
+    n.definition='Daily HSE compliance check. Four items: check-in, PPE, JSA, PTID. Escalation: L1 DC → L2 CM → L3 PM → L4 stop work.',
+    n.attributes=['check_date','check_in','ppe','jsa','ptid','result','escalation_level'],
+    n.notes='Stub — phase 6 mapping pending.';
+
+MERGE (n:ConceptNode {node_id: 'QualityPosition'})
+SET n.name='Quality Position', n.layer=1, n.domain='Quality & Compliance', n.is_stub=true,
+    n.primary_table='stg_services_ndpc_sessions_daily_from_sdb',
+    n.primary_key='siteid',
+    n.grain='Site x Day',
+    n.definition='Aggregate quality posture for a site. FTR%, rework rate, open punches, NCRs.',
+    n.attributes=['ftr_pct','rework_rate','open_punch_count','ncr_count','vswr_pass','qc_pass_status'],
+    n.notes='Stub — phase 6 mapping pending.';
+
+MERGE (n:ConceptNode {node_id: 'RiskItem'})
+SET n.name='Risk Item', n.layer=1, n.domain='Quality & Compliance', n.is_stub=true,
+    n.primary_table='stg_ndpd_mbt_tmobile_macro_combined',
+    n.grain='Project',
+    n.definition='DEC track risk entity. Tracks open critical risks, overdue mitigations, escalation count.',
+    n.attributes=['risk_id','severity','status','mitigation_plan','escalation_count'],
+    n.notes='Stub — phase 6 mapping pending.';
+
+MERGE (n:ConceptNode {node_id: 'Quotation'})
+SET n.name='Quotation', n.layer=1, n.domain='Commercial & Financial', n.is_stub=true,
+    n.primary_table='stg_ndpd_mbt_tmobile_macro_combined',
+    n.grain='Project',
+    n.definition='Cost negotiation at scoping stage via CQT tool.',
+    n.attributes=['quotation_id','estimated_cost','cqt_tool_ref','negotiation_status'],
+    n.notes='Stub — phase 6 mapping pending.';
+
+MERGE (n:ConceptNode {node_id: 'PurchaseOrder'})
+SET n.name='Purchase Order', n.layer=1, n.domain='Commercial & Financial', n.is_stub=true,
+    n.primary_table='stg_ndpd_mbt_tmobile_macro_combined',
+    n.grain='Project',
+    n.definition='Commercial instrument. Types: CPO (TMO→Nokia), SPO (Nokia→GC), SO (Nokia internal).',
+    n.attributes=['po_id','po_type','amount','status'],
+    n.notes='Stub — phase 6 mapping pending.';
+
+MERGE (n:ConceptNode {node_id: 'CloseoutPackage'})
+SET n.name='Closeout Package', n.layer=1, n.domain='Commercial & Financial', n.is_stub=true,
+    n.primary_table='stg_ndpd_mbt_tmobile_macro_combined',
+    n.grain='Project',
+    n.definition='COP deliverable for acceptance (MS 1559). Contains quality + construction evidence.',
+    n.attributes=['package_id','cop_status','submission_date','rejection_count'],
+    n.notes='Stub — phase 6 mapping pending.';
+
+MERGE (n:ConceptNode {node_id: 'PaymentGR'})
+SET n.name='Payment GR', n.layer=1, n.domain='Commercial & Financial', n.is_stub=true,
+    n.primary_table='stg_ndpd_mbt_tmobile_macro_combined',
+    n.grain='Project',
+    n.definition='Goods Receipt — payment trigger. FINAL MILESTONE. Follows Customer Acceptance (MS 2400 → 2450).',
+    n.attributes=['gr_date','amount','linked_po'],
+    n.notes='Stub — phase 6 mapping pending.';
+
+MERGE (n:ConceptNode {node_id: 'CostPosition'})
+SET n.name='Cost Position', n.layer=1, n.domain='Commercial & Financial', n.is_stub=true,
+    n.primary_table='stg_ndpd_mbt_tmobile_macro_combined',
+    n.grain='Project x Month',
+    n.definition='Cost tracking. DEC monitors: Cost Variance, EAC, baseline, forecast accuracy.',
+    n.attributes=['cost_variance','eac','baseline','forecast_accuracy_pct','rework_cost'],
+    n.notes='Stub — phase 6 mapping pending.';
+
+MERGE (n:ConceptNode {node_id: 'TimeWeek'})
+SET n.name='Time Week', n.layer=1, n.domain='Geography & Time', n.is_stub=true,
+    n.primary_table='derived',
+    n.primary_key='week_id',
+    n.grain='Week',
+    n.definition='Week-level time dimension. Priority P1/P2/P3 maps to week numbers.',
+    n.attributes=['week_id','year','week_number','working_days'],
+    n.notes='Stub — phase 6 mapping pending.';
+
+MERGE (n:ConceptNode {node_id: 'Document'})
+SET n.name='Document', n.layer=1, n.domain='Scoping & NTP', n.is_stub=true,
+    n.definition='Generic document entity: NTP docs, admin checklist, close-out binder, COP.',
+    n.attributes=['doc_type','doc_status','milestone_reference','validation_date'],
+    n.notes='Referenced in edges. Full mapping TBD.';
+
+
+// ============================================================
+//  SECTION 4 — METRIC NODES (9 total)
+// ============================================================
+
+// ── M1. PROJECT PHASE METRIC ─────────────────────────────────
+MERGE (m:MetricNode {metric_id: 'ProjectPhaseMetric'})
+SET
+  m.name            = 'Project Phase Metric',
+  m.layer            = 2,
+  m.domain           = 'Project Lifecycle',
+  m.definition       = 'Distribution of projects across lifecycle phases and time-in-phase analysis. Identifies bottleneck phases and stuck projects.',
+  m.references_nodes = ['Project','Milestone','ProjectPhase','Site'],
+  m.formulas         = ['phase_distribution','days_in_current_phase','stuck_projects'],
+  m.thresholds       = '{days_in_construction:{good:"<=21",warning:"22-45",critical:">45"}, days_in_integration:{good:"<=14",warning:"15-30",critical:">30"}, days_in_quality_closeout:{good:"<=14",warning:"15-30",critical:">30"}, days_ntp_to_construction_start:{good:"<=30",warning:"31-60",critical:">60"}}',
+  m.unit             = 'count / days',
+  m.formula_sql_phase_distribution = 'SELECT phase_name, COUNT(*) AS project_count, ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER(), 1) AS pct FROM (SELECT pj_project_id, CASE WHEN ms_2490_project_complete_actual IS NOT NULL THEN \'7-Complete\' WHEN ms_1559_cop_approved_by_t_mobile_actual IS NOT NULL THEN \'6-Acceptance/Payment\' WHEN ms_1970_integration_complete_actual IS NOT NULL THEN \'5-Integration Complete\' WHEN ms_1564_validate_scf_files_are_available_actual IS NOT NULL THEN \'4-Integration\' WHEN ms_1555_construction_complete_actual IS NOT NULL THEN \'3-Quality/Closeout\' WHEN ms_1550_construction_start_actual IS NOT NULL THEN \'2-Construction\' WHEN ms_1406_notice_to_proceed_received_actual IS NOT NULL THEN \'1-NTP/Material/Scoping\' ELSE \'0-Assignment/Pre-NTP\' END AS phase_name FROM stg_ndpd_mbt_tmobile_macro_combined WHERE pj_project_status NOT IN (\'Cancelled\', \'On Hold\')) sub GROUP BY phase_name ORDER BY phase_name';
+
+
+// ── M2. CREW CAPACITY METRIC ─────────────────────────────────
+MERGE (m:MetricNode {metric_id: 'CrewCapacityMetric'})
+SET
+  m.name            = 'Crew Capacity Metric',
+  m.layer            = 2,
+  m.domain           = 'Workforce & Vendor',
+  m.definition       = 'Available crew capacity vs demand at market × GC × week level. KEY PLANNING STATE. Weekly Delivery = Available Crews × Sites/Crew/Day × Working Days.',
+  m.references_nodes = ['Crew','GeneralContractor','Market','TimeWeek','Site'],
+  m.formulas         = ['gc_active_site_load','weekly_throughput_by_gc','capacity_gap','crew_resource_requirement'],
+  m.thresholds       = '{weeks_to_clear_backlog:{good:"<=4",warning:"5-8",critical:">8 or NULL"}, utilization_pct:{good:"70-90%",warning:"<70% or >90%",critical:">100%"}}',
+  m.unit             = 'sites/week, weeks, %',
+  m.formula_sql_capacity_gap = 'WITH demand AS (SELECT m_market, pj_general_contractor, COUNT(*) AS sites_ready_for_cx FROM stg_ndpd_mbt_tmobile_macro_combined WHERE ms_1550_construction_start_actual IS NULL AND ms_1406_notice_to_proceed_received_actual IS NOT NULL AND pj_project_status NOT IN (\'Cancelled\', \'On Hold\') GROUP BY m_market, pj_general_contractor), supply AS (SELECT m_market, pj_general_contractor, ROUND(AVG(weekly_completions), 1) AS avg_weekly_completions FROM (SELECT m_market, pj_general_contractor, EXTRACT(WEEK FROM CAST(ms_1555_construction_complete_actual AS DATE)) AS wk, COUNT(*) AS weekly_completions FROM stg_ndpd_mbt_tmobile_macro_combined WHERE ms_1555_construction_complete_actual IS NOT NULL AND CAST(ms_1555_construction_complete_actual AS DATE) >= CURRENT_DATE - INTERVAL \'90 days\' GROUP BY m_market, pj_general_contractor, EXTRACT(WEEK FROM CAST(ms_1555_construction_complete_actual AS DATE))) sub GROUP BY m_market, pj_general_contractor) SELECT d.m_market, d.pj_general_contractor, d.sites_ready_for_cx AS demand, COALESCE(s.avg_weekly_completions, 0) AS weekly_supply, CASE WHEN COALESCE(s.avg_weekly_completions, 0) = 0 THEN NULL ELSE ROUND(d.sites_ready_for_cx / s.avg_weekly_completions, 1) END AS weeks_to_clear FROM demand d LEFT JOIN supply s ON d.m_market = s.m_market AND d.pj_general_contractor = s.pj_general_contractor ORDER BY weeks_to_clear DESC NULLS FIRST';
+
+
+// ── M3. MATERIAL AVAILABILITY METRIC ─────────────────────────
+MERGE (m:MetricNode {metric_id: 'MaterialAvailabilityMetric'})
+SET
+  m.name            = 'Material Availability Metric',
+  m.layer            = 2,
+  m.domain           = 'Material & Logistics',
+  m.definition       = 'Whether all BOM items for a site are available for construction. BLOCKING PREREQUISITE. Tracks BOM submission through BAT ordering to warehouse receipt to GC pickup.',
+  m.references_nodes = ['BillOfMaterials','Site','Warehouse','GeneralContractor'],
+  m.formulas         = ['material_readiness_status','material_blocked_sites','material_lead_time'],
+  m.thresholds       = '{bom_to_receipt_days:{good:"<=21",warning:"22-35",critical:">35"}, receipt_to_pickup_days:{good:"<=7",warning:"8-14",critical:">14"}, pct_sites_material_blocked:{good:"<10%",warning:"10-25%",critical:">25%"}}',
+  m.unit             = 'days, count, %',
+  m.formula_sql_readiness = 'SELECT pj_project_id, customer_site_code, m_market, pj_general_contractor, CASE WHEN ms_14610_gc_material_pickup_actual IS NOT NULL THEN \'Picked Up\' WHEN pj_a_3900_all_bat_orders_received_finish IS NOT NULL THEN \'At Warehouse - Ready\' WHEN pj_a_3875_bom_received_bom_in_aims_finish IS NOT NULL THEN \'BOM in AIMS - Orders Processing\' WHEN pj_a_3850_bom_submitted_bom_in_bat_finish IS NOT NULL THEN \'BOM in BAT - Submitted\' WHEN pj_a_2350_bom_submitted_from_market_to_region_finish IS NOT NULL THEN \'BOM Submitted to Region\' ELSE \'BOM Not Submitted\' END AS material_status FROM stg_ndpd_mbt_tmobile_macro_combined WHERE pj_project_status NOT IN (\'Cancelled\', \'On Hold\')';
+
+
+// ── M4. SITE READINESS METRIC ────────────────────────────────
+MERGE (m:MetricNode {metric_id: 'SiteReadinessMetric'})
+SET
+  m.name            = 'Site Readiness Metric',
+  m.layer            = 2,
+  m.domain           = 'Prerequisites & Readiness',
+  m.definition       = 'COMPOSITE readiness state — are ALL prerequisites met for construction to start? Aggregates structural/mount, leases, permits, power, material, BOM, site access. Pre-Construction Readiness Score.',
+  m.references_nodes = ['Prerequisite','BillOfMaterials','Site','NTP'],
+  m.formulas         = ['site_readiness_composite','readiness_score','blocker_distribution','ready_but_not_started'],
+  m.thresholds       = '{readiness_score_pct:{good:"100%",warning:"67-99%",critical:"<67% (2+ blockers)"}, days_ready_but_not_started:{good:"<=7",warning:"8-21",critical:">21"}}',
+  m.unit             = '%, count, days',
+  m.formula_sql_composite = 'SELECT customer_site_code, m_market, pj_general_contractor, CASE WHEN pj_structural_result IS NOT NULL AND pj_structural_result != \'[null]\' THEN 1 ELSE 0 END AS structural_clear, CASE WHEN pj_lease_ground_status IN (\'executed\', \'Executed\', \'complete\', \'Complete\') THEN 1 ELSE 0 END AS lease_clear, CASE WHEN pj_building_permit_approved_status IN (\'approved\', \'Approved\', \'complete\') OR pj_building_permit_not_required_document_status IS NOT NULL THEN 1 ELSE 0 END AS permit_clear, CASE WHEN pj_a_3725_all_entitlement_complete_finish IS NOT NULL AND pj_a_3725_all_entitlement_complete_finish != \'[null]\' THEN 1 ELSE 0 END AS entitlement_clear, CASE WHEN pj_a_3900_all_bat_orders_received_finish IS NOT NULL AND pj_a_3900_all_bat_orders_received_finish != \'[null]\' THEN 1 ELSE 0 END AS material_ready, CASE WHEN ms_1406_notice_to_proceed_received_actual IS NOT NULL AND ms_1406_notice_to_proceed_received_actual != \'[null]\' THEN 1 ELSE 0 END AS ntp_received FROM stg_ndpd_mbt_tmobile_macro_combined WHERE ms_1550_construction_start_actual IS NULL AND pj_project_status NOT IN (\'Cancelled\', \'On Hold\')';
+
+
+// ── M5. CONSTRUCTION PROGRESS METRIC ─────────────────────────
+MERGE (m:MetricNode {metric_id: 'ConstructionProgressMetric'})
+SET
+  m.name            = 'Construction Progress Metric',
+  m.layer            = 2,
+  m.domain           = 'Construction',
+  m.definition       = 'Current construction status tracking. Sites in civil phase, tower phase, or complete. Includes days elapsed and whether site has matured for integration.',
+  m.references_nodes = ['CivilConstruction','TowerConstruction','ConstructionProgress','Site'],
+  m.formulas         = ['construction_status_distribution','active_construction_aging'],
+  m.thresholds       = '{tower_construction_days:{good:"<=21",warning:"22-35",critical:">35"}, civil_construction_days:{good:"<=21",warning:"22-35",critical:">35"}}',
+  m.unit             = 'count, days',
+  m.formula_sql_distribution = 'SELECT CASE WHEN ms_1555_construction_complete_actual IS NOT NULL AND ms_1555_construction_complete_actual != \'[null]\' THEN \'Tower Complete\' WHEN ms_1550_construction_start_actual IS NOT NULL AND ms_1550_construction_start_actual != \'[null]\' THEN \'Tower In Progress\' WHEN ms_1551_civil_construction_complete_actual IS NOT NULL AND ms_1551_civil_construction_complete_actual != \'[null]\' THEN \'Civil Complete / Pre-Tower\' WHEN ms_1549_civil_construction_start_actual IS NOT NULL AND ms_1549_civil_construction_start_actual != \'[null]\' THEN \'Civil In Progress\' ELSE \'Not Started\' END AS cx_phase, COUNT(*) AS site_count FROM stg_ndpd_mbt_tmobile_macro_combined WHERE pj_project_status NOT IN (\'Cancelled\', \'On Hold\') GROUP BY 1 ORDER BY 1';
+
+
+// ── M6. CONSTRUCTION CYCLE TIME METRIC ───────────────────────
+MERGE (m:MetricNode {metric_id: 'ConstructionCycleTimeMetric'})
+SET
+  m.name            = 'Construction Cycle Time Metric',
+  m.layer            = 2,
+  m.domain           = 'Construction',
+  m.definition       = 'Average days between tower construction start (MS 1550) and completion (MS 1555). PRIMARY SIMULATION BENCHMARK by Market × GC.',
+  m.references_nodes = ['TowerConstruction','GeneralContractor','Market','Crew'],
+  m.formulas         = ['cycle_time_by_market_gc','cycle_time_trend','ntp_to_onair'],
+  m.thresholds       = '{tower_cycle_time_days:{good:"<=21",warning:"22-35",critical:">35"}, ntp_to_onair_days:{good:"<=90",warning:"91-150",critical:">150"}}',
+  m.unit             = 'days',
+  m.formula_sql_cycle = 'SELECT m_market, pj_general_contractor, COUNT(*) AS completed_sites, ROUND(AVG(DATEDIFF(day, CAST(ms_1550_construction_start_actual AS DATE), CAST(ms_1555_construction_complete_actual AS DATE))), 1) AS avg_cycle_days, ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY DATEDIFF(day, CAST(ms_1550_construction_start_actual AS DATE), CAST(ms_1555_construction_complete_actual AS DATE))), 1) AS median_cycle_days FROM stg_ndpd_mbt_tmobile_macro_combined WHERE ms_1550_construction_start_actual IS NOT NULL AND ms_1555_construction_complete_actual IS NOT NULL AND ms_1550_construction_start_actual != \'[null]\' AND ms_1555_construction_complete_actual != \'[null]\' GROUP BY m_market, pj_general_contractor HAVING COUNT(*) >= 5 ORDER BY avg_cycle_days DESC';
+
+
+// ── M7. INTEGRATION READINESS METRIC ─────────────────────────
+MERGE (m:MetricNode {metric_id: 'IntegrationReadinessMetric'})
+SET
+  m.name            = 'Integration Readiness Metric',
+  m.layer            = 2,
+  m.domain           = 'Integration & On-Air',
+  m.definition       = 'Whether all integration artifacts and gates are met for site integration to begin. Key artifacts: SCF (MS 1564), iNTP, ICOP (common blocker), CIQ, RIOT, OTDR (common delay). Separate from construction readiness.',
+  m.references_nodes = ['Integration','NASSession','Site'],
+  m.formulas         = ['integration_readiness_status','integration_blocked_sites','integration_cycle_time'],
+  m.thresholds       = '{cx_to_ix_complete_days:{good:"<=14",warning:"15-30",critical:">30"}, days_waiting_for_integration:{good:"<=7",warning:"8-21",critical:">21"}}',
+  m.unit             = 'days, count',
+  m.formula_sql_blocked = 'SELECT customer_site_code, m_market, pj_general_contractor, ms_1555_construction_complete_actual AS cx_complete, DATEDIFF(day, CAST(ms_1555_construction_complete_actual AS DATE), CURRENT_DATE) AS days_waiting, CASE WHEN ms_1564_validate_scf_files_are_available_actual IS NULL OR ms_1564_validate_scf_files_are_available_actual = \'[null]\' THEN \'SCF Not Validated\' WHEN i_ntp_received IS NULL OR i_ntp_received = \'[null]\' THEN \'iNTP Not Received\' WHEN ms_1970_integration_complete_actual IS NULL OR ms_1970_integration_complete_actual = \'[null]\' THEN \'Integration In Progress / Blocked\' ELSE \'Unknown\' END AS likely_blocker FROM stg_ndpd_mbt_tmobile_macro_combined WHERE ms_1555_construction_complete_actual IS NOT NULL AND ms_1555_construction_complete_actual != \'[null]\' AND (ms_1970_integration_complete_actual IS NULL OR ms_1970_integration_complete_actual = \'[null]\') AND pj_project_status NOT IN (\'Cancelled\', \'On Hold\') ORDER BY days_waiting DESC';
+
+
+// ── M8. INTEGRATION CAPACITY METRIC ──────────────────────────
+MERGE (m:MetricNode {metric_id: 'IntegrationCapacityMetric'})
+SET
+  m.name            = 'Integration Capacity Metric',
+  m.layer            = 2,
+  m.domain           = 'Integration & On-Air',
+  m.definition       = 'NAS resource capacity state. Integration engineers are shift-based. Engineer Requirement = Sessions/Shift ÷ Sessions/Engineer/Shift. Capacity constrains integration throughput.',
+  m.references_nodes = ['NASSession','Integration','NokiaRole','Market'],
+  m.formulas         = ['daily_session_volume','session_throughput_by_engineer','session_duration_metrics','rejection_rate_by_market','extension_analysis'],
+  m.thresholds       = '{avg_session_hours:{good:"<=4",warning:"4-6",critical:">6"}, rejection_rate_pct:{good:"<5%",warning:"5-15%",critical:">15%"}, extensions_per_session:{good:"<0.2",warning:"0.2-0.5",critical:">0.5"}}',
+  m.unit             = 'sessions/day, hours, %, count',
+  m.formula_sql_daily = 'SELECT nas_market, CAST(nas_session_create_time AS DATE) AS session_date, COUNT(DISTINCT nas_session_id) AS session_count FROM stg_nas_session_level_combined_data WHERE nas_session_create_time IS NOT NULL GROUP BY nas_market, CAST(nas_session_create_time AS DATE) ORDER BY session_date DESC',
+  m.formula_sql_extensions = 'SELECT nas_market, SUM(CAST(nas_total_ext_count_approved AS INT)) AS total_extensions_approved, SUM(CAST(nas_total_ext_count_rejected AS INT)) AS total_extensions_rejected, AVG(CAST(nas_total_ext_time_approved AS FLOAT)) AS avg_extension_time_min FROM stg_nas_nest_ext_raw_by_session WHERE nas_total_ext_count_approved IS NOT NULL GROUP BY nas_market ORDER BY total_extensions_approved DESC';
+
+
+// ── M9. QUALITY POSITION METRIC ──────────────────────────────
+MERGE (m:MetricNode {metric_id: 'QualityPositionMetric'})
+SET
+  m.name            = 'Quality Position Metric',
+  m.layer            = 2,
+  m.domain           = 'Quality & Compliance',
+  m.definition       = 'Aggregate quality posture driving RCA: FTR%, rework rate, open punch count, HSE compliance, NDPc rejection rate.',
+  m.references_nodes = ['NDPcSession','HSECheck','PunchItem','QualityPosition','GeneralContractor','Market'],
+  m.formulas         = ['vendor_quality_scorecard','market_quality_heatmap','top_deficiency_categories'],
+  m.thresholds       = '{ftr_pct:{good:">=90%",warning:"75-89%",critical:"<75%"}, rework_rate_pct:{good:"<10%",warning:"10-25%",critical:">25%"}, avg_punch_points_per_site:{good:"<10",warning:"10-30",critical:">30"}, l3_plus_escalation_rate:{good:"<2%",warning:"2-5%",critical:">5%"}}',
+  m.unit             = '%, count',
+  m.formula_sql_scorecard = 'WITH ndpc_ftr AS (SELECT mc.pj_general_contractor, COUNT(DISTINCT CASE WHEN ns.sessionstatus NOT IN (\'2\', \'4\') THEN ns.siteid END) AS ftr_sessions, COUNT(DISTINCT ns.siteid) AS total_sessions FROM stg_ndpd_mbt_tmobile_macro_combined mc JOIN stg_services_ndpc_sessions_daily_from_sdb ns ON ns.siteid = mc.customer_site_code GROUP BY mc.pj_general_contractor), tmo_rejections AS (SELECT mc.pj_general_contractor, COUNT(DISTINCT tr.trmf_site_code) AS sites_with_rejections, SUM(tr.trmf_no_of_tmo_punch_points) AS total_punch_points, SUM(tr.trmf_missed_in_nokia_review_count) AS total_nokia_misses FROM stg_ndpd_mbt_tmobile_macro_combined mc JOIN stg_tmo_rejections_master_file tr ON tr.trmf_site_code = mc.customer_site_code GROUP BY mc.pj_general_contractor) SELECT COALESCE(n.pj_general_contractor, r.pj_general_contractor) AS gc, ROUND(n.ftr_sessions * 100.0 / NULLIF(n.total_sessions, 0), 1) AS ftr_pct, r.sites_with_rejections, r.total_punch_points, r.total_nokia_misses FROM ndpc_ftr n FULL OUTER JOIN tmo_rejections r ON n.pj_general_contractor = r.pj_general_contractor ORDER BY ftr_pct ASC NULLS FIRST',
+  m.formula_sql_deficiencies = 'SELECT \'missing_photos\' AS category, COUNT(CASE WHEN trmf_missing_photos = \'Yes\' OR trmf_missing_photos = \'yes\' THEN 1 END) AS count FROM stg_tmo_rejections_master_file UNION ALL SELECT \'cable_routing\', COUNT(CASE WHEN trmf_cable_routing = \'Yes\' OR trmf_cable_routing = \'yes\' THEN 1 END) FROM stg_tmo_rejections_master_file UNION ALL SELECT \'labeling_issue\', COUNT(CASE WHEN trmf_labeling_issue = \'Yes\' OR trmf_labeling_issue = \'yes\' THEN 1 END) FROM stg_tmo_rejections_master_file UNION ALL SELECT \'grounding\', COUNT(CASE WHEN trmf_grounding = \'Yes\' OR trmf_grounding = \'yes\' THEN 1 END) FROM stg_tmo_rejections_master_file ORDER BY count DESC';
+
+
+// ============================================================
+//  SECTION 5 — RELATIONSHIPS (EDGES)
+// ============================================================
+
+// ── SITE relationships ────────────────────────────────────────
+MATCH (a:ConceptNode {node_id:'Site'}),    (b:ConceptNode {node_id:'Project'})         MERGE (a)-[:HAS_PROJECT {meaning:'Site has exactly one project', cardinality:'1:1', join_column:'s_site_id = pj_project_id (co-located)'}]->(b);
+MATCH (a:ConceptNode {node_id:'Site'}),    (b:ConceptNode {node_id:'Market'})           MERGE (a)-[:LOCATED_IN {meaning:'Site belongs to a market territory', cardinality:'many:1', join_column:'m_market'}]->(b);
+MATCH (a:ConceptNode {node_id:'Site'}),    (b:ConceptNode {node_id:'SiteReadiness'})    MERGE (a)-[:HAS_READINESS {meaning:'Site has composite readiness state'}]->(b);
+MATCH (a:ConceptNode {node_id:'Site'}),    (b:ConceptNode {node_id:'ConstructionProgress'}) MERGE (a)-[:HAS_PROGRESS {meaning:'Site has construction progress'}]->(b);
+MATCH (a:ConceptNode {node_id:'Site'}),    (b:ConceptNode {node_id:'IntegrationReadiness'}) MERGE (a)-[:HAS_IX_READINESS {meaning:'Site has integration readiness'}]->(b);
+MATCH (a:ConceptNode {node_id:'Site'}),    (b:ConceptNode {node_id:'QualityPosition'}) MERGE (a)-[:HAS_QUALITY {meaning:'Site has quality posture'}]->(b);
+MATCH (a:ConceptNode {node_id:'Site'}),    (b:ConceptNode {node_id:'BillOfMaterials'}) MERGE (a)-[:HAS_BOM {meaning:'Site has a bill of materials'}]->(b);
+MATCH (a:ConceptNode {node_id:'Site'}),    (b:ConceptNode {node_id:'SiteWorkflowType'}) MERGE (a)-[:FOLLOWS_WORKFLOW {meaning:'Site follows a workflow type', join_column:'same row — s_site_id'}]->(b);
+
+// ── PROJECT relationships ─────────────────────────────────────
+MATCH (a:ConceptNode {node_id:'Project'}), (b:ConceptNode {node_id:'Milestone'})       MERGE (a)-[:TRACKS {meaning:'Project tracks milestones', cardinality:'1:many'}]->(b);
+MATCH (a:ConceptNode {node_id:'Project'}), (b:ConceptNode {node_id:'ProjectPhase'})    MERGE (a)-[:IN_PHASE {meaning:'Project is in a phase', join_column:'pj_project_id'}]->(b);
+MATCH (a:ConceptNode {node_id:'Project'}), (b:ConceptNode {node_id:'PurchaseOrder'})   MERGE (a)-[:HAS_PO {meaning:'Project has purchase orders'}]->(b);
+MATCH (a:ConceptNode {node_id:'Project'}), (b:ConceptNode {node_id:'TimeWeek'})        MERGE (a)-[:PRIORITIZED_IN {meaning:'Priority maps to week'}]->(b);
+MATCH (a:ConceptNode {node_id:'Project'}), (b:ConceptNode {node_id:'Quotation'})       MERGE (a)-[:HAS_QUOTATION {meaning:'Project has cost quotation'}]->(b);
+
+// ── MILESTONE relationships ───────────────────────────────────
+MATCH (a:ConceptNode {node_id:'Milestone'}),        (b:ConceptNode {node_id:'PhaseTransition'}) MERGE (a)-[:TRIGGERS {meaning:'Milestone triggers transition', join_column:'gate milestone pair'}]->(b);
+
+// ── PHASE TRANSITION relationships ───────────────────────────
+MATCH (a:ConceptNode {node_id:'PhaseTransition'}),  (b:ConceptNode {node_id:'ProjectPhase'})    MERGE (a)-[:PRODUCES {meaning:'Transition produces new phase'}]->(b);
+
+// ── SITE WORKFLOW TYPE relationships ──────────────────────────
+MATCH (a:ConceptNode {node_id:'SiteWorkflowType'}), (b:ConceptNode {node_id:'Milestone'})       MERGE (a)-[:DETERMINES {meaning:'Workflow determines required milestones'}]->(b);
+MATCH (a:ConceptNode {node_id:'SiteWorkflowType'}), (b:ConceptNode {node_id:'ProjectPhase'})    MERGE (a)-[:ROUTES_THROUGH {meaning:'Workflow routes through applicable phases'}]->(b);
+
+// ── DELAY EVENT relationships ─────────────────────────────────
+MATCH (a:ConceptNode {node_id:'DelayEvent'}),       (b:ConceptNode {node_id:'Prerequisite'})    MERGE (a)-[:CAUSED_BY {meaning:'Delay caused by prerequisite failure'}]->(b);
+MATCH (a:ConceptNode {node_id:'DelayEvent'}),       (b:ConceptNode {node_id:'PhaseTransition'}) MERGE (a)-[:EXPLAINS {meaning:'Delay explains why a transition took longer'}]->(b);
+
+// ── GENERAL CONTRACTOR relationships ──────────────────────────
+MATCH (a:ConceptNode {node_id:'GeneralContractor'}), (b:ConceptNode {node_id:'Crew'})          MERGE (a)-[:DEPLOYS {meaning:'GC deploys crews', join_column:'gc_name → pj_general_contractor'}]->(b);
+MATCH (a:ConceptNode {node_id:'GeneralContractor'}), (b:ConceptNode {node_id:'Market'})        MERGE (a)-[:ASSIGNED_TO {meaning:'GC assigned to market', cardinality:'many:many'}]->(b);
+
+// ── GC ASSIGNMENT relationships ───────────────────────────────
+MATCH (a:ConceptNode {node_id:'GCAssignment'}),     (b:ConceptNode {node_id:'Site'})           MERGE (a)-[:ASSIGNS_TO {meaning:'Assignment links GC to site'}]->(b);
+MATCH (a:ConceptNode {node_id:'GCAssignment'}),     (b:ConceptNode {node_id:'GeneralContractor'}) MERGE (a)-[:ASSIGNS_GC {meaning:'Assignment references GC'}]->(b);
+
+// ── CREW CAPACITY relationships ───────────────────────────────
+MATCH (a:ConceptNode {node_id:'CrewCapacity'}),     (b:ConceptNode {node_id:'Market'})         MERGE (a)-[:SCOPED_TO {meaning:'Capacity scoped to market', join_column:'m_market'}]->(b);
+MATCH (a:ConceptNode {node_id:'CrewCapacity'}),     (b:ConceptNode {node_id:'GeneralContractor'}) MERGE (a)-[:FOR_GC {meaning:'Capacity per GC', join_column:'pj_general_contractor'}]->(b);
+
+// ── NOKIA ROLE relationships ──────────────────────────────────
+MATCH (a:ConceptNode {node_id:'NokiaRole'}),        (b:ConceptNode {node_id:'Market'})         MERGE (a)-[:COVERS {meaning:'Role covers market', join_column:'m_market'}]->(b);
+MATCH (a:ConceptNode {node_id:'NokiaRole'}),        (b:ConceptNode {node_id:'Integration'})    MERGE (a)-[:EXECUTES {meaning:'NAS engineers execute integration'}]->(b);
+
+// ── DOCUMENT relationships ────────────────────────────────────
+MATCH (a:ConceptNode {node_id:'Document'}),         (b:ConceptNode {node_id:'Site'})           MERGE (a)-[:FOR_SITE {meaning:'Document is for a site'}]->(b);
+MATCH (a:ConceptNode {node_id:'Document'}),         (b:ConceptNode {node_id:'Milestone'})      MERGE (a)-[:VALIDATES_AT {meaning:'Document validated at milestone'}]->(b);
+MATCH (a:ConceptNode {node_id:'NTP'}),              (b:ConceptNode {node_id:'Document'})       MERGE (a)-[:VALIDATED_BY {meaning:'NTP validated by Document Agent', join_column:'NTP docs'}]->(b);
+
+// ── SURVEY relationships ──────────────────────────────────────
+MATCH (a:ConceptNode {node_id:'Survey'}),           (b:ConceptNode {node_id:'Site'})           MERGE (a)-[:SURVEYS {meaning:'Survey is for a site', join_column:'s_site_id'}]->(b);
+MATCH (a:ConceptNode {node_id:'Survey'}),           (b:ConceptNode {node_id:'ScopingPackage'}) MERGE (a)-[:PRODUCES_SCOPE {meaning:'Survey produces scoping package', join_column:'MS 1323 gate'}]->(b);
+MATCH (a:ConceptNode {node_id:'Survey'}),           (b:ConceptNode {node_id:'NokiaRole'})      MERGE (a)-[:ASSIGNED_BY {meaning:'CM assigns manual survey'}]->(b);
+
+// ── SCOPING PACKAGE relationships ─────────────────────────────
+MATCH (a:ConceptNode {node_id:'ScopingPackage'}),   (b:ConceptNode {node_id:'BillOfMaterials'}) MERGE (a)-[:DERIVES {meaning:'Scoping derives the BOM'}]->(b);
+
+// ── NTP relationships ─────────────────────────────────────────
+MATCH (a:ConceptNode {node_id:'NTP'}),              (b:ConceptNode {node_id:'Site'})           MERGE (a)-[:AUTHORIZES {meaning:'NTP authorizes construction'}]->(b);
+
+// ── BILL OF MATERIALS relationships ───────────────────────────
+MATCH (a:ConceptNode {node_id:'BillOfMaterials'}),  (b:ConceptNode {node_id:'Warehouse'})      MERGE (a)-[:STAGED_AT {meaning:'BOM staged at warehouse'}]->(b);
+
+// ── MATERIAL AVAILABILITY relationships ───────────────────────
+MATCH (a:ConceptNode {node_id:'MaterialAvailability'}), (b:ConceptNode {node_id:'BillOfMaterials'}) MERGE (a)-[:STATUS_OF {meaning:'Availability state for BOM'}]->(b);
+MATCH (a:ConceptNode {node_id:'MaterialAvailability'}), (b:ConceptNode {node_id:'SiteReadiness'})   MERGE (a)-[:FEEDS {meaning:'Material feeds readiness'}]->(b);
+
+// ── MATERIAL PICKUP relationships ─────────────────────────────
+MATCH (a:ConceptNode {node_id:'MaterialPickup'}),   (b:ConceptNode {node_id:'BillOfMaterials'}) MERGE (a)-[:PICKS_UP {meaning:'GC picks up BOM items'}]->(b);
+MATCH (a:ConceptNode {node_id:'MaterialPickup'}),   (b:ConceptNode {node_id:'GeneralContractor'}) MERGE (a)-[:PICKED_BY {meaning:'Pickup by GC'}]->(b);
+
+// ── PREREQUISITE relationships ────────────────────────────────
+MATCH (a:ConceptNode {node_id:'Prerequisite'}),     (b:ConceptNode {node_id:'PrerequisiteStatus'}) MERGE (a)-[:HAS_STATUS {meaning:'Prerequisite has current status'}]->(b);
+MATCH (a:ConceptNode {node_id:'AAVBackhaul'}),      (b:ConceptNode {node_id:'Prerequisite'})   MERGE (a)-[:FEEDS_PREREQ {meaning:'AAV feeds entitlement prerequisite'}]->(b);
+MATCH (a:ConceptNode {node_id:'PrerequisiteStatus'}), (b:ConceptNode {node_id:'Site'})         MERGE (a)-[:FOR_SITE {meaning:'Prerequisite status is for a site'}]->(b);
+MATCH (a:ConceptNode {node_id:'PrerequisiteStatus'}), (b:ConceptNode {node_id:'SiteReadiness'}) MERGE (a)-[:FEEDS {meaning:'Prereq status feeds site readiness'}]->(b);
+
+// ── CIVIL & TOWER CONSTRUCTION relationships ──────────────────
+MATCH (a:ConceptNode {node_id:'CivilConstruction'}),  (b:ConceptNode {node_id:'TowerConstruction'}) MERGE (a)-[:PRECEDES {meaning:'Civil precedes tower work'}]->(b);
+MATCH (a:ConceptNode {node_id:'CivilConstruction'}),  (b:ConceptNode {node_id:'ConstructionProgress'}) MERGE (a)-[:UPDATES {meaning:'Civil updates construction progress'}]->(b);
+MATCH (a:ConceptNode {node_id:'TowerConstruction'}),  (b:ConceptNode {node_id:'ConstructionProgress'}) MERGE (a)-[:UPDATES {meaning:'Tower updates construction progress'}]->(b);
+MATCH (a:ConceptNode {node_id:'TowerConstruction'}),  (b:ConceptNode {node_id:'Outage'})         MERGE (a)-[:REQUIRES {meaning:'Tower work may require outage'}]->(b);
+MATCH (a:ConceptNode {node_id:'SiteReadiness'}),      (b:ConceptNode {node_id:'CivilConstruction'}) MERGE (a)-[:GATES {meaning:'Readiness gates civil start'}]->(b);
+MATCH (a:ConceptNode {node_id:'Crew'}),               (b:ConceptNode {node_id:'CivilConstruction'}) MERGE (a)-[:EXECUTES_CIVIL {meaning:'Crew executes civil construction'}]->(b);
+MATCH (a:ConceptNode {node_id:'Crew'}),               (b:ConceptNode {node_id:'TowerConstruction'}) MERGE (a)-[:EXECUTES_TOWER {meaning:'Crew executes tower construction'}]->(b);
+
+// ── OUTAGE & MAINTENANCE WINDOW relationships ─────────────────
+MATCH (a:ConceptNode {node_id:'Outage'}),             (b:ConceptNode {node_id:'NokiaRole'})     MERGE (a)-[:COORDINATED_BY {meaning:'Outage coordinated by NAS team'}]->(b);
+MATCH (a:ConceptNode {node_id:'MaintenanceWindow'}),  (b:ConceptNode {node_id:'Outage'})        MERGE (a)-[:ENABLES {meaning:'Maintenance window enables outage'}]->(b);
+MATCH (a:ConceptNode {node_id:'MaintenanceWindow'}),  (b:ConceptNode {node_id:'Integration'})   MERGE (a)-[:REQUIRED_FOR {meaning:'Maintenance window required for integration'}]->(b);
+MATCH (a:ConceptNode {node_id:'MaintenanceWindow'}),  (b:ConceptNode {node_id:'NokiaRole'})     MERGE (a)-[:COORDINATED_BY {meaning:'Maintenance coordinated by NAS team'}]->(b);
+
+// ── INTEGRATION ARTIFACT relationships ────────────────────────
+MATCH (a:ConceptNode {node_id:'IntegrationArtifact'}), (b:ConceptNode {node_id:'IntegrationReadiness'}) MERGE (a)-[:FEEDS {meaning:'Artifact feeds integration readiness'}]->(b);
+MATCH (a:ConceptNode {node_id:'IntegrationArtifact'}), (b:ConceptNode {node_id:'Site'})         MERGE (a)-[:FOR_SITE {meaning:'Artifact is for a site'}]->(b);
+
+// ── INTEGRATION relationships ─────────────────────────────────
+MATCH (a:ConceptNode {node_id:'ConstructionProgress'}), (b:ConceptNode {node_id:'Integration'}) MERGE (a)-[:ENABLES {meaning:'Construction complete enables integration'}]->(b);
+MATCH (a:ConceptNode {node_id:'IntegrationReadiness'}), (b:ConceptNode {node_id:'Integration'}) MERGE (a)-[:GATES {meaning:'Integration readiness gates integration start'}]->(b);
+MATCH (a:ConceptNode {node_id:'IntegrationCapacity'}),  (b:ConceptNode {node_id:'Integration'}) MERGE (a)-[:CONSTRAINS {meaning:'NAS capacity constrains integration throughput'}]->(b);
+MATCH (a:ConceptNode {node_id:'NASSession'}),           (b:ConceptNode {node_id:'Integration'}) MERGE (a)-[:PART_OF {meaning:'NAS session is part of integration', join_column:'nas_site_id = s_site_id'}]->(b);
+MATCH (a:ConceptNode {node_id:'TechnologyBand'}),       (b:ConceptNode {node_id:'Integration'}) MERGE (a)-[:ACTIVATED_IN {meaning:'Band is activated within integration'}]->(b);
+MATCH (a:ConceptNode {node_id:'Radio'}),                (b:ConceptNode {node_id:'Integration'}) MERGE (a)-[:ACTIVATED_IN {meaning:'Radio is activated in integration'}]->(b);
+MATCH (a:ConceptNode {node_id:'AAVBackhaul'}),          (b:ConceptNode {node_id:'Integration'}) MERGE (a)-[:ENABLES_IX {meaning:'AAV enables integration (backhaul ready)'}]->(b);
+MATCH (a:ConceptNode {node_id:'IntegrationCapacity'}),  (b:ConceptNode {node_id:'NokiaRole'})   MERGE (a)-[:STAFFED_BY {meaning:'Integration capacity staffed by NAS engineers'}]->(b);
+
+// ── ON AIR relationships ──────────────────────────────────────
+MATCH (a:ConceptNode {node_id:'Integration'}),          (b:ConceptNode {node_id:'OnAir'})       MERGE (a)-[:PRODUCES {meaning:'Integration produces on-air events', cardinality:'1:many'}]->(b);
+MATCH (a:ConceptNode {node_id:'OnAir'}),                (b:ConceptNode {node_id:'CloseoutPackage'}) MERGE (a)-[:ENABLES {meaning:'On-air enables closeout package submission'}]->(b);
+MATCH (a:ConceptNode {node_id:'TechnologyBand'}),       (b:ConceptNode {node_id:'OnAir'})       MERGE (a)-[:COMPLETES_AS {meaning:'Band completion IS the on-air event for that band', cardinality:'1:1'}]->(b);
+
+// ── ACCEPTANCE / SSV relationships ────────────────────────────
+MATCH (a:ConceptNode {node_id:'Integration'}),          (b:ConceptNode {node_id:'Acceptance'})  MERGE (a)-[:PRECEDES {meaning:'Integration complete precedes SSV acceptance'}]->(b);
+MATCH (a:ConceptNode {node_id:'Acceptance'}),           (b:ConceptNode {node_id:'PaymentGR'})   MERGE (a)-[:TRIGGERS {meaning:'Acceptance triggers payment GR'}]->(b);
+MATCH (a:ConceptNode {node_id:'Acceptance'}),           (b:ConceptNode {node_id:'CloseoutPackage'}) MERGE (a)-[:PRODUCES {meaning:'Acceptance produces closeout package (COP)'}]->(b);
+
+// ── QUALITY relationships ─────────────────────────────────────
+MATCH (a:ConceptNode {node_id:'HSECheck'}),             (b:ConceptNode {node_id:'GeneralContractor'}) MERGE (a)-[:MONITORS {meaning:'HSE check monitors GC safety compliance'}]->(b);
+MATCH (a:ConceptNode {node_id:'NDPcSession'}),          (b:ConceptNode {node_id:'Site'})        MERGE (a)-[:INSPECTS {meaning:'NDPc session quality-inspects site'}]->(b);
+MATCH (a:ConceptNode {node_id:'PunchItem'}),            (b:ConceptNode {node_id:'Site'})        MERGE (a)-[:RECORDED_AT {meaning:'Punch item recorded at site'}]->(b);
+MATCH (a:ConceptNode {node_id:'PunchItem'}),            (b:ConceptNode {node_id:'GeneralContractor'}) MERGE (a)-[:ATTRIBUTED_TO {meaning:'Punch item attributed to GC work'}]->(b);
+MATCH (a:ConceptNode {node_id:'QualityPosition'}),      (b:ConceptNode {node_id:'Site'})        MERGE (a)-[:REPRESENTS {meaning:'Quality position represents site quality'}]->(b);
+MATCH (a:ConceptNode {node_id:'RiskItem'}),             (b:ConceptNode {node_id:'Project'})     MERGE (a)-[:ASSOCIATED_WITH {meaning:'Risk item associated with project'}]->(b);
+
+// ── COMMERCIAL relationships ──────────────────────────────────
+MATCH (a:ConceptNode {node_id:'CostPosition'}),         (b:ConceptNode {node_id:'Project'})     MERGE (a)-[:TRACKS_COST {meaning:'Cost position tracks project financials'}]->(b);
+MATCH (a:ConceptNode {node_id:'CloseoutPackage'}),      (b:ConceptNode {node_id:'Acceptance'})  MERGE (a)-[:REQUIRED_FOR {meaning:'COP required for customer acceptance'}]->(b);
+
+// ── METRIC → CONCEPT NODE references ─────────────────────────
+MATCH (m:MetricNode {metric_id:'ProjectPhaseMetric'}),           (n:ConceptNode {node_id:'ProjectPhase'})        MERGE (m)-[:MEASURES]->(n);
+MATCH (m:MetricNode {metric_id:'CrewCapacityMetric'}),           (n:ConceptNode {node_id:'Crew'})               MERGE (m)-[:MEASURES]->(n);
+MATCH (m:MetricNode {metric_id:'CrewCapacityMetric'}),           (n:ConceptNode {node_id:'GeneralContractor'})  MERGE (m)-[:MEASURES]->(n);
+MATCH (m:MetricNode {metric_id:'MaterialAvailabilityMetric'}),   (n:ConceptNode {node_id:'BillOfMaterials'})    MERGE (m)-[:MEASURES]->(n);
+MATCH (m:MetricNode {metric_id:'SiteReadinessMetric'}),          (n:ConceptNode {node_id:'Prerequisite'})       MERGE (m)-[:MEASURES]->(n);
+MATCH (m:MetricNode {metric_id:'ConstructionProgressMetric'}),   (n:ConceptNode {node_id:'ConstructionProgress'}) MERGE (m)-[:MEASURES]->(n);
+MATCH (m:MetricNode {metric_id:'ConstructionCycleTimeMetric'}),  (n:ConceptNode {node_id:'TowerConstruction'})  MERGE (m)-[:MEASURES]->(n);
+MATCH (m:MetricNode {metric_id:'IntegrationReadinessMetric'}),   (n:ConceptNode {node_id:'Integration'})        MERGE (m)-[:MEASURES]->(n);
+MATCH (m:MetricNode {metric_id:'IntegrationCapacityMetric'}),    (n:ConceptNode {node_id:'NASSession'})         MERGE (m)-[:MEASURES]->(n);
+MATCH (m:MetricNode {metric_id:'QualityPositionMetric'}),        (n:ConceptNode {node_id:'PunchItem'})          MERGE (m)-[:MEASURES]->(n);
+MATCH (m:MetricNode {metric_id:'QualityPositionMetric'}),        (n:ConceptNode {node_id:'HSECheck'})           MERGE (m)-[:MEASURES]->(n);
+MATCH (m:MetricNode {metric_id:'QualityPositionMetric'}),        (n:ConceptNode {node_id:'NDPcSession'})        MERGE (m)-[:MEASURES]->(n);
+
+// ── DIAGNOSTIC TREE links (Metric → Metric traversal) ────────
+MATCH (a:MetricNode {metric_id:'ProjectPhaseMetric'}),           (b:MetricNode {metric_id:'SiteReadinessMetric'})      MERGE (a)-[:DIAGNOSTIC_TRAVERSES {step:2, condition:'if_construction_stuck'}]->(b);
+MATCH (a:MetricNode {metric_id:'ProjectPhaseMetric'}),           (b:MetricNode {metric_id:'CrewCapacityMetric'})        MERGE (a)-[:DIAGNOSTIC_TRAVERSES {step:2, condition:'if_construction_stuck'}]->(b);
+MATCH (a:MetricNode {metric_id:'ProjectPhaseMetric'}),           (b:MetricNode {metric_id:'IntegrationReadinessMetric'}) MERGE (a)-[:DIAGNOSTIC_TRAVERSES {step:3, condition:'if_integration_stuck'}]->(b);
+MATCH (a:MetricNode {metric_id:'ProjectPhaseMetric'}),           (b:MetricNode {metric_id:'QualityPositionMetric'})     MERGE (a)-[:DIAGNOSTIC_TRAVERSES {step:4, condition:'if_quality_stuck'}]->(b);
+MATCH (a:MetricNode {metric_id:'ConstructionCycleTimeMetric'}),  (b:MetricNode {metric_id:'CrewCapacityMetric'})        MERGE (a)-[:DIAGNOSTIC_TRAVERSES {step:2, condition:'if_consistently_high'}]->(b);
+MATCH (a:MetricNode {metric_id:'ConstructionCycleTimeMetric'}),  (b:MetricNode {metric_id:'MaterialAvailabilityMetric'}) MERGE (a)-[:DIAGNOSTIC_TRAVERSES {step:3, condition:'if_recently_spiked'}]->(b);
+MATCH (a:MetricNode {metric_id:'ConstructionCycleTimeMetric'}),  (b:MetricNode {metric_id:'QualityPositionMetric'})     MERGE (a)-[:DIAGNOSTIC_TRAVERSES {step:5, condition:'if_gc_specific'}]->(b);
+MATCH (a:MetricNode {metric_id:'SiteReadinessMetric'}),          (b:MetricNode {metric_id:'MaterialAvailabilityMetric'}) MERGE (a)-[:DIAGNOSTIC_TRAVERSES {step:2, condition:'if_material'}]->(b);
+MATCH (a:MetricNode {metric_id:'SiteReadinessMetric'}),          (b:MetricNode {metric_id:'CrewCapacityMetric'})        MERGE (a)-[:DIAGNOSTIC_TRAVERSES {step:5, condition:'if_ready_but_not_started'}]->(b);
+MATCH (a:MetricNode {metric_id:'IntegrationReadinessMetric'}),   (b:MetricNode {metric_id:'IntegrationCapacityMetric'}) MERGE (a)-[:DIAGNOSTIC_TRAVERSES {step:5, condition:'if_nas_capacity'}]->(b);
+MATCH (a:MetricNode {metric_id:'QualityPositionMetric'}),        (b:MetricNode {metric_id:'ConstructionCycleTimeMetric'}) MERGE (a)-[:DIAGNOSTIC_TRAVERSES {step:6, condition:'rework_schedule_slippage'}]->(b);
+
+
+// ============================================================
+//  END OF INGESTION SCRIPT
+//  Summary:
+//    ConceptNodes (fully mapped): 29
+//    ConceptNodes (stubs):        22  (total 51)
+//    MetricNodes:                  9
+//    Relationship types:          50+
+// ============================================================
