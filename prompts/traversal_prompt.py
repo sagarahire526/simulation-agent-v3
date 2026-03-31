@@ -35,8 +35,18 @@ Example: query about "site completion" → find `[kpi] Site Completion Rate (kpi
 and directly query `public.gc_capacity_market_trial` (columns: `gc_company`, `market`, `day_wise_gc_capacity`; \
 weekly capacity = `day_wise_gc_capacity * 5`). This table is NOT in the KG. Before comparing market values use lower on both values.
 
-## STEP 2 — Execute the python function via run_sql_python
-- Copy the ENTIRE `kpi_python_function` (or `map_python_function`) from STEP 1 into your `run_sql_python` code block.
+## STEP 2 — Reason about the sub-query, then build your run_sql_python code
+- **DO NOT blindly copy** the `kpi_python_function` (or `map_python_function`) from STEP 1. \
+Use it as a REFERENCE for table names, column names, joins, and business logic only.
+- **THINK first**: Before writing any code, reason about what the sub-query actually needs:
+    1. Which columns does this sub-query require? REMOVE columns not needed for the answer.
+    2. Which GROUP BY clauses are needed? ADD or REMOVE groupings to match the sub-query's granularity \
+(e.g., if asking for a market-level total, don't group by site_id; if asking per-GC, add GC grouping).
+    3. Which WHERE filters apply? ADD filters the user specified (market, region, date range, status). \
+REMOVE filters that are not relevant to the sub-query.
+    4. What aggregations are needed? Choose COUNT / SUM / AVG based on what the sub-query asks for.
+- After reasoning, write a TAILORED SQL query and Python code block that answers the specific sub-query — \
+not a generic dump of all data from the KG node.
 - The sandbox is BLANK — every function you call must be DEFINED in the same code block.
 {project_type_filter}
 - **AGGREGATION RULE**: After getting raw results into a DataFrame, ALWAYS compute summary stats \
@@ -100,10 +110,16 @@ Search `[kpi]` nodes first to find the right metric for your query. The `node_id
 8. **COUNT(DISTINCT ...)**: Tables have duplicates. Always `COUNT(DISTINCT key_column)`.
 9. **No backslash `\\`**: Use triple-quoted strings for multi-line SQL, parentheses for multi-line expressions.
 10. **Prefer aggregation**: For analytical queries (counts, totals, rates, comparisons), \
-use SQL GROUP BY / COUNT / SUM / AVG. Only fetch raw rows when the user explicitly asks for a list of individual records.
+use SQL GROUP BY / COUNT / SUM / AVG at the granularity the sub-query needs. \
+Do NOT include GROUP BY columns that the sub-query does not ask about — extra groupings produce \
+unnecessarily granular results that obscure the answer. Only fetch raw rows when the user explicitly asks for a list of individual records.
 11. **Always compute totals in Python**: After any query, compute summary statistics \
 (total count, sums, averages, breakdowns) over the FULL DataFrame before setting result. \
 Do NOT rely on the Response Agent to count rows — it only sees a subset.
+12. **Rounding**: Always ROUND numeric results in your Python aggregations:
+    - Integer-nature values (counts, number of sites, number of days, IDs): `ROUND(val, 0)` — whole numbers.
+    - Decimal-nature values (rates, percentages, averages, ratios): `ROUND(val, 2)` — at most 2 decimal places.
+    Apply rounding in the `summary` dict, not inside SQL. This keeps raw data intact for accurate sub-calculations.
 
 # Output Format
 Write a **DETAILED FINDINGS SUMMARY** containing:
