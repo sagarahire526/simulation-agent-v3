@@ -19,14 +19,10 @@ Response (200):
 """
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
-import numpy as np
-import psycopg2
 import requests
-from openai import OpenAI
 
 import config
 
@@ -44,8 +40,7 @@ _TABLE_TOP_K: dict[str, int] = {
     "simulation":    2,
 }
 
-_EMBEDDING_MODEL = "text-embedding-ada-002"
-_KEYWORDS_TABLE = "pwc_semantic_information_schema.semantic_keywords"
+_KEYWORDS_TOP_K = 10
 
 # Known structured keys inside the simulation table's content dict
 _SIMULATION_CONTENT_KEYS: dict[str, str] = {
@@ -75,8 +70,6 @@ class SemanticService:
             "accept": "application/json",
             "Content-Type": "application/json",
         })
-        # Lazy-init: created on first _search_keywords call
-        self._openai: OpenAI | None = None
 
     # ── Low-level API call ─────────────────────────────────────────────────
 
@@ -121,97 +114,41 @@ class SemanticService:
 
         return []
 
-    # ── Local embedding search: semantic_keywords ───────────────────────────
+    # ── Keywords API call ────────────────────────────────────────────────────
 
-    def _search_keywords(self, query: str, top_k: int = 10) -> list[dict]:
+    def _search_keywords(self, query: str, top_k: int = _KEYWORDS_TOP_K) -> list[dict]:
         """
-        Embed the query with OpenAI and find the top-k most similar rows
-        from pwc_semantic_information_schema.semantic_keywords using cosine
-        similarity computed in Python.
+        Call the semantic keywords search API endpoint.
+        Returns results in the same shape as _search (list of dicts with
+        content + similarity_score), or an empty list on error.
+        """
+        url = f"{self._base_url}/api/v1/semantic/keywords/search"
+        payload = {"query": query, "top_k": top_k}
 
-        Returns a list of dicts with keyword metadata + similarity_score,
-        or an empty list on any error.
-        """
         try:
-            # Lazy-init OpenAI client
-            if self._openai is None:
-                self._openai = OpenAI(api_key=config.OPENAI_API_KEY)
-
-            # 1. Embed the query
-            resp = self._openai.embeddings.create(
-                model=_EMBEDDING_MODEL,
-                input=query.strip(),
-            )
-            query_vec = np.array(resp.data[0].embedding, dtype=np.float32)
-
-            # 2. Fetch all keyword rows with embeddings from PostgreSQL
-            conn = psycopg2.connect(
-                host=config.PG_HOST,
-                port=config.PG_PORT,
-                database=config.PG_DATABASE,
-                user=config.PG_USER,
-                password=config.PG_PASSWORD,
-                connect_timeout=10,
-            )
-            cur = conn.cursor()
-            cur.execute(
-                f"SELECT keyword_id, keyword_name, keyword_description, "
-                f"mapped_tables_columns, logic, synonyms, embedding "
-                f"FROM {_KEYWORDS_TABLE} "
-                f"WHERE embedding IS NOT NULL"
-            )
-            rows = cur.fetchall()
-            cur.close()
-            conn.close()
-
-            if not rows:
-                logger.warning("semantic_keywords: table is empty or has no embeddings")
-                return []
-
-            # 3. Compute cosine similarity for each row
-            results: list[dict] = []
-            for row in rows:
-                (kw_id, kw_name, kw_desc, mapped_cols, logic, synonyms, emb_raw) = row
-
-                # Parse embedding — stored as text list or native array
-                if isinstance(emb_raw, str):
-                    emb = np.array(json.loads(emb_raw), dtype=np.float32)
-                elif isinstance(emb_raw, list):
-                    emb = np.array(emb_raw, dtype=np.float32)
-                else:
-                    continue  # skip unparseable
-
-                # Cosine similarity
-                dot = np.dot(query_vec, emb)
-                norm = np.linalg.norm(query_vec) * np.linalg.norm(emb)
-                score = float(dot / norm) if norm > 0 else 0.0
-
-                results.append({
-                    "keyword_id": kw_id,
-                    "keyword_name": kw_name,
-                    "keyword_description": kw_desc,
-                    "mapped_tables_columns": mapped_cols,
-                    "logic": logic,
-                    "synonyms": synonyms,
-                    "similarity_score": round(score, 4),
-                })
-
-            # 4. Sort by similarity descending and return top_k
-            results.sort(key=lambda r: r["similarity_score"], reverse=True)
-            top_results = results[:top_k]
-
+            resp = self._session.post(url, json=payload, timeout=_REQUEST_TIMEOUT)
+            resp.raise_for_status()
+            results: list[dict] = resp.json().get("results", [])
             logger.info(
-                "semantic_keywords: %d result(s) (top score: %.3f) for query: %.80s",
-                len(top_results),
-                top_results[0]["similarity_score"] if top_results else 0,
-                query,
+                "Semantic search [keywords]: %d result(s) for query: %.80s",
+                len(results), query,
             )
-            return top_results
+            return results
 
+        except requests.exceptions.ConnectionError as exc:
+            print(f"⚠ Semantic search [keywords]: Cannot reach {self._base_url} — {exc}")
+            logger.warning("Semantic search [keywords]: Cannot reach %s — %s", self._base_url, exc)
+        except requests.exceptions.Timeout:
+            print(f"⚠ Semantic search [keywords]: Timed out after {_REQUEST_TIMEOUT}s")
+            logger.warning("Semantic search [keywords]: Request timed out after %ds", _REQUEST_TIMEOUT)
+        except requests.exceptions.HTTPError as exc:
+            print(f"⚠ Semantic search [keywords]: HTTP error — {exc}")
+            logger.warning("Semantic search [keywords]: HTTP error — %s", exc)
         except Exception as exc:
-            print(f"⚠ semantic_keywords search: {exc}")
-            logger.warning("semantic_keywords search failed: %s", exc)
-            return []
+            print(f"⚠ Semantic search [keywords]: Unexpected error — {exc}")
+            logger.warning("Semantic search [keywords]: Unexpected error — %s", exc)
+
+        return []
 
     # ── High-level: query all tables ───────────────────────────────────────
 
@@ -350,24 +287,24 @@ class SemanticService:
             lines.append("### Matched Domain Keywords")
             lines.append(
                 "These keywords from the domain knowledge base matched the query. "
-                "Use `mapped_tables_columns` for correct table/column references "
+                "Use `mapped_table_columns` for correct table/column references "
                 "and `logic` for computation guidance."
             )
             lines.append("")
             for r in kw_results:
+                content: dict[str, Any] = r.get("content") or {}
                 score = f"{r.get('similarity_score', 0) * 100:.1f}%"
-                lines.append(
-                    f"**{r.get('keyword_name', '?')}** "
-                    f"(ID: {r.get('keyword_id', '?')}, similarity: {score})"
-                )
-                if r.get("keyword_description"):
-                    lines.append(f"  - **Description**: {r['keyword_description']}")
-                if r.get("mapped_tables_columns"):
-                    lines.append(f"  - **Tables/Columns**: {r['mapped_tables_columns']}")
-                if r.get("logic"):
-                    lines.append(f"  - **Logic**: {r['logic']}")
-                if r.get("synonyms"):
-                    lines.append(f"  - **Synonyms**: {r['synonyms']}")
+                kw_name = content.get("keyword_name", r.get("keyword_name", "?"))
+                kw_id = content.get("keyword_id", r.get("id", "?"))
+                lines.append(f"**{kw_name}** (ID: {kw_id}, similarity: {score})")
+                if content.get("keyword_description"):
+                    lines.append(f"  - **Description**: {content['keyword_description']}")
+                if content.get("mapped_table_columns"):
+                    lines.append(f"  - **Tables/Columns**: {content['mapped_table_columns']}")
+                if content.get("logic"):
+                    lines.append(f"  - **Logic**: {content['logic']}")
+                if content.get("synonyms"):
+                    lines.append(f"  - **Synonyms**: {content['synonyms']}")
                 lines.append("")
 
         lines.append("─" * 60)
