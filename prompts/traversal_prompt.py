@@ -35,21 +35,34 @@ Example: query about "site completion" → find `[kpi] Site Completion Rate (kpi
 and directly query `public.gc_capacity_market_trial` (columns: `gc_company`, `market`, `day_wise_gc_capacity`; \
 weekly capacity = `day_wise_gc_capacity * 5`). This table is NOT in the KG. Before comparing market values use lower on both values.
 
-## STEP 2 — Reason about the sub-query, then build your run_sql_python code
-- **DO NOT blindly copy** the `kpi_python_function` (or `map_python_function`) from STEP 1. \
-Use it as a REFERENCE for table names, column names, joins, and business logic only.
-- **THINK first**: Before writing any code, reason about what the sub-query actually needs:
-    1. Which columns does this sub-query require? REMOVE columns not needed for the answer.
-    2. Which GROUP BY clauses are needed? ADD or REMOVE groupings to match the sub-query's granularity \
-(e.g., if asking for a market-level total, don't group by site_id; if asking per-GC, add GC grouping).
-    3. Which WHERE filters apply? ADD filters the user specified (market, region, date range, status). \
-REMOVE filters that are not relevant to the sub-query.
-    4. What aggregations are needed? Choose COUNT / SUM / AVG based on what the sub-query asks for.
-- After reasoning, write a TAILORED SQL query and Python code block that answers the specific sub-query — \
-not a generic dump of all data from the KG node.
+## STEP 2 — Select dimensions, then build your run_sql_python code
+
+### 2a. DIMENSION SELECTION (mandatory — do this BEFORE writing any code)
+Read the `⚠️_GROUP_BY_DECISION` field from the get_kpi / get_node output. \
+It lists `available_dimensions` — the columns you CAN group by.
+
+**You MUST state explicitly before writing code:**
+- "Sub-query asks for: [describe the requested granularity]"
+- "GROUP BY I will use: [list ONLY the columns needed, or NONE for totals]"
+
+**Rules:**
+- A dimension used as a WHERE filter does NOT automatically go into GROUP BY. \
+Example: `WHERE rgn_region = 'SOUTH'` filters to SOUTH — you only add rgn_region to GROUP BY \
+if you need to SHOW it as a label column in the output.
+- Use the KPI's `kpi_business_logic` and `kpi_description` to understand which \
+dimensions are core to the metric vs. optional breakdowns.
+- When in doubt, use FEWER dimensions. You can always re-query with more detail.
+
+### 2b. BUILD SQL using the reference function
+- **DO NOT copy** `kpi_python_function` / `map_python_function` verbatim.
+- Use it as a REFERENCE for: table names, column names, joins, WHERE conditions, business logic.
+- Your SELECT must include ONLY: your chosen GROUP BY dimensions + the measure columns.
+- Your GROUP BY must match EXACTLY what you stated in 2a — no extra columns.
 - The sandbox is BLANK — every function you call must be DEFINED in the same code block.
 {project_type_filter}
-- **AGGREGATION RULE**: After getting raw results into a DataFrame, ALWAYS compute summary stats \
+
+### 2c. AGGREGATION RULE
+After getting raw results into a DataFrame, ALWAYS compute summary stats \
 in the SAME code block (totals, counts, averages, breakdowns by category). Set result to:
     result = {{
         "summary": {{ ... computed aggregates over ALL rows ... }},
@@ -111,10 +124,15 @@ and `Logic` fields as additional reference for correct column names and computat
 7. **No DML/DDL**: No INSERT, UPDATE, DELETE, CREATE, DROP, ALTER.
 8. **COUNT(DISTINCT ...)**: Tables have duplicates. Always `COUNT(DISTINCT key_column)`.
 9. **No backslash `\\`**: Use triple-quoted strings for multi-line SQL, parentheses for multi-line expressions.
-10. **Prefer aggregation**: For analytical queries (counts, totals, rates, comparisons), \
-use SQL GROUP BY / COUNT / SUM / AVG at the granularity the sub-query needs. \
-Do NOT include GROUP BY columns that the sub-query does not ask about — extra groupings produce \
-unnecessarily granular results that obscure the answer. Only fetch raw rows when the user explicitly asks for a list of individual records.
+10. **GROUP BY MATCHES QUERY GRANULARITY**: \
+Your GROUP BY must contain ONLY the dimensions your sub-query asks to break down by. \
+Examples: \
+"total for SOUTH region" → WHERE rgn_region = 'SOUTH', GROUP BY rgn_region. \
+"compare across markets" → GROUP BY m_market (not rgn_region, m_area, or GC). \
+"per-GC breakdown in DALLAS" → WHERE m_market = 'DALLAS', GROUP BY pj_general_contractor. \
+"overall total" → NO GROUP BY at all. \
+Extra GROUP BY columns produce hundreds of unnecessarily granular rows that obscure the answer. \
+Only fetch raw rows when the user explicitly asks for a list of individual records.
 11. **Always compute totals in Python**: After any query, compute summary statistics \
 (total count, sums, averages, breakdowns) over the FULL DataFrame before setting result. \
 Do NOT rely on the Response Agent to count rows — it only sees a subset.
@@ -122,6 +140,28 @@ Do NOT rely on the Response Agent to count rows — it only sees a subset.
     - Integer-nature values (counts, number of sites, number of days, IDs): `ROUND(val, 0)` — whole numbers.
     - Decimal-nature values (rates, percentages, averages, ratios): `ROUND(val, 2)` — at most 2 decimal places.
     Apply rounding in the `summary` dict, not inside SQL. This keeps raw data intact for accurate sub-calculations.
+
+# Dimension Selection Examples
+
+EXAMPLE 1 — Region-level query:
+  Sub-query: "What is weekly GC run rate for SOUTH region?"
+  2a reasoning: Sub-query asks for a single region's aggregate rate.
+      available_dimensions: [rgn_region, m_area, m_market, pj_general_contractor]
+      Sub-query asks for: region-level total
+      GROUP BY I will use: rgn_region
+  SQL: SELECT rgn_region, (COUNT(DISTINCT pj_project_id)::numeric / 12.0) AS weekly_gc_run_rate
+       FROM ... WHERE rgn_region = 'SOUTH' AND ...
+       GROUP BY rgn_region
+
+EXAMPLE 2 — Market comparison:
+  Sub-query: "Compare site completion rates across all markets"
+  2a reasoning: Sub-query asks for per-market comparison.
+      available_dimensions: [rgn_region, m_area, m_market, pj_general_contractor]
+      Sub-query asks for: market-level breakdown
+      GROUP BY I will use: m_market
+  SQL: SELECT m_market, COUNT(DISTINCT ...) AS ...
+       FROM ... WHERE ...
+       GROUP BY m_market ORDER BY m_market
 
 # Output Format
 Write a **DETAILED FINDINGS SUMMARY** containing:

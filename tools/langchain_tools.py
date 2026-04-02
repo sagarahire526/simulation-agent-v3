@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Optional
 
 from langchain_core.tools import tool
@@ -163,6 +164,47 @@ def _truncate_tool_output(tool_name: str, raw_json: str) -> str:
 
 
 # ─────────────────────────────────────────────
+# GROUP BY dimension extraction
+# ─────────────────────────────────────────────
+
+def _extract_group_by_dimensions(python_function: str) -> dict | None:
+    """
+    Parse a kpi_python_function / map_python_function string to:
+    1. Extract the GROUP BY column list
+    2. Replace the GROUP BY line with a placeholder comment
+
+    Returns dict with extracted info, or None if no GROUP BY found / parse fails.
+    """
+    if not python_function or not isinstance(python_function, str):
+        return None
+
+    # Match GROUP BY line in SQL (handles f-string, multi-line SQL contexts)
+    pattern = r'(GROUP\s+BY\s+)([\w\s,\.]+?)(\s*(?:\n|"""|\'\'\'|\)|$))'
+    match = re.search(pattern, python_function, re.IGNORECASE)
+    if not match:
+        return None
+
+    # Extract dimension columns
+    raw_columns = match.group(2)
+    dimensions = [col.strip() for col in raw_columns.split(",") if col.strip()]
+    if not dimensions:
+        return None
+
+    # Replace GROUP BY line with placeholder
+    placeholder = "-- GROUP BY: <SELECT from available_dimensions based on your sub-query granularity>"
+    modified_function = (
+        python_function[:match.start()]
+        + placeholder
+        + python_function[match.end():]
+    )
+
+    return {
+        "available_dimensions": dimensions,
+        "modified_function": modified_function,
+    }
+
+
+# ─────────────────────────────────────────────
 # Neo4j Tools
 # ─────────────────────────────────────────────
 
@@ -215,10 +257,27 @@ def get_node(node_id: str) -> str:
     result = _get_bkg().query({"mode": "get_node", "node_id": node_id})
 
     if isinstance(result, dict):
+        # Decompose map_python_function: same treatment as kpi_python_function.
+        map_func = result.get("map_python_function")
+        if map_func:
+            extracted = _extract_group_by_dimensions(map_func)
+            if extracted:
+                result["map_python_function"] = extracted["modified_function"]
+                result["⚠️_GROUP_BY_DECISION"] = {
+                    "available_dimensions": extracted["available_dimensions"],
+                    "instruction": (
+                        "You MUST choose which of these dimensions to GROUP BY "
+                        "based on your sub-query's requested granularity. "
+                        "Do NOT include all dimensions by default — only those "
+                        "the sub-query explicitly asks to break down by. "
+                        "If the sub-query asks for an overall total, use NO GROUP BY."
+                    ),
+                }
+
         result["⚠️_MANDATORY_NEXT_ACTION"] = (
-            "Use map_python_function as REFERENCE for table/column names and logic, "
-            "then write a TAILORED query in run_sql_python that matches your sub-query — "
-            "adapt columns, GROUP BY, WHERE, and aggregations. Do NOT copy verbatim."
+            "1. Read ⚠️_GROUP_BY_DECISION and select ONLY the dimensions your sub-query needs. "
+            "2. Use map_python_function as REFERENCE for table names, column names, and logic. "
+            "3. Write a TAILORED query in run_sql_python — do NOT copy the function verbatim."
         )
         result["_data_type"] = "metadata_only — NOT real data"
         result["_traversal_status"] = "INCOMPLETE — requires run_sql_python to finish"
@@ -297,10 +356,29 @@ def get_kpi(node_id: str) -> str:
     result = _get_bkg().query({"mode": "get_kpi", "node_id": node_id})
 
     if isinstance(result, dict):
+        # Decompose kpi_python_function: extract GROUP BY dimensions,
+        # replace the GROUP BY line with a placeholder so the agent
+        # cannot blindly copy it — must actively select dimensions.
+        kpi_func = result.get("kpi_python_function")
+        if kpi_func:
+            extracted = _extract_group_by_dimensions(kpi_func)
+            if extracted:
+                result["kpi_python_function"] = extracted["modified_function"]
+                result["⚠️_GROUP_BY_DECISION"] = {
+                    "available_dimensions": extracted["available_dimensions"],
+                    "instruction": (
+                        "You MUST choose which of these dimensions to GROUP BY "
+                        "based on your sub-query's requested granularity. "
+                        "Do NOT include all dimensions by default — only those "
+                        "the sub-query explicitly asks to break down by. "
+                        "If the sub-query asks for an overall total, use NO GROUP BY."
+                    ),
+                }
+
         result["⚠️_MANDATORY_NEXT_ACTION"] = (
-            "Use kpi_python_function as REFERENCE for table/column names and logic, "
-            "then write a TAILORED query in run_sql_python that matches your sub-query — "
-            "adapt columns, GROUP BY, WHERE, and aggregations. Do NOT copy verbatim."
+            "1. Read ⚠️_GROUP_BY_DECISION and select ONLY the dimensions your sub-query needs. "
+            "2. Use kpi_python_function as REFERENCE for table names, column names, and logic. "
+            "3. Write a TAILORED query in run_sql_python — do NOT copy the function verbatim."
         )
         result["_data_type"] = "metadata_only — NOT real data"
         result["_traversal_status"] = "INCOMPLETE — requires run_sql_python to finish"
