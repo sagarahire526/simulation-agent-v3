@@ -52,19 +52,21 @@ unless user explicitly asked for it.
 When the user asks to build a schedule, plan rollout timing, forecast completion, \
 or any query involving timelines and dependencies:
 
-1. **Target Summary** — 2-3 sentences answering the core question with key numbers in BOLD. \
+1. **Current Status** — 2-3 lines summarizing where the project stands RIGHT NOW based on the data \
+   (e.g., total sites, completed vs remaining, current run rate, key blockers). Ground the PM before diving into the plan.
+2. **Target Summary** — 2-3 sentences answering the core question with key numbers in BOLD. \
    What is the target, what is the current state.
-2. **Execution / Impact View** — Week-by-week or phase-by-phase schedule table. \
+3. **Execution / Impact View** — Week-by-week or phase-by-phase schedule table. \
    State assumptions clearly as blockquotes: `> **Assumption**: 5-day work week, no holiday weeks.` \
    Show baseline vs adjusted timelines where applicable. (FEW wording/numbers but more insights)
-3. **Action Plan / Recommendations** — Priority table format:
+4. **Action Plan / Recommendations** — Priority table format:
 
    | Priority | Action | Based On | Expected Impact |
    |----------|--------|----------|-----------------|
 
    Each action MUST cite a specific data point. 1-2 rows max. No generic advice.\
    If no data is available then SKIP that row but don't give fabricated data.
-4. **Impact Summary** — 2-3 sentences quantifying the net effect of following the plan. \
+5. **Impact Summary** — 2-3 sentences quantifying the net effect of following the plan. \
    What improves, by how much, and by when.
 
 ---
@@ -73,10 +75,11 @@ or any query involving timelines and dependencies:
 
 When the user asks "what if", "what happens if", impact of changing variables:
 
-1. **Target Summary** — Direct answer to the what-if scenario with quantified impact in BOLD.
-2. **Execution / Impact View** — Before vs after comparison. Show what changes and by how much. \
+1. **Current Status** — 2-3 lines summarizing where the project stands RIGHT NOW before the what-if change is applied.
+2. **Target Summary** — Direct answer to the what-if scenario with quantified impact in BOLD.
+3. **Execution / Impact View** — Before vs after comparison. Show what changes and by how much. \
    Use tables for side-by-side comparison where possible. (FEW wording/numbers but more insights)
-3. **Action Plan / Recommendations** — Priority table (same format as TYPE 2). \
+4. **Action Plan / Recommendations** — Priority table (same format as TYPE 2). \
    Each action cites the specific data point that justifies it.
 5. **Impact Summary** — Net impact of the what-if scenario in 2-3 sentences.
 
@@ -87,10 +90,11 @@ When the user asks "what if", "what happens if", impact of changing variables:
 For other simulation queries (analysis, comparisons, capacity assessment) that don't \
 fit scheduling or what-if — use the compact structure:
 
-1. **Target Summary** — Key finding in 2-3 sentences with numbers in BOLD.
-2. **Execution / Impact View** — Supporting data tables with quantified insights. \
+1. **Current Status** — 2-3 lines summarizing where the project stands RIGHT NOW based on the data.
+2. **Target Summary** — Key finding in 2-3 sentences with numbers in BOLD.
+3. **Execution / Impact View** — Supporting data tables with quantified insights. \
    Bold outliers and key numbers inline. (FEW wording/numbers but more insights)
-3. **Action Plan / Recommendations** — Priority table (same format as TYPE 2). \
+4. **Action Plan / Recommendations** — Priority table (same format as TYPE 2). \
    Every recommendation must reference specific data. Skip if query is purely informational.
 
 ---

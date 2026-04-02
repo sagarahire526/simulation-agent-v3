@@ -195,10 +195,14 @@ def get_node(node_id: str) -> str:
     """⚠️ MANDATORY: After calling this tool, you MUST call run_sql_python. No exceptions.
 
     FALLBACK — Returns node metadata ONLY — NOT actual data. You MUST follow up with
-    run_sql_python to execute the map_python_function and get real numbers.
+    run_sql_python to get real numbers.
 
     ONLY VALID SEQUENCE: get_node → run_sql_python → write findings.
     INVALID: get_node → write findings (this is a FAILED traversal).
+
+    The map_python_function is a REFERENCE for table names, columns, joins, and logic.
+    DO NOT copy it verbatim — adapt it to your specific sub-query (drop unneeded columns,
+    adjust GROUP BY / WHERE / aggregations to match what was asked).
 
     USE ONLY WHEN: get_kpi did not return adequate logic/formulas for your query,
     and you need the core node's map_* properties (map_table_name, map_python_function,
@@ -212,7 +216,9 @@ def get_node(node_id: str) -> str:
 
     if isinstance(result, dict):
         result["⚠️_MANDATORY_NEXT_ACTION"] = (
-            "CALL run_sql_python WITH THE map_python_function CODE ABOVE"
+            "Use map_python_function as REFERENCE for table/column names and logic, "
+            "then write a TAILORED query in run_sql_python that matches your sub-query — "
+            "adapt columns, GROUP BY, WHERE, and aggregations. Do NOT copy verbatim."
         )
         result["_data_type"] = "metadata_only — NOT real data"
         result["_traversal_status"] = "INCOMPLETE — requires run_sql_python to finish"
@@ -267,10 +273,14 @@ def get_kpi(node_id: str) -> str:
     """⚠️ MANDATORY: After calling this tool, you MUST call run_sql_python. No exceptions.
 
     Returns KPI metadata ONLY — NOT actual data. You MUST follow up with run_sql_python
-    to execute the kpi_python_function and get real numbers.
+    to get real numbers.
 
     ONLY VALID SEQUENCE: get_kpi → run_sql_python → write findings.
     INVALID: get_kpi → write findings (this is a FAILED traversal).
+
+    The kpi_python_function is a REFERENCE for table names, columns, joins, and logic.
+    DO NOT copy it verbatim — adapt it to your specific sub-query (drop unneeded columns,
+    adjust GROUP BY / WHERE / aggregations to match what was asked).
 
     KPI nodes contain:
     - What it measures (kpi_description, kpi_formula_description)
@@ -288,7 +298,9 @@ def get_kpi(node_id: str) -> str:
 
     if isinstance(result, dict):
         result["⚠️_MANDATORY_NEXT_ACTION"] = (
-            "CALL run_sql_python WITH THE kpi_python_function CODE ABOVE"
+            "Use kpi_python_function as REFERENCE for table/column names and logic, "
+            "then write a TAILORED query in run_sql_python that matches your sub-query — "
+            "adapt columns, GROUP BY, WHERE, and aggregations. Do NOT copy verbatim."
         )
         result["_data_type"] = "metadata_only — NOT real data"
         result["_traversal_status"] = "INCOMPLETE — requires run_sql_python to finish"

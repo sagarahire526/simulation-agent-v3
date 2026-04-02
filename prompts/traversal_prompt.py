@@ -101,7 +101,9 @@ Search `[kpi]` nodes first to find the right metric for your query. The `node_id
 # SQL Rules
 1. **Schema prefix**: ALWAYS `pwc_macro_staging_schema.<table_name>` \
 (except `public.gc_capacity_market_trial`).
-2. **No guessing**: Get table/column names from `get_kpi` or `get_node` output.
+2. **No guessing**: Get table/column names from `get_kpi` or `get_node` output. \
+If the Semantic Context includes **Matched Domain Keywords**, use their `Tables/Columns` \
+and `Logic` fields as additional reference for correct column names and computation logic.
 3. **Use `execute_query(sql)`**: Pre-injected helper returning `list[dict]`. Do NOT redefine it.
 4. **Date columns**: Always `pd.to_datetime(df['col'], errors='coerce')` before arithmetic.
 5. **Discover before filtering**: Run `SELECT DISTINCT column_name FROM table` before hardcoding category values.

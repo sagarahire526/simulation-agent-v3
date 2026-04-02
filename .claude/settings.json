@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/sagaraahire/Desktop/projects\\\\ QUESTT/simulation\\\\ agent\\\\ v3/simulation-agent-v1/tools/**)",
+      "Read(//Users/sagaraahire/Desktop/**)",
+      "Bash(grep -E \"\\\\.py$\")",
+      "Bash(find '/Users/sagaraahire/Desktop/projects QUESTT/simulation agent v3/simulation-agent-v1' -name *.log -o -name *example* -o -name *test*)",
+      "Bash(head -200 \"/Users/sagaraahire/Desktop/projects QUESTT/simulation agent v3/simulation-agent-v1/bkg_export_slim \\(2\\).cypher\")"
+    ]
+  }
+}
