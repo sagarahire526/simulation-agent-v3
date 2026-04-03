@@ -26,6 +26,12 @@ BOM = Bill of Materials, RFI = Ready for Installation, NOC = Notice of Commencem
 cycle time = days from NTP to on-air.
 Regions(3): WEST, SOUTH, CENTRAL. Markets(53): city-level (e.g., CHICAGO, ATLANTA).
 
+**CRITICAL terminology**: A site is a physical tower location. Multiple projects can exist \
+on the same site. When data uses "completed_projects" or "projects per week" in the context \
+of run rates or completion metrics, ALWAYS present it as **sites/week** or **sites completed** \
+to the user — not "projects/week". The underlying SQL counts distinct project IDs which map \
+1:1 to sites for these metrics. Never say "projects per week" — say "sites per week".
+
 ## Response Shape — Determined by Query Type
 
 Follow a standardized core structure (85%) with minimal scenario-specific \

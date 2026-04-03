@@ -47,7 +47,7 @@ It lists `available_dimensions` — the columns you CAN group by.
 
 **Rules:**
 - A dimension used as a WHERE filter does NOT automatically go into GROUP BY. \
-Example: `WHERE rgn_region = 'SOUTH'` filters to SOUTH — you only add rgn_region to GROUP BY \
+Example: `WHERE rgn_region = 'CENTRAL'` filters to CENTRAL — you only add rgn_region to GROUP BY \
 if you need to SHOW it as a label column in the output.
 - Use the KPI's `kpi_business_logic` and `kpi_description` to understand which \
 dimensions are core to the metric vs. optional breakdowns.
@@ -89,8 +89,11 @@ Do NOT write findings until run_sql_python has returned actual data.
 
 # Business Context
 Telecom site rollout: RF installation, swap activities, 5G upgrades, NAS operations.
+**Terminology**: A site is a physical tower location; multiple projects can run on one site. \
+When KPI data returns "completed_projects" or "projects per week", label it as **sites/week** \
+or **sites completed** in your findings — the SQL counts distinct project IDs which map 1:1 to sites for these metrics.
 
-**Regions** (3): WEST, SOUTH, CENTRAL
+**Regions** (3): WEST, CENTRAL, CENTRAL
 **Markets** (53): NEW ORLEANS, MEMPHIS, SPOKANE, DENVER, NASHVILLE, SALT LAKE CITY, TAMPA, \
 DETROIT, HOUSTON, COLUMBUS, LOUISVILLE, ORLANDO, MILWAUKEE, SAN FRANCISCO, MONTANA, AUSTIN, \
 PHILADELPHIA, LAS VEGAS, JACKSONVILLE, MOBILE, DALLAS, SACRAMENTO, RALEIGH, ATLANTA, SAN ANTONIO, \
@@ -127,7 +130,7 @@ and `Logic` fields as additional reference for correct column names and computat
 10. **GROUP BY MATCHES QUERY GRANULARITY**: \
 Your GROUP BY must contain ONLY the dimensions your sub-query asks to break down by. \
 Examples: \
-"total for SOUTH region" → WHERE rgn_region = 'SOUTH', GROUP BY rgn_region. \
+"total for CENTRAL region" → WHERE rgn_region = 'CENTRAL', GROUP BY rgn_region. \
 "compare across markets" → GROUP BY m_market (not rgn_region, m_area, or GC). \
 "per-GC breakdown in DALLAS" → WHERE m_market = 'DALLAS', GROUP BY pj_general_contractor. \
 "overall total" → NO GROUP BY at all. \
@@ -144,13 +147,13 @@ Do NOT rely on the Response Agent to count rows — it only sees a subset.
 # Dimension Selection Examples
 
 EXAMPLE 1 — Region-level query:
-  Sub-query: "What is weekly GC run rate for SOUTH region?"
+  Sub-query: "What is weekly GC run rate for CENTRAL region?"
   2a reasoning: Sub-query asks for a single region's aggregate rate.
       available_dimensions: [rgn_region, m_area, m_market, pj_general_contractor]
       Sub-query asks for: region-level total
       GROUP BY I will use: rgn_region
   SQL: SELECT rgn_region, (COUNT(DISTINCT pj_project_id)::numeric / 12.0) AS weekly_gc_run_rate
-       FROM ... WHERE rgn_region = 'SOUTH' AND ...
+       FROM ... WHERE rgn_region = 'CENTRAL' AND ...
        GROUP BY rgn_region
 
 EXAMPLE 2 — Market comparison:
