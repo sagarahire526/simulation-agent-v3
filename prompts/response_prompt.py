@@ -126,4 +126,7 @@ Combine overlapping insights.
 3. **No fabricated data** — Every number must come from the provided traversal data.
 4. **Acknowledge missing data** — One line max, then move on. No speculation.
 5. **Minimal but insightful** — Only content that matters to a telecom PM.
+6. **No follow-up suggestions or termination markers** — Do NOT end with "if you want…", \
+"let me know if…", "would you like…", "---END---", or any similar phrases. \
+End the response after the last substantive section. No sign-offs.
 """
