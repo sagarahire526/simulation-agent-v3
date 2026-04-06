@@ -88,7 +88,8 @@ class Neo4jTool:
                 "MATCH (n:BKGNode) "
                 "RETURN n.entity_type AS entity_type, "
                 "       n.node_id AS node_id, "
-                "       n.label AS label "
+                "       n.label AS label, "
+                "       n.definition AS definition "
                 "ORDER BY n.entity_type, n.node_id"
             ).data()
 
@@ -119,9 +120,10 @@ class Neo4jTool:
             for prop in props_list:
                 schema_lines.append(f"    - {prop}")
 
-        # -- Build node_id → (label, entity_type) lookup --
+        # -- Build node_id → (label, entity_type, definition) lookup --
         _id_to_label: dict[str, str] = {}
         _id_to_type: dict[str, str] = {}
+        _id_to_def: dict[str, str] = {}
         seen_nodes: set[str] = set()
         for row in node_instances:
             nid = row.get("node_id", "")
@@ -130,11 +132,15 @@ class Neo4jTool:
             seen_nodes.add(nid)
             _id_to_label[nid] = row.get("label", nid)
             _id_to_type[nid] = row.get("entity_type", "unknown")
+            _id_to_def[nid] = (row.get("definition") or "")[:120]
 
         def _display(nid: str) -> str:
-            """Compact display: [type] label (id) so the agent knows entity_type."""
+            """Compact display: [type] label (id) — definition, so the agent can distinguish nodes."""
             label = _id_to_label.get(nid, nid)
             et = _id_to_type.get(nid, "unknown")
+            defn = _id_to_def.get(nid, "")
+            if defn:
+                return f"[{et}] {label} ({nid}) — {defn}"
             return f"[{et}] {label} ({nid})"
 
         # -- Graph: compact label (id) —[rel]→ label (id) --
