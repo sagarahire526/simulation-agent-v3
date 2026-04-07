@@ -42,10 +42,6 @@ Example: query about "total count of GCs" → the right node is `[core] General 
 4. Call `get_kpi(node_id)` for KPI nodes, or `get_node(node_id)` for core/context nodes.
 5. If NO node matches by definition, look for the closest `[core]` node and call `get_node(node_id)` instead.
 
-- **GC Capacity special case**: If the query is about GC/vendor capacity or crew counts, skip to STEP 2 \
-and directly query `public.gc_capacity_market_trial` (columns: `gc_company`, `market`, `day_wise_gc_capacity`; \
-weekly capacity = `day_wise_gc_capacity * 5`). This table is NOT in the KG. Before comparing market values use lower on both values.
-
 ## STEP 2 — Select dimensions, then build your run_sql_python code
 
 ### 2a. DIMENSION SELECTION (mandatory — do this BEFORE writing any code)

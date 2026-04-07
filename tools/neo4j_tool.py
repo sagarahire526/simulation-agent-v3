@@ -47,12 +47,27 @@ class Neo4jTool:
     # Schema Discovery
     # ─────────────────────────────────────────────
 
-    def get_schema(self) -> str:
+    def get_all_nodes(self) -> list[dict]:
+        """Return all BKGNode instances as dicts with node_id, label, entity_type, definition."""
+        db = config.neo4j.database
+        with self.driver.session(database=db) as session:
+            return session.run(
+                "MATCH (n:BKGNode) "
+                "RETURN n.entity_type AS entity_type, n.node_id AS node_id, "
+                "       n.label AS label, n.definition AS definition "
+                "ORDER BY n.entity_type, n.node_id"
+            ).data()
+
+    def get_schema(self, relevant_ids: set[str] | None = None) -> str:
         """
         Discover the KG schema structure only: node labels with property
         names/types, relationship types with property names/types, and
         relationship patterns.  No sample data, counts, indexes, or
         constraints — keeps the prompt lightweight.
+
+        When relevant_ids is provided, nodes in the set get full display
+        (with definitions), while remaining nodes are listed compactly.
+        Relationships are filtered to those involving at least one relevant node.
         """
         db = config.neo4j.database
 
@@ -135,7 +150,7 @@ class Neo4jTool:
             _id_to_def[nid] = (row.get("definition") or "")[:120]
 
         def _display(nid: str) -> str:
-            """Compact display: [type] label (id) — definition, so the agent can distinguish nodes."""
+            """Full display: [type] label (id) — definition."""
             label = _id_to_label.get(nid, nid)
             et = _id_to_type.get(nid, "unknown")
             defn = _id_to_def.get(nid, "")
@@ -143,8 +158,22 @@ class Neo4jTool:
                 return f"[{et}] {label} ({nid}) — {defn}"
             return f"[{et}] {label} ({nid})"
 
+        def _compact(nid: str) -> str:
+            """Compact display: [type] label (node_id) — no definition."""
+            label = _id_to_label.get(nid, nid)
+            et = _id_to_type.get(nid, "unknown")
+            return f"[{et}] {label} ({nid})"
+
+        # -- Filter relationships when relevant_ids is provided --
+        if relevant_ids:
+            node_relationships = [
+                r for r in node_relationships
+                if r["source"] in relevant_ids or r["target"] in relevant_ids
+            ]
+
         # -- Graph: compact label (id) —[rel]→ label (id) --
-        schema_lines.append("\n── Graph Relationships ──")
+        section_title = "── Relevant Graph Relationships ──" if relevant_ids else "── Graph Relationships ──"
+        schema_lines.append(f"\n{section_title}")
         schema_lines.append("  Format: source_label (node_id) —[relationship]→ target_label (node_id)")
         seen_rels: set[tuple] = set()
         nodes_in_rels: set[str] = set()
@@ -162,12 +191,33 @@ class Neo4jTool:
 
         # -- Orphan nodes (no relationships) — listed briefly so they aren't lost --
         orphans = seen_nodes - nodes_in_rels
-        if orphans:
-            schema_lines.append("\n── Unconnected Nodes ──")
-            for nid in sorted(orphans):
-                et = _id_to_type.get(nid, "unknown")
-                schema_lines.append(f"  [{et}] {_display(nid)}")
+        if relevant_ids:
+            # Relevant orphans get full display
+            relevant_orphans = orphans & relevant_ids
+            if relevant_orphans:
+                schema_lines.append("\n── Unconnected Relevant Nodes ──")
+                for nid in sorted(relevant_orphans):
+                    schema_lines.append(f"  {_display(nid)}")
 
+            # Non-relevant nodes (both in rels and orphans) get compact listing
+            other_nodes = seen_nodes - relevant_ids
+            if other_nodes:
+                schema_lines.append("\n── Other Available Nodes ──")
+                schema_lines.append("  (Call get_node(node_id) or find_relevant(query) for details)")
+                for nid in sorted(other_nodes):
+                    schema_lines.append(f"  {_compact(nid)}")
+        else:
+            if orphans:
+                schema_lines.append("\n── Unconnected Nodes ──")
+                for nid in sorted(orphans):
+                    et = _id_to_type.get(nid, "unknown")
+                    schema_lines.append(f"  [{et}] {_display(nid)}")
+
+        if relevant_ids:
+            logger.info(
+                "Schema filtered: %d relevant / %d total nodes",
+                len(relevant_ids), len(seen_nodes),
+            )
         logger.debug("Schema discovery complete: %d lines", len(schema_lines))
         return "\n".join(schema_lines)
 
