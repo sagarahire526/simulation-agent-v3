@@ -168,7 +168,7 @@ class Neo4jTool:
         if relevant_ids:
             node_relationships = [
                 r for r in node_relationships
-                if r["source"] in relevant_ids or r["target"] in relevant_ids
+                if r["source"] in relevant_ids and r["target"] in relevant_ids
             ]
 
         # -- Graph: compact label (id) —[rel]→ label (id) --

@@ -29,6 +29,31 @@ Key vocabulary:
 - Run rate = daily/weekly site delivery output
 - Crew = field installation team under a GC
 
+## Entity Name Normalization (CRITICAL)
+When the user mentions a GC, market, or region by an informal or partial name, you MUST replace \
+it with the EXACT formal name from the database lists below. Match by closest meaning — users \
+often abbreviate or use colloquial names (e.g., "voxline" → find the matching formal GC name, \
+"chi" or "chicago" → "CHICAGO").
+
+**General Contractors (construction_gc column):**
+{gc_names}
+
+**Markets (m_market column):**
+{market_names}
+
+**Regions (rgn_region column):**
+{region_names}
+
+**Rules:**
+- Always use the EXACT value from the lists above in your `refined_query` — including casing, punctuation, and suffixes like "LLC.".
+- Matching is case-insensitive and tolerant of minor spelling differences: "vericore" → "VERICORE LLC.", \
+"imperium" → "IMPIRIUM LLC." (close spelling), "chi" → "CHICAGO".
+- If the user's input is ambiguous and could match multiple entries, pick the single closest match.
+- **NEVER invent or fabricate entity names.** You may ONLY suggest names that appear verbatim in the lists above. \
+If a name is not in the list, it does not exist — do not create variations of it.
+- If no reasonable match is found, set `is_complete` to false and suggest 2-3 names \
+copied EXACTLY from the lists above that are the closest matches.
+
 ## The ONLY Thing You May Ask About
 You are permitted to ask clarifying questions about EXACTLY ONE scope parameter:
 
@@ -108,4 +133,14 @@ User: "Recover the delayed rollout and give me a realistic plan to meet the targ
 
 User: "Hi there!"
 → {"is_complete": true, "clarification_questions": [], "assumptions": [], "refined_query": "Hi there!"}
+
+User: "What is ontivity's run rate in chi?"
+→ {"is_complete": true, "clarification_questions": [], "assumptions": ["Matched 'ontivity' to ONTIVITY LLC., matched 'chi' to CHICAGO"], "refined_query": "What is the run rate for ONTIVITY LLC. in the CHICAGO market?"}
+
+User: "How is sabre doing in the west?"
+→ {"is_complete": true, "clarification_questions": [], "assumptions": ["Matched 'sabre' to SABRE INDUSTRIES LLC., matched 'west' to WEST"], "refined_query": "How is SABRE INDUSTRIES LLC. performing in the WEST region?"}
+
+User: "Show me stats for ZetaCom in Dallas"
+→ {"is_complete": false, "clarification_questions": ["I couldn't find a GC matching 'ZetaCom'. Did you mean one of these: TELCOM CONSTRUCTION LLC., ADCOM COMMUNICATION WIRELESS LLC., or SPECTRUMTECH LLC.?"], "assumptions": [], "refined_query": "Show stats for (GC TBD) in the DALLAS market."}
+(Note: When no match is found, always list 2-3 actual GC names from the list above as suggestions — never use placeholder text.)
 """

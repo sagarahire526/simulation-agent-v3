@@ -25,6 +25,7 @@ from langgraph.types import interrupt
 
 from models.state import SimulationState
 from services.llm_provider import LLMProvider
+from services.entity_lookup_service import get_all_entity_lookups
 from prompts.query_refiner_prompt import QUERY_REFINER_SYSTEM
 
 logger = logging.getLogger(__name__)
@@ -78,8 +79,19 @@ def query_refiner_node(state: SimulationState) -> dict[str, Any]:
 
     llm = LLMProvider.get_llm("fast", max_tokens=1024)
 
+    # Fetch formal entity names from DB for name normalization
+    lookups = get_all_entity_lookups()
+    print(f"LOOKUPS ARE AS FOLLOWS: {lookups}")
+    system_prompt = QUERY_REFINER_SYSTEM.replace(
+        "{{gc_names}}", ", ".join(lookups["gc_names"]) if lookups["gc_names"] else "(not available)"
+    ).replace(
+        "{{market_names}}", ", ".join(lookups["markets"]) if lookups["markets"] else "(not available)"
+    ).replace(
+        "{{region_names}}", ", ".join(lookups["regions"]) if lookups["regions"] else "(not available)"
+    )
+
     response = llm.invoke([
-        SystemMessage(content=QUERY_REFINER_SYSTEM),
+        SystemMessage(content=system_prompt),
         HumanMessage(content=user_query),
     ])
 
@@ -126,7 +138,21 @@ def query_refiner_node(state: SimulationState) -> dict[str, Any]:
 
     # ── Graph resumed with user's clarification ────────────────────────────────
     if user_clarification and user_clarification.strip():
-        refined_query = (
+        # Re-run the LLM with the original query + clarification + entity lists
+        # so it can properly resolve entity names in the refined query.
+        merge_prompt = (
+            f"Original query: {user_query}\n"
+            f"Clarification questions asked: {clarification_questions}\n"
+            f"User's answer: {user_clarification.strip()}\n\n"
+            "Now produce the final refined_query with all entity names resolved to "
+            "their exact database values. The query is now complete — set is_complete=true."
+        )
+        resume_response = llm.invoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=merge_prompt),
+        ])
+        resume_parsed = _parse_refiner_response(resume_response.content)
+        refined_query = resume_parsed.get("refined_query", "") or (
             f"{user_query} — Additional context: {user_clarification.strip()}"
         )
         print(f"  {_GREEN}✓ Clarification received. Refined query:{_RESET}", flush=True)

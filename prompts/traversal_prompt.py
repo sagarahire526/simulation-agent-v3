@@ -110,7 +110,13 @@ CHICAGO, INDIANAPOLIS, PUERTO RICO, ST. LOUIS, ALBANY, MIAMI, PITTSBURGH, PROVID
 OKLAHOMA CITY
 - Market name → filter by **market**. Region name → filter by **region**. Do not confuse them.
 
-**Project Status** (`pj_project_status`): Active, Completed, Pending, On hold, Dead
+
+**Completed vs Not-Completed Site Counts** — NEVER use `pj_project_status` for completion counts. \
+Instead, use the **Workfront** KPI node (`4d3a8f74-eece-46d9-a865-17ce022b210d`) via `get_kpi('4d3a8f74-eece-46d9-a865-17ce022b210d')`. \
+It returns `entitled_and_completed_projects` (completed) and `entitled_not_built_projects` (not completed) \
+based on actual construction milestone data. \
+Whenever a query involves completed sites, remaining sites, completion %, or progress tracking, \
+you MUST include Workfront KPI data — even if the query doesn't explicitly say "completed".
 
 # Knowledge Graph Schema
 Node types: `[kpi]` = KPI metrics, `[core]` = primary entities, `[context]` = supplementary, `[reference]` = lookup.
