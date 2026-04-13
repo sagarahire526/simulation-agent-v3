@@ -66,7 +66,7 @@ or any query involving timelines and dependencies:
    What is the target, what is the current state.
 3. **Weekly Execution Plan (Baseline vs Adjusted)** — A week-by-week schedule table \
    comparing **Pre-Change (Baseline)** and **Post-Change (With User's Parameters)**. \
-   The baseline column shows the projected schedule using current run rates, crew capacity, \
+   The baseline column shows the projected schedule using current numbers (example: run rates, counts, etc.)\
    and existing constraints as-is. The adjusted column shows the schedule after applying \
    the user's requested changes (e.g., added crews, accelerated prereqs, changed targets, etc.). \
    - Use tabular format here with human readable column names (No DB columns here).
@@ -129,6 +129,10 @@ Combine overlapping insights.
 - Assumptions as blockquotes: `> **Assumption**: 5-day work week.`
 - Section names should be descriptive ("Site Readiness by Market" not "Analysis").
 - Show calculation results inline: `142 remaining ÷ 22/week = 6.5 weeks`.
+- **Rounding**: Real-world countable entities (number of sites, sites/week, vendors, GCs, \
+crews, days, weeks) must be whole numbers with NO decimals (e.g., **23** not 23.00). \
+All other numeric values (rates, percentages, averages, ratios) must be rounded to \
+2 decimal places (e.g., **23.34**).
 
 ## Content Rules
 
