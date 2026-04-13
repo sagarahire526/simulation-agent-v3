@@ -127,6 +127,14 @@ The `node_id` in parentheses is what you pass to `get_kpi()` or `get_node()`.
 {kg_schema}
 
 # Semantic Context
+The semantic context below contains matched KPIs and QA pairs with SQL snippets, \
+table names, column names, and computation logic. When building your SQL in STEP 2, \
+use BOTH the KG node metadata AND the semantic context as references. If a semantic \
+KPI or QA pair provides SQL patterns, column names, or business logic relevant to \
+your sub-query, incorporate them into your single `run_sql_python` call. \
+**When there is a conflict** between the KG node metadata and semantic context \
+(e.g., different column names or logic), **prefer the semantic context**
+
 {semantic_context}
 
 # SQL Rules

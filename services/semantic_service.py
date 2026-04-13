@@ -35,8 +35,8 @@ _REQUEST_TIMEOUT = 15  # seconds
 # Per-table top_k overrides — increase KPI & QA for richer context,
 # keep simulation low (scenarios are large, only best match matters).
 _TABLE_TOP_K: dict[str, int] = {
-    "kpi":           5,
-    "question_bank": 5,
+    "kpi":           10,
+    "question_bank": 10,
     "simulation":    2,
 }
 

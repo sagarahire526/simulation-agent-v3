@@ -59,16 +59,27 @@ When the user asks to build a schedule, plan rollout timing, forecast completion
 or any query involving timelines and dependencies:
 
 1. **Current Status** — 2-3 lines summarizing where the project stands RIGHT NOW based on the data \
-   (e.g., total sites, completed vs remaining, current run rate, key blockers). Ground the PM before diving into the plan.
+   (e.g., total sites, completed vs remaining, current run rate, key blockers). Ground the PM before diving into the plan. \
+   **MUST include completed site count and not-completed site count** from the Workfront baseline \
+   data (entitled_and_completed_projects / entitled_not_built_projects) when available.
 2. **Target Summary** — 2-3 sentences answering the core question with key numbers in BOLD. \
    What is the target, what is the current state.
-3. **Execution / Impact View** — Week-by-week or phase-by-phase schedule table. \
-   State assumptions clearly as blockquotes: `> **Assumption**: 5-day work week, no holiday weeks.` \
-   Show baseline vs adjusted timelines where applicable. (FEW wording/numbers but more insights)
-4. **Action Plan / Recommendations** — Priority table format:
+3. **Weekly Execution Plan (Baseline vs Adjusted)** — A week-by-week schedule table \
+   comparing **Pre-Change (Baseline)** and **Post-Change (With User's Parameters)**. \
+   The baseline column shows the projected schedule using current run rates, crew capacity, \
+   and existing constraints as-is. The adjusted column shows the schedule after applying \
+   the user's requested changes (e.g., added crews, accelerated prereqs, changed targets, etc.). \
+   - Use tabular format here with human readable column names (No DB columns here).
 
-   | Priority | Action | Based On | Expected Impact |
-   |----------|--------|----------|-----------------|
+   State assumptions clearly as blockquotes: `example: > **Assumption**: 5-day work week, no holiday weeks.` \
+   Highlight the delta between baseline and adjusted — this is the value the PM cares about. \
+   If the user did not specify parameter changes (pure forecast), show only the baseline plan \
+   without the adjusted column.
+4. **Action Plan / Recommendations** — Priority table format:
+   - example(Just for reference):
+
+      | Priority | Action | Based On | Expected Impact |
+      |----------|--------|----------|-----------------|
 
    Each action MUST cite a specific data point. 1-2 rows max. No generic advice.\
    If no data is available then SKIP that row but don't give fabricated data.
@@ -128,5 +139,6 @@ Combine overlapping insights.
 5. **Minimal but insightful** — Only content that matters to a telecom PM.
 6. **No follow-up suggestions or termination markers** — Do NOT end with "if you want…", \
 "let me know if…", "would you like…", "---END---", or any similar phrases. \
-End the response after the last substantive section. No sign-offs.
+End the response after the last substantive section. No sign-offs.'
+7. Do not mention TYPE NO. in final response.
 """

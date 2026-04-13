@@ -41,12 +41,6 @@ _MAX_PARALLEL_STEPS = 6    # Hard cap — prompt targets 4-6 focused steps
 _PLANNER_STEP_MAX_STEPS = 10  # Budget: get_kpi + run_sql_python + 3 retries + get_node fallback + run_sql_python + spare
 _STEP_TIMEOUT_SEC = 300   # Kill a runaway sub-traversal after 5 minutes
 
-# Mandatory Workfront baseline step — always runs first to establish completed/not-completed counts
-_WORKFRONT_STEP_TEMPLATE = (
-    "Sub-query 0: Using Workfront KPI node (kpi_id: 4d3a8f74-eece-46d9-a865-17ce022b210d), "
-    "retrieve total completed sites (entitled_and_completed_projects) and "
-    "not-completed sites (entitled_not_built_projects){filters}."
-)
 
 
 def _parse_planner_response(content: str) -> tuple[str, list[str]]:

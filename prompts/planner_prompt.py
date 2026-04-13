@@ -75,6 +75,14 @@ filters explicitly. Example: user says "in Chicago market" → every sub-query m
 5. Be non-overlapping — never ask the same thing twice
 6. Use specific field names, node labels, or metric names from the KG Schema when possible
 
+## Mandatory Workfront Baseline Step
+For ANY scheduling, planning, forecasting, rollout, or timeline query, your **first step \
+(Sub-query 1)** MUST retrieve completed and not-completed site counts using the Workfront \
+KPI node (kpi_id: `4d3a8f74-eece-46d9-a865-17ce022b210d`). This KPI returns \
+`entitled_and_completed_projects` (completed sites) and `entitled_not_built_projects` \
+(not-completed sites). Include any user-specified filters (market, region, etc.) in this step. \
+This baseline is essential — the Response Agent needs these counts to ground every scheduling answer.
+
 ## Step Count Guidance
 - Minimum: 2 steps (never fewer)
 - Maximum: 9 steps (hard limit — avoid redundancy)
