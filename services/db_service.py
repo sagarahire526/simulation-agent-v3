@@ -18,7 +18,11 @@ import json
 import logging
 import uuid
 
+import threading
+from contextlib import contextmanager
+
 import psycopg2
+from psycopg2.pool import ThreadedConnectionPool
 
 import config
 
@@ -26,21 +30,56 @@ logger = logging.getLogger(__name__)
 
 _SCHEMA = "pwc_agent_utility_schema"
 
-
 # ─────────────────────────────────────────────
-# Internal helpers
+# Connection pool (lazy-initialised, thread-safe)
 # ─────────────────────────────────────────────
 
-def _conn():
-    """Open a new read-write psycopg2 connection."""
-    return psycopg2.connect(
-        host=config.PG_HOST,
-        port=config.PG_PORT,
-        database=config.PG_DATABASE,
-        user=config.PG_USER,
-        password=config.PG_PASSWORD,
-        connect_timeout=5,
-    )
+_pool: ThreadedConnectionPool | None = None
+_pool_lock = threading.Lock()
+
+
+def _get_pool() -> ThreadedConnectionPool:
+    """Return the shared connection pool, creating it on first call."""
+    global _pool
+    if _pool is None:
+        with _pool_lock:
+            if _pool is None:  # double-checked locking
+                _pool = ThreadedConnectionPool(
+                    minconn=2,
+                    maxconn=20,
+                    host=config.PG_HOST,
+                    port=config.PG_PORT,
+                    database=config.PG_DATABASE,
+                    user=config.PG_USER,
+                    password=config.PG_PASSWORD,
+                    connect_timeout=5,
+                )
+                logger.info("PostgreSQL connection pool created (min=2, max=20)")
+    return _pool
+
+
+def close_pool() -> None:
+    """Drain and close every connection in the pool. Called at app shutdown."""
+    global _pool
+    if _pool is not None:
+        _pool.closeall()
+        _pool = None
+        logger.info("PostgreSQL connection pool closed")
+
+
+@contextmanager
+def _pooled_conn():
+    """Context manager: borrows a connection and always returns it to the pool."""
+    pool = _get_pool()
+    conn = pool.getconn()
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        pool.putconn(conn)
 
 
 def ensure_tables() -> None:
@@ -114,7 +153,7 @@ def ensure_tables() -> None:
             ADD COLUMN IF NOT EXISTS traces JSONB;
     """
     try:
-        with _conn() as conn:
+        with _pooled_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(ddl)
                 cur.execute(migrate_graph_col)
@@ -127,7 +166,7 @@ def ensure_tables() -> None:
 def _exec(sql: str, params: tuple) -> None:
     """Execute a single DML statement. Logs and swallows all DB errors."""
     try:
-        with _conn() as conn:
+        with _pooled_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(sql, params)
     except Exception as exc:
@@ -137,7 +176,7 @@ def _exec(sql: str, params: tuple) -> None:
 def _fetch_one(sql: str, params: tuple):
     """Fetch a single scalar value. Returns None on error or no result."""
     try:
-        with _conn() as conn:
+        with _pooled_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(sql, params)
                 row = cur.fetchone()
@@ -150,7 +189,7 @@ def _fetch_one(sql: str, params: tuple):
 def _fetch_rows(sql: str, params: tuple) -> list[dict]:
     """Fetch all rows as a list of dicts. Returns [] on error or no results."""
     try:
-        with _conn() as conn:
+        with _pooled_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(sql, params)
                 cols = [desc[0] for desc in cur.description]
@@ -414,7 +453,7 @@ def delete_thread(thread_id: str) -> bool:
     Returns True if the thread existed and was deleted.
     """
     try:
-        with _conn() as conn:
+        with _pooled_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     f"DELETE FROM {_SCHEMA}.simulation_agent_feedback WHERE thread_id = %s",

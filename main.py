@@ -57,6 +57,7 @@ import services.db_service as db_svc
 async def lifespan(app: FastAPI):
     db_svc.ensure_tables()
     yield
+    db_svc.close_pool()
 
 
 app = FastAPI(
@@ -86,4 +87,18 @@ async def root():
 app.include_router(v1_router, prefix="/api")
 
 if __name__ == "__main__":
-    uvicorn.run("api.app:app", host="0.0.0.0", port=8000, reload=True)
+    import os
+
+    reload = os.getenv("RELOAD", "false").lower() == "true"
+    workers = int(os.getenv("WORKERS", "1"))
+
+    # NOTE: Using workers > 1 requires replacing MemorySaver with a
+    # persistent checkpointer (e.g. PostgresSaver) so HITL state is
+    # shared across worker processes.  Keep workers=1 until that migration.
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=reload,
+        workers=1 if reload else workers,
+    )

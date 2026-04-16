@@ -58,166 +58,68 @@ class Neo4jTool:
                 "ORDER BY n.entity_type, n.node_id"
             ).data()
 
-    def get_schema(self, relevant_ids: set[str] | None = None) -> str:
+    def get_schema(self) -> str:
         """
-        Discover the KG schema structure only: node labels with property
-        names/types, relationship types with property names/types, and
-        relationship patterns.  No sample data, counts, indexes, or
-        constraints — keeps the prompt lightweight.
+        Discover the KG schema — optimised for minimal token usage.
 
-        When relevant_ids is provided, nodes in the set get full display
-        (with definitions), while remaining nodes are listed compactly.
-        Relationships are filtered to those involving at least one relevant node.
+        Omits raw property listings and relationship type metadata
+        (the agent gets those from get_kpi / get_node calls).
+        Deduplicates and groups relationships by source node.
         """
         db = config.neo4j.database
 
         with self.driver.session(database=db) as session:
-            # ── 1. Node labels + property names/types ──
-            node_info = session.run(
-                "CALL db.schema.nodeTypeProperties() "
-                "YIELD nodeType, propertyName, propertyTypes, mandatory "
-                "RETURN nodeType, "
-                "  collect({name: propertyName, types: propertyTypes, mandatory: mandatory}) "
-                "  AS properties"
-            ).data()
-
-            # ── 2. Relationship types + property names/types ──
-            rel_info = session.run(
-                "CALL db.schema.relTypeProperties() "
-                "YIELD relType, propertyName, propertyTypes, mandatory "
-                "RETURN relType, "
-                "  collect({name: propertyName, types: propertyTypes, mandatory: mandatory}) "
-                "  AS properties"
-            ).data()
-
-            # ── 3. Relationship type patterns (meta-level) ──
-            rel_patterns = session.run(
-                "MATCH (a)-[r]->(b) "
-                "WITH labels(a) AS srcLabels, type(r) AS relType, labels(b) AS tgtLabels "
-                "RETURN DISTINCT srcLabels, relType, tgtLabels "
-                "ORDER BY relType"
-            ).data()
-
-            # ── 4. All BKGNode instances grouped by entity_type ──
+            # ── 1. All BKGNode instances with definitions ──
             node_instances = session.run(
                 "MATCH (n:BKGNode) "
                 "RETURN n.entity_type AS entity_type, "
                 "       n.node_id AS node_id, "
                 "       n.label AS label, "
-                "       n.definition AS definition "
+                "       coalesce(n.definition, '') AS definition "
                 "ORDER BY n.entity_type, n.node_id"
             ).data()
 
-            # ── 5. Actual relationship map between nodes ──
+            # ── 2. Actual relationship map between nodes ──
             node_relationships = session.run(
                 "MATCH (a:BKGNode)-[r:RELATES_TO]->(b:BKGNode) "
-                "RETURN a.node_id AS source, "
+                "RETURN DISTINCT a.node_id AS source, "
                 "       r.relationship_type AS rel_type, "
                 "       b.node_id AS target "
-                "ORDER BY a.entity_type, a.node_id"
+                "ORDER BY source"
             ).data()
 
         # ── Build formatted output ──
+        from collections import defaultdict
+
         schema_lines = ["=== KNOWLEDGE GRAPH SCHEMA ===\n"]
 
-        # -- Node Properties (what fields exist on BKGNode) --
-        schema_lines.append("── Node Properties ──")
-        for row in node_info:
-            node_type = row["nodeType"]
-            props_list = []
-            for p in row["properties"]:
-                if not p["name"]:
-                    continue
-                types_str = "/".join(p["types"]) if p["types"] else "Unknown"
-                req = " (required)" if p.get("mandatory") else ""
-                props_list.append(f"{p['name']}: {types_str}{req}")
-            schema_lines.append(f"  {node_type}")
-            for prop in props_list:
-                schema_lines.append(f"    - {prop}")
-
-        # -- Build node_id → (label, entity_type, definition) lookup --
-        _id_to_label: dict[str, str] = {}
-        _id_to_type: dict[str, str] = {}
-        _id_to_def: dict[str, str] = {}
-        seen_nodes: set[str] = set()
+        # -- BKG Nodes by entity type --
+        schema_lines.append("── BKG Nodes (by entity type) ──")
+        current_type = None
         for row in node_instances:
-            nid = row.get("node_id", "")
-            if not nid or nid in seen_nodes:
-                continue
-            seen_nodes.add(nid)
-            _id_to_label[nid] = row.get("label", nid)
-            _id_to_type[nid] = row.get("entity_type", "unknown")
-            _id_to_def[nid] = (row.get("definition") or "")[:120]
+            et = row.get("entity_type", "unknown")
+            if et != current_type:
+                current_type = et
+                schema_lines.append(f"\n  [{et}]")
+            label_str = f" — {row['label']}" if row.get("label") else ""
+            def_str = f" : {row['definition']}" if row.get("definition") else ""
+            schema_lines.append(f"    • {row['node_id']}{label_str}{def_str}")
 
-        def _display(nid: str) -> str:
-            """Full display: [type] label (id) — definition."""
-            label = _id_to_label.get(nid, nid)
-            et = _id_to_type.get(nid, "unknown")
-            defn = _id_to_def.get(nid, "")
-            if defn:
-                return f"[{et}] {label} ({nid}) — {defn}"
-            return f"[{et}] {label} ({nid})"
-
-        def _compact(nid: str) -> str:
-            """Compact display: [type] label (node_id) — no definition."""
-            label = _id_to_label.get(nid, nid)
-            et = _id_to_type.get(nid, "unknown")
-            return f"[{et}] {label} ({nid})"
-
-        # -- Filter relationships when relevant_ids is provided --
-        if relevant_ids:
-            node_relationships = [
-                r for r in node_relationships
-                if r["source"] in relevant_ids and r["target"] in relevant_ids
-            ]
-
-        # -- Graph: compact label (id) —[rel]→ label (id) --
-        section_title = "── Relevant Graph Relationships ──" if relevant_ids else "── Graph Relationships ──"
-        schema_lines.append(f"\n{section_title}")
-        schema_lines.append("  Format: source_label (node_id) —[relationship]→ target_label (node_id)")
-        seen_rels: set[tuple] = set()
-        nodes_in_rels: set[str] = set()
+        # -- Deduplicated & grouped relationships --
+        grouped: dict[tuple[str, str], list[str]] = defaultdict(list)
+        seen: set[tuple[str, str, str]] = set()
         for row in node_relationships:
-            rel = row.get("rel_type") or "RELATES_TO"
-            key = (row["source"], rel, row["target"])
-            if key in seen_rels:
-                continue
-            seen_rels.add(key)
-            nodes_in_rels.add(row["source"])
-            nodes_in_rels.add(row["target"])
+            key = (row["source"], row.get("rel_type") or "RELATES_TO", row["target"])
+            if key not in seen:
+                seen.add(key)
+                grouped[(key[0], key[1])].append(key[2])
+
+        schema_lines.append("\n── Node Relationships ──")
+        for (source, rel_type), targets in grouped.items():
             schema_lines.append(
-                f"  {_display(row['source'])} —[{rel}]→ {_display(row['target'])}"
+                f"  ({source}) —[{rel_type}]→ {', '.join(targets)}"
             )
 
-        # -- Orphan nodes (no relationships) — listed briefly so they aren't lost --
-        orphans = seen_nodes - nodes_in_rels
-        if relevant_ids:
-            # Relevant orphans get full display
-            relevant_orphans = orphans & relevant_ids
-            if relevant_orphans:
-                schema_lines.append("\n── Unconnected Relevant Nodes ──")
-                for nid in sorted(relevant_orphans):
-                    schema_lines.append(f"  {_display(nid)}")
-
-            # Non-relevant nodes (both in rels and orphans) get compact listing
-            other_nodes = seen_nodes - relevant_ids
-            if other_nodes:
-                schema_lines.append("\n── Other Available Nodes ──")
-                schema_lines.append("  (Call get_node(node_id) or find_relevant(query) for details)")
-                for nid in sorted(other_nodes):
-                    schema_lines.append(f"  {_compact(nid)}")
-        else:
-            if orphans:
-                schema_lines.append("\n── Unconnected Nodes ──")
-                for nid in sorted(orphans):
-                    et = _id_to_type.get(nid, "unknown")
-                    schema_lines.append(f"  [{et}] {_display(nid)}")
-
-        if relevant_ids:
-            logger.info(
-                "Schema filtered: %d relevant / %d total nodes",
-                len(relevant_ids), len(seen_nodes),
-            )
         logger.debug("Schema discovery complete: %d lines", len(schema_lines))
         return "\n".join(schema_lines)
 

@@ -29,8 +29,8 @@ logger = logging.getLogger(__name__)
 
 # ── Model tier defaults ──────────────────────────────────────────────────────
 _MODEL_FAST    = os.getenv("LLM_MODEL_FAST",    "gpt-4o-mini")
-_MODEL_DEFAULT = os.getenv("LLM_MODEL_DEFAULT", "gpt-4o")
-_MODEL_HEAVY   = os.getenv("LLM_MODEL_HEAVY",   "gpt-5")
+_MODEL_DEFAULT = os.getenv("LLM_MODEL_DEFAULT", "gpt-5-mini")
+_MODEL_HEAVY   = os.getenv("LLM_MODEL_HEAVY",   "gpt-5-mini")
 
 _TIER_MAP: dict[str, str] = {
     "fast":    _MODEL_FAST,
@@ -40,7 +40,8 @@ _TIER_MAP: dict[str, str] = {
 
 # ── Per-tier default kwargs (merged into ChatOpenAI, caller kwargs take precedence) ──
 _TIER_KWARGS: dict[str, dict] = {
-    "heavy": {"reasoning_effort": "low"},
+    "default": {"reasoning_effort": "low"},
+    "heavy":   {"reasoning_effort": "low"},
 }
 
 # ── Gateway config (optional) ────────────────────────────────────────────────

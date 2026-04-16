@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/sagaraahire/Desktop/projects\\\\ QUESTT/simulation\\\\ agent\\\\ v3/simulation-agent-v1/tools/**)",
+      "Read(//Users/sagaraahire/Desktop/projects\\\\ QUESTT/simulation\\\\ agent\\\\ v3/simulation-agent-v1/prompts/**)",
+      "Bash(grep -r \"GROUP BY\" . --include=\"*.py\" --include=\"*.cypher\" --include=\"*.txt\" ! -path \"./venv/*\")",
+      "Bash(grep -r \"GROUP BY\" . -I --include=\"*.py\" --include=\"*.cypher\" ! -path \"./venv/*\")",
+      "Read(//Users/sagaraahire/Desktop/projects\\\\ QUESTT/simulation\\\\ agent\\\\ v3/simulation-agent-v1/**)",
+      "Bash(python3 -c ':*)",
+      "Bash(python3 -c \"import pandas; print\\(pandas.__file__\\)\")",
+      "Bash(python3 -m pip install pandas openpyxl -q)",
+      "Bash(python3 -m pip install pandas openpyxl -q --break-system-packages)",
+      "Bash(python3)",
+      "Read(//Users/sagaraahire/Desktop/projects\\\\ QUESTT/simulation\\\\ agent\\\\ v3/simulation-agent-v1/models/**)",
+      "Bash(wc -l ./prompts/*.py)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('agents/planner.py'\\).read\\(\\)\\); print\\('planner.py OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('agents/response.py'\\).read\\(\\)\\); print\\('response.py OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('models/state.py'\\).read\\(\\)\\); print\\('state.py OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('prompts/planner_prompt.py'\\).read\\(\\)\\); print\\('planner_prompt.py OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('prompts/response_prompt.py'\\).read\\(\\)\\); print\\('response_prompt.py OK'\\)\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('agents/planner.py'\\).read\\(\\)\\); print\\('planner.py OK'\\)\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('agents/response.py'\\).read\\(\\)\\); print\\('response.py OK'\\)\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('models/state.py'\\).read\\(\\)\\); print\\('state.py OK'\\)\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('prompts/planner_prompt.py'\\).read\\(\\)\\); print\\('planner_prompt.py OK'\\)\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('prompts/response_prompt.py'\\).read\\(\\)\\); print\\('response_prompt.py OK'\\)\")",
+      "Read(//Users/sagaraahire/Downloads/**)"
+    ]
+  }
+}

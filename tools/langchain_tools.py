@@ -429,12 +429,17 @@ def run_sql_python(code: str, timeout_seconds: int = 30) -> str:
     execute_query(sql, db=None, max_rows=None) → list[dict].
 
     CRITICAL RULES:
-    3. ALWAYS prefix tables: pwc_macro_staging_schema.<table_name>
-    4. Use the pre-injected execute_query(sql) to run SQL — it returns list[dict].
+    1. INDENTATION: All top-level code MUST start at column 0 (no leading spaces).
+       Mixed indentation causes `IndentationError` / `unexpected indent`.
+    2. ALWAYS prefix tables: pwc_macro_staging_schema.<table_name>
+    3. Use the pre-injected execute_query(sql) to run SQL — it returns list[dict].
        Alternatively use pd.read_sql("SELECT ...", conn) for DataFrames.
        Do NOT redefine execute_query yourself.
-    5. Set `result = <value>` to return data. DataFrames are auto-converted.
-    6. On error: read the FULL 'error' and 'traceback' fields carefully, diagnose
+    4. Set `result = <value>` to return data. DataFrames are auto-converted.
+    5. NEVER pass None as a value in df.fillna() — it is invalid and raises an error.
+       Only fill with concrete values (0, '', etc.). To keep NaN/None as-is, simply
+       omit those columns from the fillna dict.
+    6. On error: read the FULL 'error' fields carefully, diagnose
        the root cause, fix your code, and call this tool again with corrected code.
        You may retry up to 3 times total — each retry must have a meaningful fix.
 

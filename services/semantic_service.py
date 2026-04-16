@@ -35,12 +35,11 @@ _REQUEST_TIMEOUT = 15  # seconds
 # Per-table top_k overrides — increase KPI & QA for richer context,
 # keep simulation low (scenarios are large, only best match matters).
 _TABLE_TOP_K: dict[str, int] = {
-    "kpi":           10,
-    "question_bank": 10,
-    "simulation":    2,
+    "kpi":           5,
+    "question_bank": 5,
+    "simulation":    1,
+    "keywords":      5,
 }
-
-_KEYWORDS_TOP_K = 10
 
 # Known structured keys inside the simulation table's content dict
 _SIMULATION_CONTENT_KEYS: dict[str, str] = {
@@ -116,7 +115,7 @@ class SemanticService:
 
     # ── Keywords API call ────────────────────────────────────────────────────
 
-    def _search_keywords(self, query: str, top_k: int = _KEYWORDS_TOP_K) -> list[dict]:
+    def _search_keywords(self, query: str, top_k: int = _TABLE_TOP_K["keywords"]) -> list[dict]:
         """
         Call the semantic keywords search API endpoint.
         Returns results in the same shape as _search (list of dicts with

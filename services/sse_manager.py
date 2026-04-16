@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 class SSEManager:
     def __init__(self) -> None:
+        self._lock = threading.Lock()
         self._queues: dict[str, asyncio.Queue] = {}
         self._loops:  dict[str, asyncio.AbstractEventLoop] = {}
         self._hitl_events:  dict[str, threading.Event] = {}
@@ -33,8 +34,9 @@ class SSEManager:
         Returns the queue so the SSE generator can await items from it.
         """
         q: asyncio.Queue = asyncio.Queue()
-        self._queues[query_id] = q
-        self._loops[query_id]  = loop
+        with self._lock:
+            self._queues[query_id] = q
+            self._loops[query_id]  = loop
         return q
 
     # ── Sync → async event bridge ─────────────────────────────────────────────
@@ -45,8 +47,9 @@ class SSEManager:
         Uses run_coroutine_threadsafe so queue.put() is scheduled safely on
         the event loop rather than called directly from the worker thread.
         """
-        q    = self._queues.get(query_id)
-        loop = self._loops.get(query_id)
+        with self._lock:
+            q    = self._queues.get(query_id)
+            loop = self._loops.get(query_id)
         if q is None or loop is None:
             logger.warning("put_sync: no queue/loop registered for query_id=%s", query_id)
             return
@@ -63,7 +66,8 @@ class SSEManager:
         The stream thread calls .wait() on it; the resume endpoint calls .set().
         """
         event = threading.Event()
-        self._hitl_events[thread_id] = event
+        with self._lock:
+            self._hitl_events[thread_id] = event
         return event
 
     def signal_resume(self, thread_id: str, answer: str) -> bool:
@@ -71,25 +75,28 @@ class SSEManager:
         Unblock the waiting stream thread with the user's clarification answer.
         Returns True if a stream was waiting, False otherwise.
         """
-        event = self._hitl_events.get(thread_id)
-        if event is None:
-            return False
-        self._resume_answers[thread_id] = answer
+        with self._lock:
+            event = self._hitl_events.get(thread_id)
+            if event is None:
+                return False
+            self._resume_answers[thread_id] = answer
         event.set()
         return True
 
     def get_resume_answer(self, thread_id: str) -> str:
         """Retrieve (and remove) the answer stored by signal_resume."""
-        return self._resume_answers.pop(thread_id, "Accept stated assumptions")
+        with self._lock:
+            return self._resume_answers.pop(thread_id, "Accept stated assumptions")
 
     # ── Cleanup ───────────────────────────────────────────────────────────────
 
     def cleanup(self, query_id: str, thread_id: str) -> None:
         """Release all resources associated with a completed stream."""
-        self._queues.pop(query_id, None)
-        self._loops.pop(query_id, None)
-        self._hitl_events.pop(thread_id, None)
-        self._resume_answers.pop(thread_id, None)
+        with self._lock:
+            self._queues.pop(query_id, None)
+            self._loops.pop(query_id, None)
+            self._hitl_events.pop(thread_id, None)
+            self._resume_answers.pop(thread_id, None)
 
 
 # Module-level singleton shared by graph.py and sse_simulate.py

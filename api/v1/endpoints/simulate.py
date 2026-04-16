@@ -4,6 +4,7 @@ Simulate endpoints.
   POST /api/v1/simulate        — Start a new simulation (may pause for clarification)
   POST /api/v1/simulate/resume — Resume a paused simulation with user clarification
 """
+import asyncio
 import uuid
 
 from fastapi import APIRouter, HTTPException
@@ -15,7 +16,7 @@ router = APIRouter(tags=["Agent"])
 
 
 @router.post("/simulate", response_model=SimulateResponse)
-def simulate(req: SimulateRequest):
+async def simulate(req: SimulateRequest):
     """
     Run a natural-language query through the LangGraph agent pipeline.
 
@@ -32,7 +33,16 @@ def simulate(req: SimulateRequest):
     """
     thread_id = req.thread_id or str(uuid.uuid4())
     try:
-        result = sim_svc.run_query(req.query, thread_id=thread_id, user_id=req.user_id, project_type=req.project_type.value)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: sim_svc.run_query(
+                req.query,
+                thread_id=thread_id,
+                user_id=req.user_id,
+                project_type=req.project_type.value,
+            ),
+        )
         return SimulateResponse(thread_id=thread_id, **result)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -41,7 +51,7 @@ def simulate(req: SimulateRequest):
 
 
 @router.post("/simulate/resume", response_model=SimulateResponse)
-def simulate_resume(req: ResumeRequest):
+async def simulate_resume(req: ResumeRequest):
     """
     Resume a simulation that paused for user clarification.
 
@@ -49,7 +59,11 @@ def simulate_resume(req: ResumeRequest):
     and the user's clarification text.
     """
     try:
-        result = sim_svc.resume_query(req.clarification, thread_id=req.thread_id)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: sim_svc.resume_query(req.clarification, thread_id=req.thread_id),
+        )
         return SimulateResponse(thread_id=req.thread_id, **result)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

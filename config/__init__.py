@@ -28,7 +28,7 @@ PG_PASSWORD = os.getenv("PG_PASSWORD", "password")
 
 # ── LLM ────────────────────────────────────────────────────────────────────
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-LLM_MODEL      = os.getenv("LLM_MODEL", "gpt-4o")
+LLM_MODEL      = os.getenv("LLM_MODEL", "gpt-5-mini")
 
 # ── Internal Semantic Search API ───────────────────────────────────────────
 # Only reachable within the company network.

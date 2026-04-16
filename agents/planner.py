@@ -41,6 +41,10 @@ _MAX_PARALLEL_STEPS = 6    # Hard cap — prompt targets 4-6 focused steps
 _PLANNER_STEP_MAX_STEPS = 10  # Budget: get_kpi + run_sql_python + 3 retries + get_node fallback + run_sql_python + spare
 _STEP_TIMEOUT_SEC = 300   # Kill a runaway sub-traversal after 5 minutes
 
+# Shared executor for running asyncio event loops from sync planner nodes.
+# Bounded to 4 threads so 100 concurrent requests don't spawn 100 OS threads.
+_planner_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="planner-async")
+
 
 
 def _parse_planner_response(content: str) -> tuple[str, list[str]]:
@@ -177,7 +181,7 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
     # Escape any literal { } in dynamic content before calling str.format()
     safe_kg_schema = kg_schema.replace("{", "{{").replace("}", "}}")
     safe_semantic = semantic_context.replace("{", "{{").replace("}", "}}")
-
+    
     planning_prompt = PLANNER_SYSTEM.format(
         today_date=date.today(),
         kg_schema=safe_kg_schema,
@@ -233,9 +237,8 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
     }
 
     ctx = contextvars.copy_context()
-    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="planner-async") as executor:
-        future = executor.submit(ctx.run, asyncio.run, _gather_traversals(steps, traversal_state))
-        gathered = future.result(timeout=_STEP_TIMEOUT_SEC + 60)
+    future = _planner_executor.submit(ctx.run, asyncio.run, _gather_traversals(steps, traversal_state))
+    gathered = future.result(timeout=_STEP_TIMEOUT_SEC + 60)
 
     step_results: list[dict] = []
     for idx, result in enumerate(gathered):
