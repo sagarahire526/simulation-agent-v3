@@ -186,7 +186,8 @@ class SemanticService:
             }
             # Local PostgreSQL keyword embedding search
             futures["keywords"] = executor.submit(
-                self._search_keywords, query, top_k=10,
+                self._search_keywords, query,
+                top_k if top_k is not None else _TABLE_TOP_K.get("keywords", _DEFAULT_TOP_K),
             )
 
         return {key: fut.result() for key, fut in futures.items()}

@@ -64,17 +64,41 @@ or any query involving timelines and dependencies:
    data (entitled_and_completed_projects / entitled_not_built_projects) when available.
 2. **Target Summary** — 2-3 sentences answering the core question with key numbers in BOLD. \
    What is the target, what is the current state.
-3. **Weekly Execution Plan (Baseline vs Adjusted)** — A week-by-week schedule table \
-   comparing **Pre-Change (Baseline)** and **Post-Change (With User's Parameters)**. \
-   The baseline column shows the projected schedule using current numbers (example: run rates, counts, etc.)\
-   and existing constraints as-is. The adjusted column shows the schedule after applying \
-   the user's requested changes (e.g., added crews, accelerated prereqs, changed targets, etc.). \
-   - Use tabular format here with human readable column names (No DB columns here).
+3. **Weekly Execution Plan (Baseline vs Adjusted)** — A rate-driven week-by-week schedule.
 
-   State assumptions clearly as blockquotes: `example: > **Assumption**: 5-day work week, no holiday weeks.` \
-   Highlight the delta between baseline and adjusted — this is the value the PM cares about. \
-   If the user did not specify parameter changes (pure forecast), show only the baseline plan \
-   without the adjusted column.
+   **CRITICAL — RATE-DRIVEN SCHEDULING RULES (never ignore these):**
+   - The schedule MUST be driven by the **actual run rate** from the data (sites/week per \
+     GC or crew). NEVER simply divide total remaining sites by the number of weeks the user \
+     asked for. That produces a fantasy plan, not a real schedule.
+   - **Baseline column**: Calculate `weeks_needed = remaining_sites / current_run_rate`. \
+     Build the table row-by-row using the actual rate. Each week's "Sites Completed This Week" \
+     equals the run rate (or the remainder in the final week). Cumulative column tracks progress.
+   - **If `weeks_needed > user_requested_weeks`**: Extend the table BEYOND what the user \
+     asked for until all sites are covered. Add a prominent callout:
+     > **At the current run rate of X sites/week, this plan requires Y weeks — \
+     not the Z weeks requested.** To hit the Z-week target, the run rate must increase \
+     to W sites/week (a P% increase).
+   - **If `weeks_needed < user_requested_weeks`**: Show the plan completing early and note the surplus weeks.
+   - **Adjusted column** (only when user specifies parameter changes like adding crews): \
+     Recalculate the run rate with the new parameters and build a second column. \
+     Show the new `weeks_needed` and compare to baseline.
+   - **Prerequisite bottlenecks**: If data shows sites blocked by prerequisites (permits, \
+     NTP, materials, etc.), subtract blocked sites from the available pool. Only schedule \
+     sites that are ready or will become ready. Show "Sites Becoming Ready" as a separate \
+     row/column if prereq data is available.
+   - Show accurate calculation inline: `142 remaining ÷ 22 sites/week = 7 weeks` so the PM can verify.
+
+   **Sample table format** — every row MUST include the calendar start date for that week:
+   | Week | Start Date | Sites/Week (Baseline) | Cumulative | Sites/Week (Adjusted) | Cumulative |
+   |------|------------|----------------------|------------|----------------------|------------|
+   | Week 1 | Apr 21, 2025 | 22 | 22 | 30 | 30 |
+   | Week 2 | Apr 28, 2025 | 22 | 44 | 30 | 60 |
+   Calculate start dates from today's date assuming a Monday start for each week. \
+   If the user specified a start date, use that instead.
+
+   State assumptions clearly as blockquotes: `> **Assumption**: 5-day work week, no holiday weeks.` \
+   If the user did not specify parameter changes (pure forecast), show only the baseline \
+   columns without the adjusted columns.
 4. **Action Plan / Recommendations** — Priority table format:
    - example(Just for reference):
 
