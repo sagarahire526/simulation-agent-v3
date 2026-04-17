@@ -55,6 +55,11 @@ class StreamResumeRequest(BaseModel):
     }
 
 
+class StreamResumeResponse(BaseModel):
+    status: str
+    thread_id: str
+
+
 # ── Thread runner (executes in asyncio.get_event_loop().run_in_executor) ──────
 
 def _run_stream_thread(
@@ -219,7 +224,7 @@ async def stream_simulate(
     )
 
 
-@router.post("/stream/resume", status_code=200)
+@router.post("/stream/resume", status_code=200, response_model=StreamResumeResponse)
 def resume_stream(req: StreamResumeRequest):
     """
     Resume a paused SSE stream after the user provides HITL clarification.

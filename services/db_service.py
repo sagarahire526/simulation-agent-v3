@@ -72,7 +72,14 @@ def _pooled_conn():
     """Context manager: borrows a connection and always returns it to the pool."""
     pool = _get_pool()
     conn = pool.getconn()
+    if conn is None:
+        raise psycopg2.OperationalError(
+            "Connection pool exhausted — all connections are in use"
+        )
     try:
+        # Revive stale connections (DB restart, network timeout, idle kill)
+        if conn.closed:
+            conn.reset()
         yield conn
         conn.commit()
     except Exception:

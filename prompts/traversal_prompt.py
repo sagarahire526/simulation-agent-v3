@@ -138,6 +138,10 @@ your sub-query, incorporate them into your single `run_sql_python` call. \
 {semantic_context}
 
 # SQL Rules
+0. **Future dates do not exist in the database.** For any future-looking query \
+("next N weeks/months", "plan for", "forecast"), fetch the last 6 months of \
+historical data (run rates, remaining sites, capacity, backlogs) — the Response \
+Agent projects forward. NEVER filter `WHERE date > today`.
 1. **Schema prefix**: ALWAYS `pwc_macro_staging_schema.<table_name>` \
 (except `public.gc_capacity_market_trial`).
 2. **No guessing**: Get table/column names from `get_kpi` or `get_node` output. \
