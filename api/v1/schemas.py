@@ -56,7 +56,7 @@ class SimulateResponse(BaseModel):
     routing_decision: str              # "greeting" | "traversal" | "simulation"
     planner_steps: list[str]
     graph: Optional[dict[str, Any]] = None  # Highcharts-compatible chart JSON
-    analysis: Optional[dict[str, list[str]]] = None  # Semantic search headings: keywords, kpis, questions, scenarios
+    analysis: Optional[dict[str, list]] = None  # Semantic search headings: keywords, kpis, questions, scenarios
     traces: Optional[dict[str, Any]] = None  # Execution trace: nodes, tool calls, results
     clarification: Optional[ClarificationPayload] = None  # Present when status="clarification_needed"
 
@@ -173,7 +173,7 @@ class MessageRecord(BaseModel):
     planning_rationale: Optional[Any] = None   # JSON array of planner steps
     final_response: Optional[str] = None
     graph: Optional[dict[str, Any]] = None     # Highcharts-compatible chart JSON
-    analysis: Optional[dict[str, list[str]]] = None  # Semantic search headings
+    analysis: Optional[dict[str, list]] = None  # Semantic search headings
     traces: Optional[dict[str, Any]] = None    # Execution trace: nodes, tool calls, results
     started_at: Any
     completed_at: Optional[Any] = None

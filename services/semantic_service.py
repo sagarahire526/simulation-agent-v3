@@ -359,7 +359,7 @@ class SemanticService:
         return "\n".join(lines)
 
     @staticmethod
-    def extract_headings(context: dict[str, list[dict]]) -> dict[str, list[str]]:
+    def extract_headings(context: dict[str, list[dict]]) -> dict[str, list]:
         """
         Extract only the heading/title from each semantic search result.
 
@@ -403,12 +403,19 @@ class SemanticService:
                 for r in qb_results
             ]
 
-        # Simulation Scenarios
+        # Simulation Scenarios — include title + data phase questions as steps
         sim_results = context.get("simulation", [])
         if sim_results:
-            headings["scenarios"] = [
-                (r.get("content") or {}).get("scenario", f"Scenario #{r.get('id', '?')}")
-                for r in sim_results
-            ]
+            scenarios = []
+            for r in sim_results:
+                c = r.get("content") or {}
+                entry: dict[str, Any] = {
+                    "scenario": c.get("scenario", f"Scenario #{r.get('id', '?')}"),
+                }
+                steps = c.get("data_phase_questions", [])
+                if steps:
+                    entry["steps"] = [s for s in steps if str(s).strip()]
+                scenarios.append(entry)
+            headings["scenarios"] = scenarios
 
         return headings

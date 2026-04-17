@@ -56,7 +56,7 @@ class SimulationState(TypedDict):
 
     # ── Pre-fetched semantic context (set by planner; reused by sub-traversals) ──
     planner_semantic_context: str
-    semantic_analysis: dict[str, list[str]]  # Heading-only summary of semantic search hits
+    semantic_analysis: dict[str, list]  # Heading-only summary of semantic search hits
 
     # ── Traversal Agent ──
     traversal_findings: str  # Agent's natural-language summary of what it found
