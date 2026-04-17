@@ -154,6 +154,7 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
     # ── Step 1: Fetch semantic context for planning guidance ──────────────────
     semantic_context = ""
     simulation_guidance = ""
+    semantic_analysis: dict[str, list[str]] = {}
     try:
         semantic = SemanticService()
         context_data = semantic.get_all_context(refined_query)
@@ -162,6 +163,7 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
         if total_hits:
             semantic_context = semantic.format_traversal_context(context_data)
             simulation_guidance = semantic.format_simulation_guidance(context_data)
+            semantic_analysis = SemanticService.extract_headings(context_data)
             kpi_hits = len(context_data.get("kpi", []))
             qb_hits  = len(context_data.get("question_bank", []))
             sim_hits = len(context_data.get("simulation", []))
@@ -276,6 +278,7 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
         "planner_step_results": step_results,
         "scenario_simulation_guidance": simulation_guidance,
         "planner_semantic_context": semantic_context,
+        "semantic_analysis": semantic_analysis,
         "current_phase": "response",
         "messages": [{
             "agent": "planner",

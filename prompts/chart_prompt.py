@@ -54,6 +54,29 @@ Return ONLY valid JSON — no markdown fences, no explanation, no extra text. Th
 - Correlation between two metrics → **scatter**
 - Progress / target vs actual → **column** with two series (actual + target)
 
+## MANDATORY — Scheduling / Forecasting Queries
+When the user query involves building a schedule, planning rollout timing, or forecasting \
+completion (i.e., the data contains a week-by-week execution plan with run rates):
+
+You MUST generate a **Baseline vs Adjusted cumulative progress line chart** as one of the charts.
+
+Specification:
+- **Type**: `line` or `spline`
+- **Title**: Descriptive (e.g., "Cumulative Site Completion — Baseline vs Adjusted Schedule")
+- **xAxis**: Week labels (e.g., "Week 1", "Week 2", ...) with calendar start dates as categories
+- **yAxis**: "Cumulative Sites Completed"
+- **Series**:
+  - `"Baseline"` — cumulative sites completed each week at current run rate
+  - `"Adjusted"` (only if user specified parameter changes like adding crews/GCs) — \
+    cumulative sites at the adjusted run rate
+  - `"Target"` (optional dashed reference line) — if the user specified a target completion \
+    count, add a horizontal series at that value so the PM can see where each plan crosses it
+- **plotOptions**: Use `{ "series": { "marker": { "enabled": true } } }` so data points are visible
+- This chart should be the **first chart** in the array since it directly answers the scheduling question.
+
+If the user did NOT specify any parameter changes (pure forecast with baseline only), \
+show only the Baseline series — do not fabricate an Adjusted series.
+
 ## Rules
 1. **Data integrity** — use ONLY numbers present in the traversal data. **Never invent or estimate values.** \
    If a number is not explicitly in the data, do not include it in any chart.

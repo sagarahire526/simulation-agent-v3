@@ -58,6 +58,9 @@ def get_region_names() -> list[str]:
     """Distinct region values from the staging table."""
     return _fetch_distinct("rgn_region")
 
+def get_area_names() -> list[str]:
+    """Distinct market values from the staging table."""
+    return _fetch_distinct("m_area")
 
 def get_all_entity_lookups() -> dict[str, list[str]]:
     """
@@ -69,4 +72,5 @@ def get_all_entity_lookups() -> dict[str, list[str]]:
         "gc_names": get_gc_names(),
         "markets": get_market_names(),
         "regions": get_region_names(),
+        "area": get_area_names(),
     }

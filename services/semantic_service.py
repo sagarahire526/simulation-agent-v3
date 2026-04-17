@@ -357,3 +357,58 @@ class SemanticService:
             lines.append("")
 
         return "\n".join(lines)
+
+    @staticmethod
+    def extract_headings(context: dict[str, list[dict]]) -> dict[str, list[str]]:
+        """
+        Extract only the heading/title from each semantic search result.
+
+        Returns a compact dict suitable for the API 'analysis' field:
+            {
+                "keywords":  ["keyword_name_1", ...],
+                "kpis":      ["kpi_name — short description", ...],
+                "questions": ["question text", ...],
+                "scenarios": ["scenario title", ...],
+            }
+        Empty categories are omitted.
+        """
+        headings: dict[str, list[str]] = {}
+
+        # Keywords
+        kw_results = context.get("keywords", [])
+        if kw_results:
+            headings["keywords"] = [
+                (r.get("content") or {}).get("keyword_name")
+                or r.get("keyword_name", "Unknown")
+                for r in kw_results
+            ]
+
+        # KPIs
+        kpi_results = context.get("kpi", [])
+        if kpi_results:
+            kpi_heads = []
+            for r in kpi_results:
+                c = r.get("content") or {}
+                name = c.get("kpi_name", c.get("name", f"KPI #{r.get('id', '?')}"))
+                desc = c.get("kpi_description", "")
+                kpi_heads.append(f"{name} — {desc}" if desc else name)
+            headings["kpis"] = kpi_heads
+
+        # Question Bank
+        qb_results = context.get("question_bank", [])
+        if qb_results:
+            headings["questions"] = [
+                (r.get("content") or {}).get("question",
+                 (r.get("content") or {}).get("title", f"Q&A #{r.get('id', '?')}"))
+                for r in qb_results
+            ]
+
+        # Simulation Scenarios
+        sim_results = context.get("simulation", [])
+        if sim_results:
+            headings["scenarios"] = [
+                (r.get("content") or {}).get("scenario", f"Scenario #{r.get('id', '?')}")
+                for r in sim_results
+            ]
+
+        return headings

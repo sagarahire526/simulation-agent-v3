@@ -11,6 +11,7 @@ dict, and persist the interaction to pwc_simulation_agent_schema via db_service.
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
 import uuid
@@ -19,6 +20,38 @@ from graph import run_simulation, resume_simulation, get_pending_interrupt
 import services.db_service as db_svc
 
 logger = logging.getLogger(__name__)
+
+
+def _slim_tool_output(tc: dict) -> dict:
+    """
+    Return a copy of a tool call record with trimmed output for traces.
+
+    For get_kpi: keep only kpi_kpi_id and kpi_business_logic.
+    For get_node: keep only node_id, name, label, and map_table_name.
+    Other tools are passed through unchanged.
+    """
+    tool_name = tc.get("tool_name", "")
+    raw = tc.get("tool_output")
+
+    # Only filter KG metadata tools
+    if tool_name not in ("get_kpi", "get_node") or not raw:
+        return tc
+
+    try:
+        parsed = json.loads(raw) if isinstance(raw, str) else raw
+    except (json.JSONDecodeError, TypeError):
+        return tc
+
+    if not isinstance(parsed, dict):
+        return tc
+
+    if tool_name == "get_kpi":
+        slim = {k: parsed[k] for k in ("kpi_kpi_id", "kpi_business_logic") if k in parsed}
+    else:  # get_node
+        slim = {k: parsed[k] for k in ("node_id", "name", "label", "map_python_function") if k in parsed}
+
+    trimmed = {**tc, "tool_output": json.dumps(slim, default=str)}
+    return trimmed
 
 
 def _build_traces(state: dict, duration_ms: float) -> dict:
@@ -36,13 +69,13 @@ def _build_traces(state: dict, duration_ms: float) -> dict:
         planner_results = state.get("planner_step_results", [])
         for i, step_result in enumerate(planner_results):
             step_label = planner_steps[i] if i < len(planner_steps) else f"Step {i + 1}"
-            tool_calls = step_result.get("traversal_tool_calls", [])
+            tool_calls = [_slim_tool_output(tc) for tc in step_result.get("traversal_tool_calls", [])]
             steps.append({
                 "step": step_label,
                 "tool_calls": tool_calls,
             })
     elif routing == "traversal":
-        tool_calls = state.get("traversal_tool_calls", [])
+        tool_calls = [_slim_tool_output(tc) for tc in state.get("traversal_tool_calls", [])]
         query = state.get("refined_query") or state.get("user_query", "")
         steps.append({
             "step": query,
@@ -100,6 +133,7 @@ def _shape_response(state: dict) -> dict:
         "routing_decision": state.get("routing_decision", ""),
         "planner_steps": state.get("planner_steps", []),
         "graph": state.get("graph_data", {}),
+        "analysis": state.get("semantic_analysis", {}),
     }
 
 
@@ -163,6 +197,7 @@ def run_query(
             duration_ms=duration_ms,
             graph_data=state.get("graph_data"),
             traces=traces,
+            analysis=state.get("semantic_analysis"),
         )
         response["traces"] = traces
 
@@ -215,6 +250,7 @@ def resume_query(clarification: str, thread_id: str) -> dict:
                 duration_ms=duration_ms,
                 graph_data=state.get("graph_data"),
                 traces=traces,
+                analysis=state.get("semantic_analysis"),
             )
             response["traces"] = traces
         else:

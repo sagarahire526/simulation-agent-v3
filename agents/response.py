@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import date
 from typing import Any
 
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -174,7 +175,7 @@ def response_node(state: SimulationState) -> dict[str, Any]:
     Reads: refined_query (or user_query), traversal/planner data, errors
     Writes: final_response, calculations, data_summary, current_phase, messages
     """
-    llm = LLMProvider.get_llm("gpt-5-mini", reasoning_effort="low")
+    llm = LLMProvider.get_llm("gpt-4.1-mini")
 
     # Prefer the query refiner's cleaned-up version
     user_query = state.get("refined_query") or state["user_query"]
@@ -243,8 +244,10 @@ def response_node(state: SimulationState) -> dict[str, Any]:
 
     user_message = "\n".join(user_message_parts)
 
+    system_prompt = RESPONSE_SYSTEM.format(today_date=date.today())
+
     response = llm.invoke([
-        SystemMessage(content=RESPONSE_SYSTEM),
+        SystemMessage(content=system_prompt),
         HumanMessage(content=user_message),
     ])
 
@@ -285,7 +288,7 @@ def response_node(state: SimulationState) -> dict[str, Any]:
                 data_summary[f"call_{i}_{tc['tool_name']}"] = tc["tool_output"]
 
     # ── Chart generation (fast tier — structured JSON, no deep reasoning) ──
-    chart_llm = LLMProvider.get_llm("fast", temperature=0.0)
+    chart_llm = LLMProvider.get_llm("gpt-5-mini", temperature=0.0)
     graph_data = _generate_chart(chart_llm, user_query, data_context)
 
     logger.info("Response agent generated final output")

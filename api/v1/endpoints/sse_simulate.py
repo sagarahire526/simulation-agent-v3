@@ -110,12 +110,14 @@ def _run_stream_thread(
             duration_ms=duration_ms,
             graph_data=final_state.get("graph_data"),
             traces=traces,
+            analysis=final_state.get("semantic_analysis"),
         )
         sse_manager.put_sync(query_id, "complete", {
             "final_response":    final_state.get("final_response", ""),
             "routing_decision":  final_state.get("routing_decision", ""),
             "planner_steps":     final_state.get("planner_steps", []),
             "graph":             final_state.get("graph_data", {}),
+            "analysis":          final_state.get("semantic_analysis", {}),
             "traces":            traces,
             "status":            "complete",
             "errors":            final_state.get("errors", []),
