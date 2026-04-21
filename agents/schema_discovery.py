@@ -1,9 +1,10 @@
 """
-Schema Discovery node — Discovers the Neo4j knowledge graph schema
-once at the start of each simulation run.
+Schema Discovery node — Fetches the PostgreSQL table list once at the
+start of each simulation run.
 
-Fetches the full unfiltered schema from Neo4j and appends the
-PostgreSQL table list.
+The KG schema context (nodes + paths) is now discovered per-traversal
+via semantic embedding search, so this node only handles the static
+table catalogue.
 """
 from __future__ import annotations
 
@@ -11,7 +12,6 @@ import logging
 from typing import Any
 
 from models.state import SimulationState
-from tools.neo4j_tool import neo4j_tool
 from tools.bkg_tool import BKGTool
 
 logger = logging.getLogger(__name__)
@@ -58,30 +58,32 @@ def _fetch_table_list() -> str:
 
 def discover_schema_node(state: SimulationState) -> dict[str, Any]:
     """
-    LangGraph node: Discover full KG schema (unfiltered) + PostgreSQL table list.
+    LangGraph node: Fetch the static PostgreSQL table catalogue.
+
+    KG node/path context is now resolved per-traversal via embedding search
+    (in traversal_node / atraversal_node) so each sub-query gets its own
+    tailored schema context.
 
     Reads: (none required)
-    Writes: kg_schema, current_phase, messages
+    Writes: kg_schema (table list only), current_phase, messages
     """
     try:
-        schema = neo4j_tool.get_schema()
         table_list = _fetch_table_list()
-        full_schema = schema + table_list
 
-        logger.info(f"Schema discovered: {len(full_schema)} chars (full, unfiltered)")
-
+        logger.info("Table list discovered: %d chars", len(table_list))
+        print(f"Table list is as follows: {table_list[:300]}")
         return {
-            "kg_schema": full_schema,
+            "kg_schema": table_list,
             "current_phase": "traversal",
             "messages": [{
                 "agent": "schema_discovery",
-                "content": f"Knowledge graph schema discovered ({len(full_schema)} chars, full)",
+                "content": f"PostgreSQL table list discovered ({len(table_list)} chars)",
             }],
         }
     except Exception as e:
-        logger.error(f"Schema discovery failed: {e}")
+        logger.error("Schema discovery failed: %s", e)
         return {
-            "kg_schema": f"Schema discovery failed: {e}. Write generic Cypher queries.",
+            "kg_schema": "",
             "current_phase": "traversal",
             "errors": [f"Schema discovery error: {e}"],
             "messages": [{

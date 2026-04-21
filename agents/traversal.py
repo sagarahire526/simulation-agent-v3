@@ -18,6 +18,7 @@ from langgraph.prebuilt import create_react_agent
 
 from models.state import SimulationState, ToolCallRecord
 from services.llm_provider import LLMProvider
+from services.schema_embedding_service import search_schema
 from tools.langchain_tools import get_fast_tools
 from prompts.traversal_prompt import TRAVERSAL_SYSTEM
 from services.semantic_service import SemanticService
@@ -464,8 +465,16 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
 
     llm = LLMProvider.get_llm("default")
 
-    # Build system prompt with KG schema injected
-    kg_schema = state.get("kg_schema", "Schema not available")
+    # Use refined_query (includes HITL clarification) if available
+    traversal_query = state.get("refined_query") or state["user_query"]
+
+    # ── KG schema: per-query embedding search + static table list ─────────
+    table_list = state.get("kg_schema", "")  # discover_schema now stores table list only
+    try:
+        kg_schema = search_schema(traversal_query) + table_list
+    except Exception as e:
+        logger.warning("Embedding schema search failed (non-fatal): %s", e)
+        kg_schema = table_list or "Schema not available"
 
     # ── Semantic search: KPI + Question Bank + Simulation context ─────────
     # When called from the planner, semantic context is already pre-fetched and
@@ -568,8 +577,6 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
     # Invoke the agent
     start_time = time.perf_counter()
     try:
-        # Use refined_query (includes HITL clarification) if available
-        traversal_query = state.get("refined_query") or state["user_query"]
         result = agent.invoke(
             {"messages": [("human", traversal_query)]},
             config={
@@ -670,7 +677,17 @@ async def atraversal_node(state: SimulationState) -> dict[str, Any]:
 
     llm = LLMProvider.get_llm("default")
 
-    kg_schema = state.get("kg_schema", "Schema not available")
+    # Use refined_query — for planner sub-steps this is the specific step query
+    query = state.get("refined_query") or state["user_query"]
+
+    # ── KG schema: per-query embedding search + static table list ─────────
+    table_list = state.get("kg_schema", "")  # discover_schema stores table list only
+    try:
+        kg_schema = search_schema(query) + table_list
+    except Exception as e:
+        logger.warning("Embedding schema search failed (non-fatal): %s", e)
+        kg_schema = table_list or "Schema not available"
+
     # Planner always pre-fetches and injects semantic context — reuse it.
     semantic_context = state.get("planner_semantic_context", "")
     simulation_guidance = state.get("scenario_simulation_guidance", "")
@@ -704,7 +721,7 @@ async def atraversal_node(state: SimulationState) -> dict[str, Any]:
     safe_kg_schema = kg_schema.replace("{", "{{").replace("}", "}}")
     safe_semantic  = semantic_context.replace("{", "{{").replace("}", "}}")
     safe_pt_filter = project_type_filter.replace("{", "{{").replace("}", "}}")
-    # print(f"FETCHED KNOWLEDGE GRAPH SCHEMA IS AS FOLLOWS: {safe_kg_schema}")
+    print(f"Safe knowledge graph schema is as follows: {safe_kg_schema}")
     system_prompt = TRAVERSAL_SYSTEM.format(
         today_date=date.today(),
         kg_schema=safe_kg_schema,
@@ -714,9 +731,6 @@ async def atraversal_node(state: SimulationState) -> dict[str, Any]:
 
     max_steps = state.get("max_traversal_steps", DEFAULT_MAX_STEPS)
     tools = get_fast_tools()
-
-    # Use refined_query (includes HITL clarification) if available
-    query = state.get("refined_query") or state["user_query"]
 
     # ── Debug: log token breakdown before agent starts ──────────────────
     _log_traversal_debug(
