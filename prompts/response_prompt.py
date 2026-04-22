@@ -65,10 +65,18 @@ unless user explicitly asked for it.
 When the user asks to build a schedule, plan rollout timing, forecast completion, \
 or any query involving timelines and dependencies:
 
-1. **Current Status** — 2-3 lines summarizing where the project stands RIGHT NOW based on the data \
-   (e.g., total sites, completed vs remaining, current run rate, key blockers). Ground the PM before diving into the plan. \
+1. **Current Status** — Present as a compact table summarizing where the project stands RIGHT NOW. \
    **MUST include completed site count and not-completed site count** from the Workfront baseline \
-   data (entitled_and_completed_projects / entitled_not_built_projects) when available.
+   data (entitled_and_completed_projects / entitled_not_built_projects) when available. \
+   Use this exact table format:
+   | Metric | Value |
+   |--------|-------|
+   | Total Sites | **300** |
+   | Completed | **158** |
+   | Remaining | **142** |
+   | Current Run Rate | **22 sites/week** |
+   | Key Blocker | Permit delays in CENTRAL (18 sites) |
+   Add or remove rows based on available data. Keep it to 4-8 rows max — only metrics that matter.
 2. **Target Summary** — 2-3 sentences answering the core question with key numbers in BOLD. \
    What is the target, what is the current state.
 3. **Weekly Execution Plan (Baseline vs Adjusted)** — A rate-driven week-by-week schedule.
@@ -110,30 +118,22 @@ or any query involving timelines and dependencies:
    Each action must read like a PM's analysis note: observe a specific data pattern, \
    explain WHY it matters operationally, then state the concrete action.
 
-   Format each as a numbered insight block (3-5 actions):
+   **MANDATORY TABLE FORMAT** — Present ALL actionable insights as a single table (3-5 rows). \
+   Do NOT use long prose paragraphs. Use this exact format:
 
-   **[n]. [Action Title]**
-   - **Data Observation:** State the exact data point or pattern (e.g., "GC-X is delivering \
-     4 sites/week vs the portfolio average of 8 — a 50% underperformance over the last 6 weeks"). \
-     Include comparison benchmarks, trends, or anomalies that a PM would spot in a weekly review.
-   - **Why It Matters:** Explain the operational consequence — what breaks, slips, or gets \
-     blocked if this isn't addressed. Connect it to schedule risk, resource waste, or cost \
-     impact the way a PM would in a stakeholder meeting.
-   - **Action:** Specific, executable next step with owner/scope where data supports \
-     it (e.g., "Reallocate 2 crews from Region SOUTH (which has surplus capacity at 12 sites/week \
-     vs 8 target) to CENTRAL to close the 15-site gap by Week 6").
-   - **Expected Impact:** Quantify the outcome using the data (e.g., "Closes the gap from \
-     Week 10 to Week 7, saving 3 weeks on the critical path").
+   | # | Action | Data Observation | Why It Matters | Expected Impact |
+   |---|--------|-----------------|----------------|-----------------|
+   | 1 | **Reallocate 2 crews from SOUTH to CENTRAL** | GC-X: 4 sites/week vs portfolio avg 8 (50% under) | CENTRAL's 30-site backlog at 3/week creates a 10-week tail — longest critical path | Closes gap from Week 10 → Week 7, saves 3 weeks |
+   | 2 | **Escalate permit delays in CHICAGO** | 18 sites blocked >14 days, avg permit cycle 22 days vs 10-day norm | These 18 sites gate Week 4-6 deliveries; miss = 2-week schedule slip | Unblocks 18 sites, keeps Week 4-6 on track |
 
    Rules:
-   - Every action MUST start from a data observation, not a generic best practice. \
+   - Every row MUST start from a data observation, not a generic best practice. \
      If you can't point to a specific number or pattern in the data, don't include it.
    - Prioritize by schedule/cost impact — put the highest-impact action first.
-   - Include cross-references between data points (e.g., "While Region SOUTH has the highest \
-     backlog (45 sites), it also has the highest run rate (12/week) — focus instead on CENTRAL \
-     where 30 sites at 3/week creates a 10-week tail").
+   - Include cross-references between data points where relevant.
    - No generic advice like "improve coordination" or "monitor progress" — every action must \
      be specific enough that a PM could forward it directly to a GC or regional lead.
+   - Keep each cell concise (1-2 lines max). The table must be scannable at a glance.
 5. **Impact Summary** — 2-3 sentences quantifying the net effect of following the plan. \
    What improves, by how much, and by when.
 
@@ -143,13 +143,12 @@ or any query involving timelines and dependencies:
 
 When the user asks "what if", "what happens if", impact of changing variables:
 
-1. **Current Status** — 2-3 lines summarizing where the project stands RIGHT NOW before the what-if change is applied.
+1. **Current Status** — Present as a compact table (same format as TYPE 2) summarizing where the project stands RIGHT NOW before the what-if change is applied.
 2. **Target Summary** — Direct answer to the what-if scenario with quantified impact in BOLD.
 3. **Execution / Impact View** — Before vs after comparison. Show what changes and by how much. \
    Use tables for side-by-side comparison where possible. (FEW wording/numbers but more insights)
-4. **Actionable Insights** — Same format as TYPE 2 (numbered insight blocks with \
-   Data Observation → Why It Matters → Action → Expected Impact). \
-   Each action must cite the specific data point that justifies it. No generic advice.
+4. **Actionable Insights** — Same mandatory table format as TYPE 2 (Action | Data Observation | Why It Matters | Expected Impact). \
+   Each row must cite the specific data point that justifies it. No generic advice.
 5. **Impact Summary** — Net impact of the what-if scenario in 2-3 sentences.
 
 ---
@@ -159,13 +158,13 @@ When the user asks "what if", "what happens if", impact of changing variables:
 For other simulation queries (analysis, comparisons, capacity assessment) that don't \
 fit scheduling or what-if — use the compact structure:
 
-1. **Current Status** — 2-3 lines summarizing where the project stands RIGHT NOW based on the data.
+1. **Current Status** — Present as a compact table (same format as TYPE 2) summarizing where the project stands RIGHT NOW based on the data.
 2. **Target Summary** — Key finding in 2-3 sentences with numbers in BOLD.
 3. **Execution / Impact View** — Supporting data tables with quantified insights. \
    Bold outliers and key numbers inline. (FEW wording/numbers but more insights)
 4. **Actionable Insights** — Same format as TYPE 2 (numbered insight blocks with \
    Data Observation → Why It Matters → Action → Expected Impact). \
-   Every action must reference specific data. Skip if query is purely informational.
+   Every row must reference specific data. Skip if query is purely informational.
 
 ---
 
@@ -178,6 +177,9 @@ Combine overlapping insights.
 ## Formatting
 
 - Valid Markdown. `##` title, `###` sections, `---` between major sections.
+- **PREFER TABLES OVER BULLETS/PROSE** — Whenever presenting structured data, comparisons, \
+  or multi-attribute items, ALWAYS use a Markdown table. Never use bullet lists for data \
+  that has 2+ attributes per item. Tables are easier for PMs to scan.
 - Bold key numbers inline: "**142 of 300** sites".
 - Assumptions as blockquotes: `> **Assumption**: 5-day work week.`
 - Section names should be descriptive ("Site Readiness by Market" not "Analysis").
