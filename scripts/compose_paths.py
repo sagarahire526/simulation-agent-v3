@@ -20,7 +20,7 @@ import psycopg2.extras
 from dotenv import load_dotenv
 from openai import OpenAI
 
-load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 PG_HOST = os.environ["PG_HOST"]
 PG_PORT = os.environ["PG_PORT"]
@@ -32,9 +32,11 @@ OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]
 EMBED_MODEL = "text-embedding-3-small"
 BATCH_SIZE = 128
 
-DDL = """
-DROP TABLE IF EXISTS paths;
-CREATE TABLE paths (
+_SCHEMA = "pwc_agent_utility_schema"
+
+DDL = f"""
+DROP TABLE IF EXISTS {_SCHEMA}.paths;
+CREATE TABLE {_SCHEMA}.paths (
     path_id             SERIAL PRIMARY KEY,
     hops                INT NOT NULL,
     node_element_ids    TEXT[] NOT NULL,
@@ -43,7 +45,7 @@ CREATE TABLE paths (
     composed_text       TEXT NOT NULL,
     embedding           FLOAT8[] NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_paths_hops ON paths(hops);
+CREATE INDEX IF NOT EXISTS idx_paths_hops ON {_SCHEMA}.paths(hops);
 """
 
 
@@ -57,10 +59,10 @@ def pg_connect():
 def load_graph(conn) -> tuple[dict[str, dict[str, Any]], list[tuple[str, str, str]]]:
     """Return (node_by_eid, unique_edges as (src, rel, tgt) tuples)."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute("SELECT element_id, label, entity_type FROM nodes")
+        cur.execute(f"SELECT element_id, label, entity_type FROM {_SCHEMA}.nodes")
         nodes = {r["element_id"]: dict(r) for r in cur.fetchall()}
         cur.execute(
-            "SELECT source_element_id, target_element_id, relationship_type FROM edges"
+            f"SELECT source_element_id, target_element_id, relationship_type FROM {_SCHEMA}.edges"
         )
         raw = cur.fetchall()
     uniq: set[tuple[str, str, str]] = set()
@@ -127,8 +129,8 @@ def write_paths(conn, rows: list[dict[str, Any]]) -> None:
     with conn.cursor() as cur:
         psycopg2.extras.execute_values(
             cur,
-            """
-            INSERT INTO paths (hops, node_element_ids, node_labels, relationship_types, composed_text, embedding)
+            f"""
+            INSERT INTO {_SCHEMA}.paths (hops, node_element_ids, node_labels, relationship_types, composed_text, embedding)
             VALUES %s
             """,
             [
@@ -198,7 +200,7 @@ def main() -> int:
         write_paths(conn, paths)
 
         with conn.cursor() as cur:
-            cur.execute("SELECT count(*), avg(array_length(embedding,1)) FROM paths")
+            cur.execute(f"SELECT count(*), avg(array_length(embedding,1)) FROM {_SCHEMA}.paths")
             n, dim = cur.fetchone()
         print(f"Wrote {n} paths ({int(dim)}-d embeddings) to `paths`.")
     finally:

@@ -25,7 +25,7 @@ from dotenv import load_dotenv
 from neo4j import GraphDatabase
 from openai import OpenAI
 
-load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 NEO4J_URI = os.environ["NEO4J_URI"]
 NEO4J_USER = os.environ["NEO4J_USER"]
@@ -44,8 +44,11 @@ EMBED_MODEL = "text-embedding-3-small"
 EMBED_DIM = 1536
 BATCH_SIZE = 64
 
-DDL = """
-CREATE TABLE IF NOT EXISTS nodes (
+_SCHEMA = "pwc_agent_utility_schema"
+
+DDL = f"""
+
+CREATE TABLE IF NOT EXISTS {_SCHEMA}.nodes (
     element_id    TEXT PRIMARY KEY,
     node_id       TEXT NOT NULL,
     label         TEXT NOT NULL,
@@ -56,19 +59,19 @@ CREATE TABLE IF NOT EXISTS nodes (
     props         JSONB NOT NULL,
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS idx_nodes_node_id     ON nodes(node_id);
-CREATE INDEX IF NOT EXISTS idx_nodes_label       ON nodes(label);
-CREATE INDEX IF NOT EXISTS idx_nodes_entity_type ON nodes(entity_type);
+CREATE INDEX IF NOT EXISTS idx_nodes_node_id     ON {_SCHEMA}.nodes(node_id);
+CREATE INDEX IF NOT EXISTS idx_nodes_label       ON {_SCHEMA}.nodes(label);
+CREATE INDEX IF NOT EXISTS idx_nodes_entity_type ON {_SCHEMA}.nodes(entity_type);
 
-CREATE TABLE IF NOT EXISTS edges (
+CREATE TABLE IF NOT EXISTS {_SCHEMA}.edges (
     edge_id           TEXT PRIMARY KEY,
-    source_element_id TEXT NOT NULL REFERENCES nodes(element_id) ON DELETE CASCADE,
-    target_element_id TEXT NOT NULL REFERENCES nodes(element_id) ON DELETE CASCADE,
+    source_element_id TEXT NOT NULL REFERENCES {_SCHEMA}.nodes(element_id) ON DELETE CASCADE,
+    target_element_id TEXT NOT NULL REFERENCES {_SCHEMA}.nodes(element_id) ON DELETE CASCADE,
     relationship_type TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_element_id);
-CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_element_id);
-CREATE INDEX IF NOT EXISTS idx_edges_reltype ON edges(relationship_type);
+CREATE INDEX IF NOT EXISTS idx_edges_source ON {_SCHEMA}.edges(source_element_id);
+CREATE INDEX IF NOT EXISTS idx_edges_target ON {_SCHEMA}.edges(target_element_id);
+CREATE INDEX IF NOT EXISTS idx_edges_reltype ON {_SCHEMA}.edges(relationship_type);
 """
 
 
@@ -171,11 +174,11 @@ def ensure_schema(conn) -> None:
 
 def write_nodes(conn, rows: list[dict[str, Any]]) -> None:
     with conn.cursor() as cur:
-        cur.execute("TRUNCATE nodes CASCADE")
+        cur.execute(f"TRUNCATE {_SCHEMA}.nodes CASCADE")
         psycopg2.extras.execute_values(
             cur,
-            """
-            INSERT INTO nodes (element_id, node_id, label, entity_type, node_type, composed_text, embedding, props)
+            f"""
+            INSERT INTO {_SCHEMA}.nodes (element_id, node_id, label, entity_type, node_type, composed_text, embedding, props)
             VALUES %s
             """,
             [
@@ -204,8 +207,8 @@ def write_edges(conn, edges: list[dict[str, Any]]) -> None:
     with conn.cursor() as cur:
         psycopg2.extras.execute_values(
             cur,
-            """
-            INSERT INTO edges (edge_id, source_element_id, target_element_id, relationship_type)
+            f"""
+            INSERT INTO {_SCHEMA}.edges (edge_id, source_element_id, target_element_id, relationship_type)
             VALUES %s
             """,
             [
@@ -274,9 +277,9 @@ def main() -> int:
         write_nodes(conn, payloads)
         write_edges(conn, edges)
         with conn.cursor() as cur:
-            cur.execute("SELECT count(*) FROM nodes")
+            cur.execute(f"SELECT count(*) FROM {_SCHEMA}.nodes")
             n_nodes = cur.fetchone()[0]
-            cur.execute("SELECT count(*) FROM edges")
+            cur.execute(f"SELECT count(*) FROM {_SCHEMA}.edges")
             n_edges = cur.fetchone()[0]
         print(f"Postgres now has {n_nodes} nodes and {n_edges} edges in `{PG_DATABASE}`.")
     finally:
