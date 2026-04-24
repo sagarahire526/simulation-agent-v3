@@ -1,0 +1,2 @@
+"What impact will happen if we migrate 20% crews from central region to south on site completions ?"           "NTM"
+"Based on cycle time trend between SCOP acceptance and submitted and the FTR for last 6 months in south region predict the SCOP acceptance date for each pending acceptance sites in tabular format"         "NTM"

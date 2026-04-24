@@ -24,17 +24,14 @@ logger = logging.getLogger(__name__)
 
 def _slim_tool_output(tc: dict) -> dict:
     """
-    Return a copy of a tool call record with trimmed output for traces.
+    Return a copy of a tool call record with tool_output parsed to an object.
 
-    For get_kpi: keep only kpi_kpi_id and kpi_business_logic.
-    For get_node: keep only node_id, name, label, and map_table_name.
-    Other tools are passed through unchanged.
+    For get_kpi:  keep kpi_kpi_id, kpi_name, and kpi_business_logic.
+    For get_node: keep only node_id, name, label, and map_python_function.
+    Other tools are parsed through; if parsing fails, the original string is kept.
     """
-    tool_name = tc.get("tool_name", "")
     raw = tc.get("tool_output")
-
-    # Only filter KG metadata tools
-    if tool_name not in ("get_kpi", "get_node") or not raw:
+    if not raw:
         return tc
 
     try:
@@ -42,16 +39,13 @@ def _slim_tool_output(tc: dict) -> dict:
     except (json.JSONDecodeError, TypeError):
         return tc
 
-    if not isinstance(parsed, dict):
-        return tc
+    tool_name = tc.get("tool_name", "")
+    if tool_name == "get_kpi" and isinstance(parsed, dict):
+        parsed = {k: parsed[k] for k in ("kpi_kpi_id", "kpi_name", "kpi_business_logic") if k in parsed}
+    elif tool_name == "get_node" and isinstance(parsed, dict):
+        parsed = {k: parsed[k] for k in ("node_id", "name", "label", "map_python_function") if k in parsed}
 
-    if tool_name == "get_kpi":
-        slim = {k: parsed[k] for k in ("kpi_kpi_id", "kpi_business_logic") if k in parsed}
-    else:  # get_node
-        slim = {k: parsed[k] for k in ("node_id", "name", "label", "map_python_function") if k in parsed}
-
-    trimmed = {**tc, "tool_output": json.dumps(slim, default=str)}
-    return trimmed
+    return {**tc, "tool_output": parsed}
 
 
 def _build_traces(state: dict, duration_ms: float) -> dict:
@@ -129,6 +123,7 @@ def _shape_response(state: dict) -> dict:
     return {
         "status": "complete",
         "final_response": state.get("final_response", ""),
+        "execution_algorithm": state.get("execution_algorithm", ""),
         "errors": state.get("errors", []),
         "routing_decision": state.get("routing_decision", ""),
         "planner_steps": state.get("planner_steps", []),
@@ -198,6 +193,7 @@ def run_query(
             graph_data=state.get("graph_data"),
             traces=traces,
             analysis=state.get("semantic_analysis"),
+            algorithm=state.get("execution_algorithm", ""),
         )
         response["traces"] = traces
 

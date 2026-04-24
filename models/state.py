@@ -69,6 +69,7 @@ class SimulationState(TypedDict):
 
     # ── Response Agent ──
     final_response: str
+    execution_algorithm: str  # Numbered step-by-step narrative of how the system answered the query
     calculations: str  # Show-your-work for transparency
     data_summary: dict[str, Any]  # Structured data for downstream
     graph_data: dict[str, Any]  # Highcharts-compatible chart JSON for visualization

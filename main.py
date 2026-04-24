@@ -102,23 +102,3 @@ if __name__ == "__main__":
         reload=reload,
         workers=1 if reload else workers,
     )
-
-
-# CX Start Prerequisites: Which gate set is canonical?
-# We have two different prerequisite gate sets in different sources. Which one defines "CX Start Readiness"? Or are these two separate KPIs?
-# Set A — from QB + KPI Doc (6 gates):
-# BOM received in AIMS (pj_a_3875_bom_received_bom_in_aims_finish)
-# RAN entitlement complete (pj_a_3710_ran_entitlement_complete_finish)
-# NTP submitted to GC (pj_a_4075_construction_ntp_submitted_to_gc_finish)
-# 24x7 site access (s_24x7_site_access)
-# CPO received (NTM: ms1555_construction_complete_so_header, AHLOB: ms_1555_construction_complete_cpo_custom_field)
-
-# SPO received (ms1555_construction_complete_spo)
-# Set B — from current BKG node (5 gates):
-# NTP approved/accepted (ms_1507 OR pj_a_4100)
-# Material pickup (pj_a_3925_msl_pickup_date_finish)
-# Power ready (pj_a_4525_power_ready_finish)
-# Backhaul ready (pj_a_4925 OR pj_a_4425)
-
-# Pre-construction walk complete (pj_a_3825)
-# Are these two separate KPIs, or should one replace the other?

@@ -116,16 +116,18 @@ def _run_stream_thread(
             graph_data=final_state.get("graph_data"),
             traces=traces,
             analysis=final_state.get("semantic_analysis"),
+            algorithm=final_state.get("execution_algorithm", ""),
         )
         sse_manager.put_sync(query_id, "complete", {
-            "final_response":    final_state.get("final_response", ""),
-            "routing_decision":  final_state.get("routing_decision", ""),
-            "planner_steps":     final_state.get("planner_steps", []),
-            "graph":             final_state.get("graph_data", {}),
-            "analysis":          final_state.get("semantic_analysis", {}),
-            "traces":            traces,
-            "status":            "complete",
-            "errors":            final_state.get("errors", []),
+            "final_response":       final_state.get("final_response", ""),
+            "execution_algorithm":  final_state.get("execution_algorithm", ""),
+            "routing_decision":     final_state.get("routing_decision", ""),
+            "planner_steps":        final_state.get("planner_steps", []),
+            "graph":                final_state.get("graph_data", {}),
+            "analysis":             final_state.get("semantic_analysis", {}),
+            "traces":               traces,
+            "status":               "complete",
+            "errors":               final_state.get("errors", []),
         })
 
     except Exception as exc:

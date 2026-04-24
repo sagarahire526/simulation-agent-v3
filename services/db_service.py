@@ -114,6 +114,7 @@ def ensure_tables() -> None:
             routing_decision    VARCHAR(50),
             planning_rationale  JSONB,
             final_response      TEXT,
+            algorithm           TEXT,
             graph               JSONB,
             started_at          TIMESTAMP       NOT NULL DEFAULT NOW(),
             completed_at        TIMESTAMP,
@@ -163,6 +164,10 @@ def ensure_tables() -> None:
         ALTER TABLE {_SCHEMA}.simulation_agent_queries
             ADD COLUMN IF NOT EXISTS analysis JSONB;
     """
+    migrate_algorithm_col = f"""
+        ALTER TABLE {_SCHEMA}.simulation_agent_queries
+            ADD COLUMN IF NOT EXISTS algorithm TEXT;
+    """
     try:
         with _pooled_conn() as conn:
             with conn.cursor() as cur:
@@ -170,6 +175,7 @@ def ensure_tables() -> None:
                 cur.execute(migrate_graph_col)
                 cur.execute(migrate_traces_col)
                 cur.execute(migrate_analysis_col)
+                cur.execute(migrate_algorithm_col)
         logger.info("pwc_simulation_agent_schema tables verified / created.")
     except Exception as exc:
         logger.error("ensure_tables failed: %s", exc)
@@ -294,6 +300,7 @@ def update_query_complete(
     graph_data: dict | None = None,
     traces: dict | None = None,
     analysis: dict | None = None,
+    algorithm: str | None = None,
 ) -> None:
     """
     Finalize a completed query.
@@ -301,11 +308,14 @@ def update_query_complete(
     graph is stored as a Highcharts-compatible chart JSON object.
     traces is stored as a JSONB object with full execution trace.
     analysis is stored as a JSONB object with semantic search headings.
+    algorithm is the plain-text step-by-step execution narrative produced
+    by the fast-tier LLM in parallel with the response agent.
     """
     planning_rationale = json.dumps(planner_steps) if planner_steps else None
     graph_json = json.dumps(graph_data) if graph_data else None
     traces_json = json.dumps(traces) if traces else None
     analysis_json = json.dumps(analysis) if analysis else None
+    algorithm_text = algorithm or None
     _exec(
         f"""
         UPDATE {_SCHEMA}.simulation_agent_queries SET
@@ -313,6 +323,7 @@ def update_query_complete(
             routing_decision   = %s,
             planning_rationale = %s,
             final_response     = %s,
+            algorithm          = %s,
             graph              = %s,
             traces             = %s,
             analysis           = %s,
@@ -326,6 +337,7 @@ def update_query_complete(
             routing_decision,
             planning_rationale,
             final_response,
+            algorithm_text,
             graph_json,
             traces_json,
             analysis_json,
@@ -507,6 +519,7 @@ def get_messages_by_thread(thread_id: str) -> list[dict]:
             routing_decision,
             planning_rationale,
             final_response,
+            algorithm,
             graph,
             analysis,
             traces,

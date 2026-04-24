@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from datetime import date
 from typing import Any
 
@@ -22,6 +23,7 @@ from services.llm_provider import LLMProvider
 from tools.python_sandbox import execute_python
 from prompts.response_prompt import RESPONSE_SYSTEM
 from prompts.chart_prompt import CHART_SYSTEM
+from prompts.algorithm_prompt import ALGORITHM_SYSTEM
 
 
 logger = logging.getLogger(__name__)
@@ -168,6 +170,30 @@ def _generate_chart(llm, user_query: str, data_context: str) -> dict[str, Any]:
         return empty
 
 
+def _generate_algorithm(llm, user_query: str, data_context: str) -> str:
+    """
+    Ask a fast-tier LLM to turn the agent's tool trace into a numbered,
+    plain-English algorithm narrative. Called in parallel with the main
+    response LLM so it costs no extra wall-clock time.
+
+    Returns an empty string on any failure — the main response is never blocked
+    by problems here.
+    """
+    try:
+        resp = llm.invoke([
+            SystemMessage(content=ALGORITHM_SYSTEM),
+            HumanMessage(content=(
+                f"## User Query\n{user_query}\n\n"
+                f"## Tool Trace\n{data_context}\n\n"
+                "Write the numbered algorithm now."
+            )),
+        ])
+        return (resp.content or "").strip()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Algorithm generation failed: %s", exc)
+        return ""
+
+
 def response_node(state: SimulationState) -> dict[str, Any]:
     """
     LangGraph node: Response Agent.
@@ -246,12 +272,31 @@ def response_node(state: SimulationState) -> dict[str, Any]:
 
     system_prompt = RESPONSE_SYSTEM.format(today_date=date.today())
 
+    # Fire the algorithm-narrative LLM in a background thread so it runs in
+    # parallel with the main response call. Total latency stays at
+    # max(main, algorithm) instead of sum. Failures here never block or
+    # degrade the main response — _generate_algorithm returns "" on error.
+    algorithm_result: dict[str, str] = {"value": ""}
+
+    def _algorithm_worker() -> None:
+        fast_llm = LLMProvider.get_llm("gpt-5.4-mini", reasoning_effort="low", max_tokens=1024)
+        algorithm_result["value"] = _generate_algorithm(fast_llm, user_query, data_context)
+
+    algorithm_thread = threading.Thread(target=_algorithm_worker, daemon=True)
+    algorithm_thread.start()
+
     response = llm.invoke([
         SystemMessage(content=system_prompt),
         HumanMessage(content=user_message),
     ])
 
     final_response = response.content
+
+    # Wait for the algorithm narrative — it usually finishes well before the
+    # heavy response LLM. Cap at 60s in case the fast tier stalls; on timeout
+    # we simply ship with an empty algorithm string.
+    algorithm_thread.join(timeout=60)
+    execution_algorithm = algorithm_result["value"]
 
     # Execute any Python calculation blocks embedded in the response
     calculations_output = ""
@@ -295,6 +340,7 @@ def response_node(state: SimulationState) -> dict[str, Any]:
 
     return {
         "final_response": final_response,
+        "execution_algorithm": execution_algorithm,
         "calculations": calculations_output,
         "data_summary": data_summary,
         "graph_data": graph_data,
