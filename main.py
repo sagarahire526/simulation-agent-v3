@@ -104,81 +104,21 @@ if __name__ == "__main__":
     )
 
 
+# CX Start Prerequisites: Which gate set is canonical?
+# We have two different prerequisite gate sets in different sources. Which one defines "CX Start Readiness"? Or are these two separate KPIs?
+# Set A — from QB + KPI Doc (6 gates):
+# BOM received in AIMS (pj_a_3875_bom_received_bom_in_aims_finish)
+# RAN entitlement complete (pj_a_3710_ran_entitlement_complete_finish)
+# NTP submitted to GC (pj_a_4075_construction_ntp_submitted_to_gc_finish)
+# 24x7 site access (s_24x7_site_access)
+# CPO received (NTM: ms1555_construction_complete_so_header, AHLOB: ms_1555_construction_complete_cpo_custom_field)
 
-# kpi_python_function: "def get_swap_ftr(execute_query, filters=None) -> list[dict]:
-#     where_parts = [
-#         "1=1",
-#         "t1.\"pj_a_5175_construction_complete_finish\" IS NOT NULL",
-#         "COALESCE(t1.\"pj_project_status\", '') <> 'Dead'",
-#         "TRIM(COALESCE(t2.\"check_in_date\", '')) <> ''"
-#     ]
+# SPO received (ms1555_construction_complete_spo)
+# Set B — from current BKG node (5 gates):
+# NTP approved/accepted (ms_1507 OR pj_a_4100)
+# Material pickup (pj_a_3925_msl_pickup_date_finish)
+# Power ready (pj_a_4525_power_ready_finish)
+# Backhaul ready (pj_a_4925 OR pj_a_4425)
 
-#     # Explicit allowlist filters
-#     if filters:
-#         if filters.get("rgn_region"):
-#             v = str(filters["rgn_region"]).replace("'", "''")
-#             where_parts.append(f"t1.\"rgn_region\" = '{v}'")
-#         if filters.get("m_area"):
-#             v = str(filters["m_area"]).replace("'", "''")
-#             where_parts.append(f"t1.\"m_area\" = '{v}'")
-#         if filters.get("m_market"):
-#             v = str(filters["m_market"]).replace("'", "''")
-#             where_parts.append(f"t1.\"m_market\" = '{v}'")
-#         if filters.get("construction_gc"):
-#             v = str(filters["construction_gc"]).replace("'", "''")
-#             where_parts.append(f"t1.\"construction_gc\" = '{v}'")
-#         if filters.get("smp_name"):
-#             v = str(filters["smp_name"]).replace("'", "''")
-#             where_parts.append(f"t1.\"smp_name\" = '{v}'")
-
-#     where_sql = " AND ".join(where_parts)
-
-#     sql = f"""
-#     SELECT
-#       base.\"rgn_region\" AS \"rgn_region\",
-#       base.\"m_area\" AS \"m_area\",
-#       base.\"m_market\" AS \"m_market\",
-#       base.\"construction_gc\" AS \"construction_gc\",
-#       COUNT(DISTINCT base.\"smp_id\") AS \"total_swap_sites\",
-#       COUNT(DISTINCT CASE WHEN base.\"hse_visit_count\" = 1 THEN base.\"smp_id\" END) AS \"ftr_sites\",
-#       (
-#         COUNT(DISTINCT base.\"smp_id\")
-#         - COUNT(DISTINCT CASE WHEN base.\"hse_visit_count\" = 1 THEN base.\"smp_id\" END)
-#       ) AS \"non_ftr_sites\",
-#       100.0
-#         * COUNT(DISTINCT CASE WHEN base.\"hse_visit_count\" = 1 THEN base.\"smp_id\" END)
-#         / NULLIF(COUNT(DISTINCT base.\"smp_id\"), 0) AS \"ftr_rate_pct\",
-#       AVG(base.\"hse_visit_count\"::numeric) AS \"avg_visits_per_site\"
-#     FROM (
-#       SELECT
-#         t1.\"smp_id\" AS \"smp_id\",
-#         t1.\"rgn_region\" AS \"rgn_region\",
-#         t1.\"m_area\" AS \"m_area\",
-#         t1.\"m_market\" AS \"m_market\",
-#         t1.\"construction_gc\" AS \"construction_gc\",
-#         COUNT(t2.\"id\") AS \"hse_visit_count\"
-#       FROM \"public\".\"stg_ndpd_mbt_tmobile_macro_combined\" t1
-#       INNER JOIN \"public\".\"stg_ndpd_hse_site_checklist\" t2
-#         ON t1.\"smp_id\" = t2.\"smp_id\"
-#       WHERE {where_sql}
-#       GROUP BY
-#         t1.\"smp_id\",
-#         t1.\"rgn_region\",
-#         t1.\"m_area\",
-#         t1.\"m_market\",
-#         t1.\"construction_gc\"
-#     ) base
-#     GROUP BY
-#       base.\"rgn_region\",
-#       base.\"m_area\",
-#       base.\"m_market\",
-#       base.\"construction_gc\"
-#     ORDER BY
-#       base.\"rgn_region\",
-#       base.\"m_area\",
-#       base.\"m_market\",
-#       base.\"construction_gc\";
-#     """
-
-#     return execute_query(sql, db="public")
-# "
+# Pre-construction walk complete (pj_a_3825)
+# Are these two separate KPIs, or should one replace the other?
