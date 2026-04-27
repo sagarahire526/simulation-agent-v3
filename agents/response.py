@@ -24,6 +24,7 @@ from tools.python_sandbox import execute_python
 from prompts.response_prompt import RESPONSE_SYSTEM
 from prompts.chart_prompt import CHART_SYSTEM
 from prompts.algorithm_prompt import ALGORITHM_SYSTEM
+from services.date_context import today_date_context
 
 
 logger = logging.getLogger(__name__)
@@ -269,8 +270,8 @@ def response_node(state: SimulationState) -> dict[str, Any]:
     )
 
     user_message = "\n".join(user_message_parts)
-
-    system_prompt = RESPONSE_SYSTEM.format(today_date=date.today())
+    print(f"DATE HANDLER RETURNS WITH THE RESPONSES AS FOLLOWS: {today_date_context()}")
+    system_prompt = RESPONSE_SYSTEM.format(today_date=today_date_context())
 
     # Fire the algorithm-narrative LLM in a background thread so it runs in
     # parallel with the main response call. Total latency stays at

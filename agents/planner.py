@@ -27,6 +27,7 @@ from agents.traversal import atraversal_node
 from services.semantic_service import SemanticService
 from services.sse_context import emit_sse
 from prompts.planner_prompt import PLANNER_SYSTEM
+from services.date_context import today_date_context
 
 logger = logging.getLogger(__name__)
 
@@ -185,7 +186,7 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
     safe_semantic = semantic_context.replace("{", "{{").replace("}", "}}")
     
     planning_prompt = PLANNER_SYSTEM.format(
-        today_date=date.today(),
+        today_date=today_date_context(),
         kg_schema=safe_kg_schema,
         semantic_context=safe_semantic,
     )

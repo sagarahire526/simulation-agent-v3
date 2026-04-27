@@ -21,6 +21,7 @@ from services.llm_provider import LLMProvider
 from services.schema_embedding_service import search_schema
 from tools.langchain_tools import get_fast_tools
 from prompts.traversal_prompt import TRAVERSAL_SYSTEM
+from services.date_context import today_date_context
 from services.semantic_service import SemanticService
 
 logger = logging.getLogger(__name__)
@@ -543,7 +544,7 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
     safe_pt_filter = project_type_filter.replace("{", "{{").replace("}", "}}")
     # print(f"FETCHED KNOWLEDGE GRAPH SCHEMA IS AS FOLLOWS: {safe_kg_schema}")
     system_prompt = TRAVERSAL_SYSTEM.format(
-        today_date=date.today(),
+        today_date=today_date_context(),
         kg_schema=safe_kg_schema,
         semantic_context=safe_semantic,
         project_type_filter=safe_pt_filter,
@@ -723,7 +724,7 @@ async def atraversal_node(state: SimulationState) -> dict[str, Any]:
     safe_pt_filter = project_type_filter.replace("{", "{{").replace("}", "}}")
     print(f"Safe knowledge graph schema is as follows: {safe_kg_schema}")
     system_prompt = TRAVERSAL_SYSTEM.format(
-        today_date=date.today(),
+        today_date=today_date_context(),
         kg_schema=safe_kg_schema,
         semantic_context=safe_semantic,
         project_type_filter=safe_pt_filter,
