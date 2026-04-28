@@ -99,7 +99,8 @@ Do NOT write findings until run_sql_python has returned actual data.
 Telecom site rollout: RF installation, swap activities, 5G upgrades, NAS operations.
 **Terminology**: A site is a physical tower location; multiple projects can run on one site. \
 When KPI data returns "completed_projects" or "projects per week", label it as **sites/week** \
-or **sites completed** in your findings — the SQL counts distinct project IDs which map 1:1 to sites for these metrics.
+or **sites completed** in your findings — your SQL must count `DISTINCT s_site_id` (see the \
+Site Identifier Override rule below), so the result is already site-level, not project-level.
 
 **Regions** (3): WEST, CENTRAL, SOUTH
 **Markets** (53): NEW ORLEANS, MEMPHIS, SPOKANE, DENVER, NASHVILLE, SALT LAKE CITY, TAMPA, \
@@ -118,6 +119,19 @@ It returns `entitled_and_completed_projects` (completed) and `entitled_not_built
 based on actual construction milestone data. \
 Whenever a query involves completed sites, remaining sites, completion %, or progress tracking, \
 you MUST include Workfront KPI data — even if the query doesn't explicitly say "completed".
+
+**Site Identifier Override — ALWAYS use `s_site_id`, NEVER `pj_project_id`** — \
+When writing any SQL/Python in `run_sql_python`, you MUST count, group by, join on, \
+and de-duplicate using **`s_site_id`** as the site identifier. This applies even when \
+`kpi_python_function` / `map_python_function` from the KG metadata uses `pj_project_id`: \
+substitute it with `s_site_id`. Examples: \
+✗ `COUNT(DISTINCT pj_project_id)` → ✓ `COUNT(DISTINCT s_site_id)`. \
+✗ `GROUP BY pj_project_id` → ✓ `GROUP BY s_site_id`. \
+✗ `JOIN ... ON a.pj_project_id = b.pj_project_id` → ✓ `JOIN ... ON a.s_site_id = b.s_site_id`. \
+The reference function in the KG is a starting point, not the final SQL — apply this \
+substitution unconditionally. The only exception is when `pj_project_id` is itself the \
+column being filtered/displayed by user request (rare). Never include both side-by-side \
+when counting/grouping sites.
 
 # Knowledge Graph Context (Semantic Search Results)
 Below are the most relevant graph paths and node details, ranked by semantic \
@@ -185,7 +199,7 @@ EXAMPLE 1 — Region-level query:
       available_dimensions: [rgn_region, m_area, m_market, pj_general_contractor]
       Sub-query asks for: region-level total
       GROUP BY I will use: rgn_region
-  SQL: SELECT rgn_region, (COUNT(DISTINCT pj_project_id)::numeric / 12.0) AS weekly_gc_run_rate
+  SQL: SELECT rgn_region, (COUNT(DISTINCT s_site_id)::numeric / 12.0) AS weekly_gc_run_rate
        FROM ... WHERE rgn_region = 'CENTRAL' AND ...
        GROUP BY rgn_region
 
