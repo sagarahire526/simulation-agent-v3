@@ -453,6 +453,49 @@ def _extract_and_print(messages: list) -> tuple[list[ToolCallRecord], str]:
     return records, findings
 
 
+def _build_project_type_filter(project_type_raw: str) -> str:
+    """
+    Build the MANDATORY smp_name filter instruction injected into the traversal
+    system prompt. Returns an empty string when no project type is set.
+
+    The OVERRIDE clause explicitly tells the LLM to replace any hardcoded
+    `smp_name = '...'` literal in the reference `kpi_python_function` /
+    `map_python_function` with the user-selected value — without it, the LLM
+    sometimes copies the reference's `smp_name = 'NTM'` verbatim and ignores
+    the user's selection.
+    """
+    if not project_type_raw:
+        return ""
+
+    types = [t.strip() for t in project_type_raw.split(",") if t.strip()]
+    if len(types) == 1:
+        sql_filter = f"smp_name = '{types[0]}'"
+        display = types[0]
+    else:
+        in_values = ", ".join(f"'{t}'" for t in types)
+        sql_filter = f"smp_name IN ({in_values})"
+        display = " & ".join(types)
+
+    return (
+        f'- **⚠️ MANDATORY BEFORE YOU WRITE ANY SQL**: The user selected project type '
+        f'**{display}**. You MUST add `WHERE {sql_filter}` to EVERY SQL query on '
+        f'`pwc_macro_staging_schema.stg_ndpd_mbt_tmobile_macro_combined`. '
+        f'If the query already has a WHERE clause, add `AND {sql_filter}`. '
+        f'This is NON-NEGOTIABLE — a query without this filter returns WRONG data.\n'
+        f'- **OVERRIDE the reference function\'s `smp_name` value**: The '
+        f'`kpi_python_function` / `map_python_function` returned by `get_kpi` / '
+        f'`get_node` may contain a hardcoded value like `WHERE smp_name = \'NTM\'` — '
+        f'that value is from the reference, NOT the user\'s selection. You MUST '
+        f'replace any `smp_name = \'...\'` literal in the reference SQL with '
+        f'`{sql_filter}`. Do NOT keep the reference\'s smp_name value. Do NOT emit '
+        f'two `smp_name` filters. The user-selected project type is authoritative.\n'
+        f'- **Column name**: The column is `smp_name`, NEVER `pj_project_type`. '
+        f'`pj_project_type` does NOT exist. Always use `smp_name`.\n'
+        f'- This filter applies ONLY to `stg_ndpd_mbt_tmobile_macro_combined` — '
+        f'do NOT add it to other tables.'
+    )
+
+
 def traversal_node(state: SimulationState) -> dict[str, Any]:
     """
     LangGraph node: Autonomous Traversal Agent.
@@ -512,30 +555,10 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
     # ── Build project-type filter instruction for the prompt ─────────
     project_type_raw = state.get("project_type", "")
     print(f"  {_DIM}Project type in state: '{project_type_raw}'{_RESET}", flush=True)
-    if project_type_raw:
-        types = [t.strip() for t in project_type_raw.split(",") if t.strip()]
-        if len(types) == 1:
-            sql_filter = f"smp_name = '{types[0]}'"
-            display = types[0]
-        else:
-            in_values = ", ".join(f"'{t}'" for t in types)
-            sql_filter = f"smp_name IN ({in_values})"
-            display = " & ".join(types)
-
-        project_type_filter = (
-            f'- **⚠️ MANDATORY BEFORE YOU WRITE ANY SQL**: The user selected project type '
-            f'**{display}**. You MUST add `WHERE {sql_filter}` to EVERY SQL query on '
-            f'`pwc_macro_staging_schema.stg_ndpd_mbt_tmobile_macro_combined`. '
-            f'If the query already has a WHERE clause, add `AND {sql_filter}`. '
-            f'This is NON-NEGOTIABLE — a query without this filter returns WRONG data.\n'
-            f'- **Column name**: The column is `smp_name`, NEVER `pj_project_type`. '
-            f'`pj_project_type` does NOT exist. Always use `smp_name`.\n'
-            f'- This filter applies ONLY to `stg_ndpd_mbt_tmobile_macro_combined` — '
-            f'do NOT add it to other tables.'
-        )
-        print(f"  {_GREEN}✓ Project type filter injected: {sql_filter}{_RESET}", flush=True)
+    project_type_filter = _build_project_type_filter(project_type_raw)
+    if project_type_filter:
+        print(f"  {_GREEN}✓ Project type filter injected for: {project_type_raw}{_RESET}", flush=True)
     else:
-        project_type_filter = ""
         print(f"  {_YELLOW}⚠ No project type in state — smp_name filter NOT applied{_RESET}", flush=True)
 
     # Escape literal { } in dynamic content to avoid str.format() KeyError
@@ -695,29 +718,7 @@ async def atraversal_node(state: SimulationState) -> dict[str, Any]:
 
     # ── Build project-type filter instruction for the prompt ─────────
     project_type_raw = state.get("project_type", "")
-    if project_type_raw:
-        types = [t.strip() for t in project_type_raw.split(",") if t.strip()]
-        if len(types) == 1:
-            sql_filter = f"smp_name = '{types[0]}'"
-            display = types[0]
-        else:
-            in_values = ", ".join(f"'{t}'" for t in types)
-            sql_filter = f"smp_name IN ({in_values})"
-            display = " & ".join(types)
-
-        project_type_filter = (
-            f'- **⚠️ MANDATORY BEFORE YOU WRITE ANY SQL**: The user selected project type '
-            f'**{display}**. You MUST add `WHERE {sql_filter}` to EVERY SQL query on '
-            f'`pwc_macro_staging_schema.stg_ndpd_mbt_tmobile_macro_combined`. '
-            f'If the query already has a WHERE clause, add `AND {sql_filter}`. '
-            f'This is NON-NEGOTIABLE — a query without this filter returns WRONG data.\n'
-            f'- **Column name**: The column is `smp_name`, NEVER `pj_project_type`. '
-            f'`pj_project_type` does NOT exist. Always use `smp_name`.\n'
-            f'- This filter applies ONLY to `stg_ndpd_mbt_tmobile_macro_combined` — '
-            f'do NOT add it to other tables.'
-        )
-    else:
-        project_type_filter = ""
+    project_type_filter = _build_project_type_filter(project_type_raw)
 
     safe_kg_schema = kg_schema.replace("{", "{{").replace("}", "}}")
     safe_semantic  = semantic_context.replace("{", "{{").replace("}", "}}")
