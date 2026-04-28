@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import uuid
 
 import threading
@@ -27,6 +28,47 @@ from psycopg2.pool import ThreadedConnectionPool
 import config
 
 logger = logging.getLogger(__name__)
+
+
+def _json_safe(obj):
+    """
+    Recursively replace JSONB-incompatible scalars (NaN, ±Infinity, pandas NaT,
+    numpy scalars) with JSON-safe equivalents before json.dumps.
+
+    Standard JSON has no NaN/Infinity tokens — Python's json.dumps emits them
+    by default, but PostgreSQL JSONB rejects them with
+    `invalid input syntax for type json: Token "NaN" is invalid`.
+    """
+    if obj is None or isinstance(obj, (str, bool, int)):
+        return obj
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    # Lazy pandas/numpy handling — only imported if needed
+    try:
+        import pandas as pd
+        if obj is pd.NaT or (pd.api.types.is_scalar(obj) and pd.isna(obj)):
+            return None
+        if isinstance(obj, pd.Timestamp):
+            return obj.isoformat()
+    except ImportError:
+        pass
+    try:
+        import numpy as np
+        if isinstance(obj, np.generic):
+            val = obj.item()
+            return val if not (isinstance(val, float) and not math.isfinite(val)) else None
+    except ImportError:
+        pass
+    return obj
+
+
+def _safe_dumps(obj) -> str:
+    """json.dumps with NaN/NaT/Infinity sanitised for PostgreSQL JSONB."""
+    return json.dumps(_json_safe(obj), allow_nan=False, default=str)
 
 _SCHEMA = "pwc_agent_utility_schema"
 
@@ -311,10 +353,10 @@ def update_query_complete(
     algorithm is the plain-text step-by-step execution narrative produced
     by the fast-tier LLM in parallel with the response agent.
     """
-    planning_rationale = json.dumps(planner_steps) if planner_steps else None
-    graph_json = json.dumps(graph_data) if graph_data else None
-    traces_json = json.dumps(traces) if traces else None
-    analysis_json = json.dumps(analysis) if analysis else None
+    planning_rationale = _safe_dumps(planner_steps) if planner_steps else None
+    graph_json = _safe_dumps(graph_data) if graph_data else None
+    traces_json = _safe_dumps(traces) if traces else None
+    analysis_json = _safe_dumps(analysis) if analysis else None
     algorithm_text = algorithm or None
     _exec(
         f"""
@@ -404,8 +446,8 @@ def create_hitl_clarification(
             str(uuid.uuid4()),
             query_id,
             thread_id,
-            json.dumps(questions_asked),
-            json.dumps(assumptions_offered),
+            _safe_dumps(questions_asked),
+            _safe_dumps(assumptions_offered),
         ),
     )
 
