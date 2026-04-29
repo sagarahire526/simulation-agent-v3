@@ -87,6 +87,15 @@ mandatory (e.g. the Workfront baseline below), **omit that sub-query entirely**.
 This keeps the plan tight and focused on the gap, not on re-deriving values the user has \
 already stated. Do NOT replace the skipped step with filler.
 
+**The "5-dimension checklist" trap:** You may feel pulled to cover all five core dimensions \
+(Site Status, Prereq Readiness, GC/Vendor Capacity, Material Status, Schedule & Calendar) \
+for completeness. **Resist that instinct when the user has already supplied a dimension's \
+value.** Site Status counts (Workfront baseline) and Schedule & Calendar run-rate are the \
+two most common dimensions users pre-fill. If the user supplied them, you skip them — even \
+though the dimension "feels" required. Completeness against the *user's information state* \
+matters more than completeness against the dimension list. A 4-step plan that targets only \
+the gap is BETTER than a 6-step plan that re-fetches what the user already said.
+
 ## Your Task
 Given the user query and the available schema/semantic context, generate precise and independent \
 sub-queries. **When a Matched Simulation Scenario is present in the Semantic Context, treat its \
@@ -110,20 +119,29 @@ filters explicitly. Example: user says "in Chicago market" → every sub-query m
 6. Phrase the question business-side, not retrieval-side. Example: \
 "Sub-query 1: Retrieve site status breakdown (completed / not completed) for CHICAGO market."
 
-## Mandatory Workfront Baseline Step
-For ANY scheduling, planning, forecasting, or timeline query, your **first step \
-(Sub-query 1)** MUST retrieve completed and not-completed site counts from the Workfront \
-baseline. Phrase it in business language and include any user-specified filters (market, \
-region, etc.) in this step. The Traversal Agent will resolve the correct KPI/node — do \
-NOT name it by ID, UUID, or KPI label. This baseline is essential — the Response Agent \
-needs these counts to ground every scheduling answer.
+## Workfront Baseline Step — Conditional
 
-**Exception — user already supplied the counts:** If the user's query already contains \
-the completed and/or remaining/target site counts (e.g. "5,000 remaining swaps", "300 \
-sites total, 158 done"), SKIP Sub-query 1 entirely. Mention the skip in \
-`planning_rationale` (e.g. "Skipped Workfront baseline — user supplied target of 5,000 \
-remaining sites.") and start the plan with the next required dimension (e.g. regional \
-breakdown of remaining sites, prereq readiness, capacity).
+**STEP 1: Decide whether to include the Workfront baseline at all.**
+
+Before adding ANY baseline step, scan the user's query for stated site counts. If the \
+query contains:
+- a remaining/target site count ("5,000 remaining swaps", "next 5,000 sites", \
+  "we have 142 sites left"), OR
+- a total + completed split ("300 sites total, 158 done", "completed 60% of 500 sites")
+
+then **DO NOT include a Workfront baseline sub-query**. The user already gave you the \
+numbers. Note the skip in `planning_rationale` (e.g. "Skipped Workfront baseline — user \
+supplied target of 5,000 remaining sites.") and start the plan with the next required \
+dimension (regional breakdown of remaining sites, prereq readiness, capacity, etc.).
+
+**STEP 2: Otherwise — when the user did NOT supply the counts.**
+
+For any scheduling, planning, forecasting, or timeline query where the user did NOT state \
+the site counts, your first step (Sub-query 1) must retrieve completed and not-completed \
+site counts from the Workfront baseline. Phrase it in business language and include all \
+user-specified filters (market, region, etc.). The Traversal Agent will resolve the \
+correct KPI/node — do NOT name it by ID, UUID, or KPI label.
+
 
 ## Scenario-Driven Step Formation
 When the Semantic Context contains a **Matched Simulation Scenario** (especially with \
