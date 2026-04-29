@@ -144,8 +144,14 @@ def query_refiner_node(state: SimulationState) -> dict[str, Any]:
             f"Original query: {user_query}\n"
             f"Clarification questions asked: {clarification_questions}\n"
             f"User's answer: {user_clarification.strip()}\n\n"
-            "Now produce the final refined_query with all entity names resolved to "
-            "their exact database values. The query is now complete — set is_complete=true."
+            "Produce the final refined_query. CRITICAL — follow the Preservation Rule "
+            "from your system prompt: preserve ALL quantitative facts from the original "
+            "query VERBATIM (ra~tes, counts, targets, time windows, percentages, named "
+            "values the user gave as ground truth). Only add the clarification answer "
+            "(geography) and resolve entity names to their formal DB values. Do NOT "
+            "summarize, condense, or strip the user's stated numbers. Do NOT list "
+            "'will be retrieved from the database' assumptions for any value the user "
+            "already provided. Set is_complete=true."
         )
         resume_response = llm.invoke([
             SystemMessage(content=system_prompt),
