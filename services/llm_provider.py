@@ -1,9 +1,10 @@
 """
 LLM Provider — centralised factory for ChatOpenAI instances.
 
-Three model tiers (configured via env vars):
+Four model tiers (configured via env vars):
     fast    — lightweight routing/classification (orchestrator, query_refiner)
-    default — core reasoning with tool use (traversal, planner)
+    default — core reasoning with tool use (traversal)
+    planner — strong reasoning for query decomposition + fact-vs-gap judgement (planner)
     heavy   — high-quality synthesis (response)
 
 Supports two modes (auto-detected from env vars):
@@ -16,6 +17,7 @@ Usage:
 
     llm = LLMProvider.get_llm("fast")
     llm = LLMProvider.get_llm("default")
+    llm = LLMProvider.get_llm("planner")
     llm = LLMProvider.get_llm("heavy")
 """
 from __future__ import annotations
@@ -31,16 +33,19 @@ logger = logging.getLogger(__name__)
 _MODEL_FAST    = os.getenv("LLM_MODEL_FAST",    "gpt-4o-mini")
 _MODEL_DEFAULT = os.getenv("LLM_MODEL_DEFAULT", "gpt-5-mini")
 _MODEL_HEAVY   = os.getenv("LLM_MODEL_HEAVY",   "gpt-5-mini")
+_MODEL_PLANNER = os.getenv("LLM_MODEL_PLANNER", _MODEL_HEAVY)
 
 _TIER_MAP: dict[str, str] = {
     "fast":    _MODEL_FAST,
     "default": _MODEL_DEFAULT,
+    "planner": _MODEL_PLANNER,
     "heavy":   _MODEL_HEAVY,
 }
 
 # ── Per-tier default kwargs (merged into ChatOpenAI, caller kwargs take precedence) ──
 _TIER_KWARGS: dict[str, dict] = {
     "default": {"reasoning_effort": "low"},
+    "planner": {"reasoning_effort": "high"},
     "heavy":   {"reasoning_effort": "low"},
 }
 
@@ -73,7 +78,7 @@ class LLMProvider:
         Return a ChatOpenAI instance for the given tier.
 
         Args:
-            tier:        "fast" | "default" | "heavy" (or an explicit model name)
+            tier:        "fast" | "default" | "planner" | "heavy" (or an explicit model name)
             temperature: LLM temperature
             max_tokens:  max output tokens
             **kwargs:    forwarded to ChatOpenAI (e.g. reasoning_effort)

@@ -58,6 +58,35 @@ OKLAHOMA CITY
 → When a user mentions a city name from the Markets list, filter by **market**. \
 When they mention NORTHEAST/WEST/SOUTH/CENTRAL, filter by **region**.
 
+## User-Provided Facts — Internal Reasoning (do this FIRST)
+Before generating any sub-queries, mentally scan the user's query for quantitative facts \
+the user has already supplied: numbers, rates, counts, percentages, targets, time windows, \
+named ratios, capacities. Treat these as **ground truth** — do NOT plan a sub-query whose \
+purpose is to re-fetch them. The Response Agent reads the user query directly and will use \
+the user's numbers as authoritative.
+
+Examples of user-supplied facts that DISQUALIFY the matching fetch step:
+- "weekly run rate of 200–250 sites" / "completing ~22 sites/week" → SKIP any "weekly run \
+  rate" / "GC run rate" / "current productivity" fetch
+- "5,000 remaining sites" / "next 5,000 swaps" / "300 sites total, 158 completed" → SKIP \
+  the Workfront baseline target/completed-count fetch
+- "crew capacity of 12 GCs in WEST" / "8 active crews" → SKIP the GC/crew-count fetch for \
+  that scope
+- "permit cycle averaging 22 days" → SKIP the permit cycle-time fetch
+
+Do NOT modify or paraphrase the user's query. The original `refined_query` stays as-is for \
+downstream agents. Your job is only to (a) avoid fetching what's already given, and (b) \
+focus your steps on the *gap* — diagnostic data, regional/segment breakdowns, blockers, \
+contributing causes, and recovery levers that the user did NOT provide.
+
+## Skip Redundant Fetches
+When a user-supplied fact covers the answer to a sub-query that would otherwise be \
+mandatory (e.g. the Workfront baseline below), **omit that sub-query entirely**. In \
+`planning_rationale`, briefly note which fetch you skipped and why \
+(e.g. "Skipped Workfront baseline — user supplied 5,000 remaining sites and a 4-month window."). \
+This keeps the plan tight and focused on the gap, not on re-deriving values the user has \
+already stated. Do NOT replace the skipped step with filler.
+
 ## Your Task
 Given the user query and the available schema/semantic context, generate precise and independent \
 sub-queries. **When a Matched Simulation Scenario is present in the Semantic Context, treat its \
@@ -89,6 +118,13 @@ region, etc.) in this step. The Traversal Agent will resolve the correct KPI/nod
 NOT name it by ID, UUID, or KPI label. This baseline is essential — the Response Agent \
 needs these counts to ground every scheduling answer.
 
+**Exception — user already supplied the counts:** If the user's query already contains \
+the completed and/or remaining/target site counts (e.g. "5,000 remaining swaps", "300 \
+sites total, 158 done"), SKIP Sub-query 1 entirely. Mention the skip in \
+`planning_rationale` (e.g. "Skipped Workfront baseline — user supplied target of 5,000 \
+remaining sites.") and start the plan with the next required dimension (e.g. regional \
+breakdown of remaining sites, prereq readiness, capacity).
+
 ## Scenario-Driven Step Formation
 When the Semantic Context contains a **Matched Simulation Scenario** (especially with \
 similarity ≥ 70%), use it as your primary planning template:
@@ -100,8 +136,10 @@ scenario family.
 user's actual filters (market, region, GC, time window from {today_date}) and (b) drop any \
 DB-style terms (KPI labels, node_ids, table names) per the identifier rules below.
 3. **Order** — keep the Workfront baseline as Sub-query 1 (see above), then layer the \
-scenario-derived steps after it. Skip any Data Phase Question that duplicates the baseline \
-or that is irrelevant to the user's specific filters.
+scenario-derived steps after it. Skip any Data Phase Question that duplicates the baseline, \
+that is irrelevant to the user's specific filters, **or whose answer is already present in \
+the user's query as a user-provided fact** (per the User-Provided Facts rule above — \
+including the Workfront baseline itself when the user supplied the counts).
 4. **Rationale** — in `planning_rationale`, briefly cite the matched scenario and reference \
 its **Data Phase Steps** to explain the retrieval approach.
 5. **Fallback (no relevant scenario)** — if there is no Matched Simulation Scenario \
@@ -167,5 +205,47 @@ intent.
 - Include a site-status step and a prerequisite-readiness step for any planning query ONLY wherever required.
 - Include a GC/crew capacity step for any query about feasibility, targets, or planning appropriately.
 - Do NOT add markdown code fences — return raw JSON only.
+
+## Worked Example — User Supplies Their Own Numbers (skip-fetch in action)
+
+**User query:**
+"For the AHLOA project, the weekly swap completion rate has fluctuated between 200 and 250 \
+sites, while the project must complete the next 5,000 site swaps within 4 months. Evaluate \
+the risk of schedule slippage using current productivity trends, regional crew capacity, \
+and site readiness constraints. Propose a prioritized recovery strategy including \
+region-wise execution planning, risk mitigation actions, and expected schedule improvement."
+
+**User-supplied facts the planner recognizes (internal reasoning, NOT in output):**
+- Weekly swap completion rate: 200–250 sites/week  → SKIP weekly run-rate fetch
+- Remaining target: 5,000 site swaps              → SKIP Workfront baseline target fetch
+
+**Gap the planner needs to fill** (data the user did NOT supply):
+- Regional distribution of the 5,000 remaining sites
+- Prerequisite readiness per region (permits, NTP, materials)
+- GC/crew capacity per region vs demand
+- Top blockers / delay codes on in-progress AHLOA sites
+- Cycle-time trend so the response can judge whether productivity is improving or eroding
+
+**Planner output (this is what you return):**
+{{
+    "planning_rationale": "User supplied the weekly run-rate range (200–250/week), the \
+remaining target (5,000 swaps), and the deadline (4 months) — so the Workfront baseline \
+and run-rate fetches are skipped. The plan focuses on the gap: where the 5,000 sites sit \
+by region, what's blocking them, and whether crews/prereqs can sustain the rate needed to \
+close the gap.",
+    "steps": [
+        "Sub-query 1: Retrieve the regional breakdown (WEST / SOUTH / CENTRAL) of remaining not-completed swap sites for the AHLOA project.",
+        "Sub-query 2: Retrieve prerequisite readiness rates (permits, NTP, materials, civil work) per region for AHLOA project not-completed sites.",
+        "Sub-query 3: Retrieve GC and active-crew capacity per region for the AHLOA project, including crew counts and recent per-crew weekly output.",
+        "Sub-query 4: Retrieve top delay codes and active blockers on in-progress AHLOA swap sites, broken down by region.",
+        "Sub-query 5: Retrieve the swap cycle-time trend (last 8–12 weeks) for AHLOA sites, broken down by region."
+    ]
+}}
+
+**Why no Sub-query for run-rate, target count?** The user already gave those \
+numbers. Re-fetching would either duplicate ground truth or introduce a conflicting value. \
+The Response Agent will use 200–250 sites/week, 5,000 sites directly from \
+the query, and combine those with the regional/prereq/capacity/blocker data this plan \
+fetches.
 
 """

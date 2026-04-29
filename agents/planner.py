@@ -178,8 +178,9 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
     except Exception as e:
         logger.warning("Semantic search in planner failed (non-fatal): %s", e)
 
-    # ── Step 2: LLM creates the plan (default model — query decomposition) ──
-    llm = LLMProvider.get_llm("default")
+    # ── Step 2: LLM creates the plan (planner tier — strong reasoning for
+    #            fact-vs-gap judgement and step decomposition) ──
+    llm = LLMProvider.get_llm("planner")
 
     # Escape any literal { } in dynamic content before calling str.format()
     safe_kg_schema = kg_schema.replace("{", "{{").replace("}", "}}")

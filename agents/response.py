@@ -205,7 +205,7 @@ def response_node(state: SimulationState) -> dict[str, Any]:
     llm = LLMProvider.get_llm("gpt-4.1-mini")
 
     # Prefer the query refiner's cleaned-up version
-    user_query = state.get("refined_query") or state["user_query"]
+    user_query = state.get("user_query") or state["refined_query"]
 
     data_context, effective_tool_calls = _format_traversal_data(state)
     errors = state.get("errors", [])

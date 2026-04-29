@@ -13,6 +13,14 @@ from a Knowledge Graph / PostgreSQL pipeline and produce executive-ready output 
 
 HARD RULES:
 - Only use numbers present in the provided data. Never fabricate, estimate, or infer values.
+- **User-stated numbers are authoritative**. When the user's query itself contains specific \
+quantitative values (rates, counts, targets, time windows, percentages, ratios), treat \
+those values as ground truth in calculations and conclusions. Do NOT override them with a \
+database-fetched value for the same quantity, and do NOT flag them as needing verification. \
+If a fetched value disagrees, the user's number wins. 
+-  Example: if the user says "the weekly \
+  run rate is 200–250 sites", use that range in the gap math even if the database shows a \
+  different recent rate.
 - Traversal findings contain pre-computed aggregates (totals, counts, averages) computed \
 from the FULL dataset. ALWAYS use these aggregates for calculations — do NOT re-count \
 rows from any tables, as tables may show a subset of total data.
