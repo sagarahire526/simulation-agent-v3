@@ -47,7 +47,7 @@ across these five core dimensions:
 Key vocabulary: GC = General Contractor, NTP = Notice to Proceed, SPO/PO = Purchase Order,
 WIP = Work in Progress, run rate = weekly site delivery output per GC/crew.
 
-**Regions** (4): NORTHEAST, WEST, SOUTH, CENTRAL
+**Regions** (3): WEST, SOUTH, CENTRAL
 **Markets** (53): NEW ORLEANS, MEMPHIS, SPOKANE, DENVER, NASHVILLE, SALT LAKE CITY, TAMPA, \
 DETROIT, HOUSTON, COLUMBUS, LOUISVILLE, ORLANDO, MILWAUKEE, SAN FRANCISCO, MONTANA, AUSTIN, \
 PHILADELPHIA, LAS VEGAS, JACKSONVILLE, MOBILE, DALLAS, SACRAMENTO, RALEIGH, ATLANTA, SAN ANTONIO, \
@@ -195,6 +195,52 @@ Schema:
         ...
     ]
 }}
+
+## Workfront KPI — Pipeline Funnel Awareness
+The **Workfront** KPI (the system's source of truth for site/project completion status) \
+returns a 10-stage milestone funnel rather than a single completed/not-completed count. \
+When the user names a specific stage, target ONLY that stage in the relevant sub-query — \
+do NOT plan a step that pulls all 10 stages when one is asked for.
+
+**Stages (in order — earlier → later):**
+1. `precon`               — pre-construction package validated
+2. `material_picked`      — tower materials picked up
+3. `tower_ntp`            — construction NTP accepted by GC
+4. `civil_start`          — civil construction start *(optional for some projects)*
+5. `civil_complete`       — civil construction complete *(optional for some projects)*
+6. `tower_work_start`     — construction start (tower work)
+7. `tower_work_complete`  — construction complete (a.k.a. **cx_complete** / "construction complete")
+8. `integration`          — all planned technologies integrated
+9. `scop_submission`      — close-out / punch checklist submitted
+10. `scop_approval`       — close-out approved by T-Mobile
+
+For each stage X, Workfront exposes `reached_X` (count that reached the stage) and \
+`stuck_at_X` (reached X but not the next stage). It also returns `total_entitled` \
+(the funnel denominator).
+
+**User vocabulary → stage mapping (resolve when planning steps):**
+- "cx complete" / "cx_complete" / "construction complete" → `tower_work_complete`
+- "cx start" / "construction start" → `tower_work_start`
+- "civil start" / "civil complete" → `civil_start` / `civil_complete`
+- "ntp" / "tower ntp" → `tower_ntp`
+- "material pickup" / "MSL pickup" → `material_picked`
+- "integration done" → `integration`
+- "scop submitted" / "close-out submitted" → `scop_submission`
+- "scop approved" / "close-out approved" → `scop_approval`
+
+**Step phrasing rules for Workfront-backed steps:**
+- If the user names a specific stage (e.g. "show only cx_complete count for SOUTH"), \
+the sub-query must say "count of sites that **reached <stage>**" (or "stuck at <stage>" \
+when asking about backlog at that stage). Do NOT request the full 10-stage funnel.
+- If the user asks about "completed / not completed" without naming a stage, default \
+to `tower_work_complete` (cx_complete) as the completion stage.
+- Always carry the user's filters (region, market, GC, date range, smp_name) into the \
+Workfront sub-query.
+
+**Available Workfront filters** (use only what the user specified — do NOT invent values):
+- Equality: `rgn_region`, `m_area`, `m_market`, `construction_gc`, `por_category`, \
+`pj_project_id`, `s_site_id`, `smp_name`
+- Date range (on entitlement-complete date): `start_date`, `end_date`
 
 ## Rules
 - Each step string MUST start with "Sub-query N: " where N is the step number.

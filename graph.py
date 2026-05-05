@@ -159,6 +159,21 @@ def _make_initial_state(query: str, max_steps: int, project_type: str = "") -> S
     }
 
 
+def _reset_thread_checkpoint(thread_id: str) -> None:
+    """
+    Wipe the in-memory checkpoint for ``thread_id`` so a new query starts fresh.
+
+    Why: list fields on SimulationState use ``operator.add`` reducers, so prior
+    runs on the same thread would otherwise leak (e.g. previous planner_step_results
+    accumulating into the next query's response). Only call this when starting a
+    NEW query — never on HITL resume, which depends on the existing checkpoint.
+    """
+    try:
+        _graph.checkpointer.delete_thread(thread_id)
+    except Exception as e:
+        logger.warning("Could not reset checkpoint for thread %s: %s", thread_id, e)
+
+
 def run_simulation(
     query: str,
     max_steps: int = 20,
@@ -179,6 +194,8 @@ def run_simulation(
         ``"__interrupt__": [...]`` when the query_refiner pauses for clarification.
     """
     thread_config = {"configurable": {"thread_id": thread_id}}
+
+    _reset_thread_checkpoint(thread_id)
 
     initial_state = _make_initial_state(query, max_steps, project_type=project_type)
 
@@ -303,6 +320,9 @@ def stream_simulation(
     Returns the final LangGraph state values dict.
     """
     thread_config = {"configurable": {"thread_id": thread_id}}
+
+    _reset_thread_checkpoint(thread_id)
+
     initial_state = _make_initial_state(query, max_steps, project_type=project_type)
 
     logger.info(

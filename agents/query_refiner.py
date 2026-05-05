@@ -137,7 +137,51 @@ def query_refiner_node(state: SimulationState) -> dict[str, Any]:
     user_clarification: str = interrupt(clarification_prompt)
 
     # ── Graph resumed with user's clarification ────────────────────────────────
-    if user_clarification and user_clarification.strip():
+    accepted_assumptions = (
+        user_clarification is not None
+        and user_clarification.strip().lower() == "accept stated assumptions"
+    )
+
+    if accepted_assumptions:
+        # User clicked "Accept stated assumptions". Hierarchy is region → market → area,
+        # so broaden the unspecified level to ALL valid values rather than letting the
+        # LLM collapse it to a single default (e.g. CENTRAL only). The LLM still merges
+        # the original query with the entity lists, but with explicit broadening rules.
+        broaden_prompt = (
+            f"Original query: {user_query}\n"
+            f"Clarification questions that were asked: {clarification_questions}\n"
+            f"Stated assumptions offered to user: {assumptions}\n"
+            "User's answer: 'Accept stated assumptions' — this means BROADEN the "
+            "unspecified scope to ALL valid values at the level that was asked. Do NOT "
+            "pick a single default value.\n\n"
+            "Rules for the refined_query:\n"
+            "1. Preserve ALL quantitative facts from the original query verbatim "
+            "   (rates, counts, targets, time windows, percentages).\n"
+            "2. For every clarification question about geography/scope, expand to ALL "
+            "   valid values at that level. Hierarchy is region → market → area:\n"
+            "   - Asked 'which region?' with no region given → cover ALL regions "
+            "     (WEST, SOUTH, CENTRAL).\n"
+            "   - User said 'SOUTH region' and was asked 'which market within SOUTH?' "
+            "     → cover ALL markets that belong to SOUTH region.\n"
+            "   - User said 'CHICAGO market' and was asked 'which area within CHICAGO?' "
+            "     → cover ALL areas under CHICAGO market.\n"
+            "   - Asked 'which GC?' → cover ALL GCs in the established scope.\n"
+            "3. Resolve entity names to their formal DB values.\n"
+            "4. Do NOT add 'will be retrieved from the database' assumptions for values "
+            "   the user already provided.\n"
+            "5. Set is_complete=true."
+        )
+        resume_response = llm.invoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=broaden_prompt),
+        ])
+        resume_parsed = _parse_refiner_response(resume_response.content)
+        refined_query = resume_parsed.get("refined_query", "") or (
+            refined_query or user_query
+        )
+        print(f"  {_GREEN}✓ Assumptions accepted (scope broadened). Refined query:{_RESET}", flush=True)
+        print(f"     {refined_query}\n", flush=True)
+    elif user_clarification and user_clarification.strip():
         # Re-run the LLM with the original query + clarification + entity lists
         # so it can properly resolve entity names in the refined query.
         merge_prompt = (
@@ -148,8 +192,8 @@ def query_refiner_node(state: SimulationState) -> dict[str, Any]:
             "from your system prompt: preserve ALL quantitative facts from the original "
             "query VERBATIM (ra~tes, counts, targets, time windows, percentages, named "
             "values the user gave as ground truth). Only add the clarification answer "
-            "(geography) and resolve entity names to their formal DB values. Do NOT "
-            "summarize, condense, or strip the user's stated numbers. Do NOT list "
+            "(geography) and resolve entity names(market, gc's, regions and areas) to their formal DB values."
+            "Do NOT summarize, condense, or strip the user's stated numbers. Do NOT list "
             "'will be retrieved from the database' assumptions for any value the user "
             "already provided. Set is_complete=true."
         )
@@ -164,7 +208,7 @@ def query_refiner_node(state: SimulationState) -> dict[str, Any]:
         print(f"  {_GREEN}✓ Clarification received. Refined query:{_RESET}", flush=True)
         print(f"     {refined_query}\n", flush=True)
     else:
-        # User accepted assumptions; use the LLM's refined version as-is
+        # User pressed Enter / sent empty answer; use the LLM's refined version as-is
         refined_query = refined_query or user_query
         print(f"  {_DIM}No clarification provided — proceeding with assumptions.{_RESET}\n", flush=True)
 

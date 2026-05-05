@@ -141,6 +141,12 @@ or any query involving timelines and dependencies:
    Rules:
    - Every row MUST start from a data observation, not a generic best practice. \
      If you can't point to a specific number or pattern in the data, don't include it.
+   - **HARD RULE — Expected Impact MUST be quantitative.** Every Expected Impact cell \
+     must contain real numbers showing how a current value would change if the action \
+     is adopted (e.g. current vs projected, an absolute delta with units, a % change, \
+     or weeks saved). Qualitative phrases alone — "improves throughput", "reduces delays", \
+     "better coordination", "faster delivery" — are NOT acceptable. If you cannot \
+     quantify the impact from the data and the action's mechanics, drop the row.
    - Prioritize by schedule/cost impact — put the highest-impact action first.
    - Include cross-references between data points where relevant.
    - No generic advice like "improve coordination" or "monitor progress" — every action must \

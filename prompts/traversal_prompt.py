@@ -115,8 +115,27 @@ OKLAHOMA CITY
 
 **Completed vs Not-Completed Site Counts** — NEVER use `pj_project_status` for completion counts. \
 Instead, use the **Workfront** KPI node (`4d3a8f74-eece-46d9-a865-17ce022b210d`) via `get_kpi('4d3a8f74-eece-46d9-a865-17ce022b210d')`. \
-It returns `entitled_and_completed_projects` (completed) and `entitled_not_built_projects` (not completed) \
-based on actual construction milestone data. \
+It returns a **10-stage milestone funnel** for entitled projects: `total_entitled` plus \
+`reached_<stage>` and `stuck_at_<stage>` columns for each stage in the order \
+`precon → material_picked → tower_ntp → civil_start → civil_complete → tower_work_start → \
+tower_work_complete → integration → scop_submission → scop_approval`. \
+Civil stages are optional for some projects.
+
+**Stage selection — match the user's intent:**
+- "completed sites" / "completion %" / "progress" with no stage named → use \
+  `reached_tower_work_complete` (a.k.a. cx_complete / construction complete) as the completed count, \
+  and `total_entitled - reached_tower_work_complete` as the not-completed count.
+- User names a specific stage (e.g. "cx_complete only", "stuck at civil start") → return \
+  ONLY that stage's `reached_X` (or `stuck_at_X`) — do NOT include the rest of the funnel.
+- Vocabulary mapping: cx_complete/construction complete → `tower_work_complete`; \
+  cx_start/construction start → `tower_work_start`; tower ntp → `tower_ntp`; \
+  material pickup → `material_picked`; close-out submitted → `scop_submission`; \
+  close-out approved → `scop_approval`.
+
+**Available Workfront filters** (apply only what the user specified): equality on \
+`rgn_region`, `m_area`, `m_market`, `construction_gc`, `por_category`, `pj_project_id`, \
+`s_site_id`, `smp_name`; date range via `start_date` / `end_date` (on entitlement-complete date).
+
 Whenever a query involves completed sites, remaining sites, completion %, or progress tracking, \
 you MUST include Workfront KPI data — even if the query doesn't explicitly say "completed".
 
