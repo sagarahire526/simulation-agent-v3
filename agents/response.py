@@ -2,7 +2,7 @@
 Response Agent — Interprets traversal findings, performs calculations
 via Python sandbox, and generates a PM-readable response.
 
-Uses gpt-5-mini (reasoning model, low effort) for structured, format-strict output.
+Uses gpt-5-mini (reasoning model, medium effort) for structured, format-strict output.
 
 Handles two upstream paths:
   • Direct traversal path: reads traversal_findings + traversal_tool_calls
@@ -202,7 +202,7 @@ def response_node(state: SimulationState) -> dict[str, Any]:
     Reads: refined_query (or user_query), traversal/planner data, errors
     Writes: final_response, calculations, data_summary, current_phase, messages
     """
-    llm = LLMProvider.get_llm("gpt-4.1-mini")
+    llm = LLMProvider.get_llm("gpt-5-mini", reasoning_effort="medium")
 
     # Prefer the query refiner's cleaned-up version
     user_query = state.get("user_query") or state["refined_query"]

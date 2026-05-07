@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 _MODEL_FAST    = os.getenv("LLM_MODEL_FAST",    "gpt-4o-mini")
 _MODEL_DEFAULT = os.getenv("LLM_MODEL_DEFAULT", "gpt-5-mini")
 _MODEL_HEAVY   = os.getenv("LLM_MODEL_HEAVY",   "gpt-5-mini")
-_MODEL_PLANNER = os.getenv("LLM_MODEL_PLANNER", _MODEL_HEAVY)
+_MODEL_PLANNER = os.getenv("LLM_MODEL_PLANNER", "gpt-5")
 
 _TIER_MAP: dict[str, str] = {
     "fast":    _MODEL_FAST,
@@ -45,7 +45,7 @@ _TIER_MAP: dict[str, str] = {
 # ── Per-tier default kwargs (merged into ChatOpenAI, caller kwargs take precedence) ──
 _TIER_KWARGS: dict[str, dict] = {
     "default": {"reasoning_effort": "low"},
-    "planner": {"reasoning_effort": "high"},
+    "planner": {"reasoning_effort": "medium"},
     "heavy":   {"reasoning_effort": "low"},
 }
 

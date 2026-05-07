@@ -140,12 +140,11 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
     """
     LangGraph node: Planner Agent (sync — required by LangGraph's sync stream API).
 
-    Reads:  refined_query, kg_schema, max_traversal_steps
+    Reads:  refined_query, max_traversal_steps
     Writes: planner_steps, planner_step_results,
             scenario_simulation_guidance, current_phase, messages
     """
     refined_query = state.get("refined_query") or state["user_query"]
-    kg_schema = state.get("kg_schema", "Schema not available")
 
     print(f"\n{_BOLD}{'═' * 70}", flush=True)
     print(f"  📋 PLANNER AGENT — Decomposing query into parallel steps", flush=True)
@@ -183,12 +182,10 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
     llm = LLMProvider.get_llm("planner")
 
     # Escape any literal { } in dynamic content before calling str.format()
-    safe_kg_schema = kg_schema.replace("{", "{{").replace("}", "}}")
     safe_semantic = semantic_context.replace("{", "{{").replace("}", "}}")
-    
+
     planning_prompt = PLANNER_SYSTEM.format(
         today_date=today_date_context(),
-        kg_schema=safe_kg_schema,
         semantic_context=safe_semantic,
     )
 
