@@ -181,19 +181,17 @@ your sub-query, incorporate them into your single `run_sql_python` call. \
 ("next N weeks/months", "plan for", "forecast"), fetch the last 6 months of \
 historical data (run rates, remaining sites, capacity, backlogs) — the Response \
 Agent projects forward. NEVER filter `WHERE date > today`.
-1. **Schema prefix**: ALWAYS `pwc_macro_staging_schema.<table_name>` \
-(except `public.gc_capacity_market_trial`).
-2. **No guessing**: Get table/column names from `get_kpi` or `get_node` output. \
+1. **No guessing**: Get table/column names from `get_kpi` or `get_node` output. \
 If the Semantic Context includes **Matched Domain Keywords**, use their `Tables/Columns` \
 and `Logic` fields as additional reference for correct column names and computation logic.
-3. **Use `execute_query(sql)`**: Pre-injected helper returning `list[dict]`. Do NOT redefine it.
-4. **Date columns**: Always `pd.to_datetime(df['col'], errors='coerce')` before arithmetic.
-5. **Discover before filtering**: Run `SELECT DISTINCT column_name FROM table` before hardcoding category values.
-6. **Set `result`**: End every code block with `result = <value>`.
-7. **No DML/DDL**: No INSERT, UPDATE, DELETE, CREATE, DROP, ALTER.
-8. **COUNT(DISTINCT ...)**: Tables have duplicates. Always `COUNT(DISTINCT key_column)`.
-9. **No backslash `\\`**: Use triple-quoted strings for multi-line SQL, parentheses for multi-line expressions.
-10. **GROUP BY MATCHES QUERY GRANULARITY**: \
+2. **Use `execute_query(sql)`**: Pre-injected helper returning `list[dict]`. Do NOT redefine it.
+3. **Date columns**: Always `pd.to_datetime(df['col'], errors='coerce')` before arithmetic.
+4. **Discover before filtering**: Run `SELECT DISTINCT column_name FROM table` before hardcoding category values.
+5. **Set `result`**: End every code block with `result = <value>`.
+6. **No DML/DDL**: No INSERT, UPDATE, DELETE, CREATE, DROP, ALTER.
+7. **COUNT(DISTINCT ...)**: Tables have duplicates. Always `COUNT(DISTINCT key_column)`.
+8. **No backslash `\\`**: Use triple-quoted strings for multi-line SQL, parentheses for multi-line expressions.
+9. **GROUP BY MATCHES QUERY GRANULARITY**: \
 Your GROUP BY must contain ONLY the dimensions your sub-query asks to break down by. \
 Examples: \
 "total for CENTRAL region" → WHERE rgn_region = 'CENTRAL', GROUP BY rgn_region. \
@@ -202,10 +200,10 @@ Examples: \
 "overall total" → NO GROUP BY at all. \
 Extra GROUP BY columns produce hundreds of unnecessarily granular rows that obscure the answer. \
 Only fetch raw rows when the user explicitly asks for a list of individual records.
-11. **Always compute totals in Python**: After any query, compute summary statistics \
+10. **Always compute totals in Python**: After any query, compute summary statistics \
 (total count, sums, averages, breakdowns) over the FULL DataFrame before setting result. \
 Do NOT rely on the Response Agent to count rows — it only sees a subset.
-12. **Rounding**: Always ROUND numeric results in your Python aggregations:
+11. **Rounding**: Always ROUND numeric results in your Python aggregations:
     - Integer-nature values (counts, number of sites, number of days, IDs): `ROUND(val, 0)` — whole numbers.
     - Decimal-nature values (rates, percentages, averages, ratios): `ROUND(val, 2)` — at most 2 decimal places.
     Apply rounding in the `summary` dict, not inside SQL. This keeps raw data intact for accurate sub-calculations.
