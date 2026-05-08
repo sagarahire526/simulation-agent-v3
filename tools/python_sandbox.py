@@ -349,6 +349,27 @@ class PythonSandbox:
 
         def _execute_query(sql, params=None, db=None, max_rows=None):
             """Helper: run SQL and return list[dict] (not a DataFrame)."""
+            try:
+                normalized = " ".join(sql.split())
+                where_blocks = re.findall(
+                    r"\bWHERE\b(.+?)(?=\bGROUP BY\b|\bORDER BY\b|\bLIMIT\b|\bHAVING\b|\bUNION\b|\)\s*(?:,|\bAS\b|$)|;|$)",
+                    normalized,
+                    flags=re.IGNORECASE,
+                )
+                where_blocks = [w.strip() for w in where_blocks] or ["(no WHERE clause)"]
+                for i, block in enumerate(where_blocks, 1):
+                    label = f"WHERE #{i}" if len(where_blocks) > 1 else "filters"
+                    print(
+                        f"\033[96m🔎 execute_query — {label}:\033[0m {block}",
+                        flush=True,
+                    )
+                    logger.info("execute_query %s: %s", label, block)
+                if params:
+                    print(f"\033[96m🔎 execute_query — params:\033[0m {params}", flush=True)
+                    logger.info("execute_query params: %s", params)
+            except Exception:
+                pass
+
             df = pd.read_sql(sql, self.conn, params=params)
             if max_rows is not None:
                 df = df.head(max_rows)
