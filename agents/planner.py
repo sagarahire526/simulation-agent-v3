@@ -25,6 +25,7 @@ from models.state import SimulationState
 from services.llm_provider import LLMProvider
 from agents.traversal import atraversal_node
 from services.semantic_service import SemanticService
+from services import internal_scenarios as scenario_lib
 from services.sse_context import emit_sse
 from prompts.planner_prompt import PLANNER_SYSTEM
 from services.date_context import today_date_context
@@ -46,6 +47,41 @@ _STEP_TIMEOUT_SEC = 300   # Kill a runaway sub-traversal after 5 minutes
 # Bounded to 4 threads so 100 concurrent requests don't spawn 100 OS threads.
 _planner_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="planner-async")
 
+
+
+def _fetch_gcl_context(query: str) -> dict:
+    """
+    Run the GCL semantic search and produce the planner-facing strings.
+    Always returns a dict with stable keys; on error every field is empty.
+    """
+    try:
+        semantic = SemanticService()
+        data = semantic.get_all_context(query)
+        return {
+            "formatted": semantic.format_traversal_context(data) if any(data.values()) else "",
+            "guidance":  semantic.format_simulation_guidance(data) if any(data.values()) else "",
+            "analysis":  SemanticService.extract_headings(data) if any(data.values()) else {},
+            "hits":      (
+                len(data.get("kpi", [])),
+                len(data.get("question_bank", [])),
+                len(data.get("simulation", [])),
+            ),
+        }
+    except Exception as e:
+        logger.warning("GCL semantic search failed (non-fatal): %s", e)
+        return {"formatted": "", "guidance": "", "analysis": {}, "hits": (0, 0, 0)}
+
+
+def _fetch_internal_scenarios(query: str) -> list[dict]:
+    """
+    Run the Internal Scenario Library lookup. Returns [] on any error so the
+    planner can proceed with GCL-only context.
+    """
+    try:
+        return scenario_lib.search(query)
+    except Exception as e:
+        logger.warning("Internal scenario search failed (non-fatal): %s", e)
+        return []
 
 
 def _parse_planner_response(content: str) -> tuple[str, list[str]]:
@@ -155,27 +191,60 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
     semantic_context = ""
     simulation_guidance = ""
     semantic_analysis: dict[str, list[str]] = {}
-    try:
-        semantic = SemanticService()
-        context_data = semantic.get_all_context(refined_query)
+    internal_matches: list[dict] = []
 
-        total_hits = sum(len(v) for v in context_data.values())
-        if total_hits:
-            semantic_context = semantic.format_traversal_context(context_data)
-            simulation_guidance = semantic.format_simulation_guidance(context_data)
-            semantic_analysis = SemanticService.extract_headings(context_data)
-            kpi_hits = len(context_data.get("kpi", []))
-            qb_hits  = len(context_data.get("question_bank", []))
-            sim_hits = len(context_data.get("simulation", []))
-            print(
-                f"  {_GREEN}🎯 Semantic context: "
-                f"{kpi_hits} KPI · {qb_hits} Q&A · {sim_hits} scenario(s){_RESET}",
-                flush=True,
+    # Run GCL semantic search and the local Internal Scenario Library lookup
+    # in parallel — both feed the planner via the same semantic_context block,
+    # and the planner picks the source with the higher similarity score.
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="planner-ctx") as ctx_pool:
+        gcl_future = ctx_pool.submit(_fetch_gcl_context, refined_query)
+        internal_future = ctx_pool.submit(_fetch_internal_scenarios, refined_query)
+
+        try:
+            gcl = gcl_future.result()
+            semantic_context     = gcl["formatted"]
+            simulation_guidance  = gcl["guidance"]
+            semantic_analysis    = gcl["analysis"]
+            kpi_hits, qb_hits, sim_hits = gcl["hits"]
+            if any([kpi_hits, qb_hits, sim_hits]):
+                print(
+                    f"  {_GREEN}🎯 Semantic context: "
+                    f"{kpi_hits} KPI · {qb_hits} Q&A · {sim_hits} scenario(s){_RESET}",
+                    flush=True,
+                )
+            else:
+                print(f"  {_DIM}ℹ  No semantic context (API may be unreachable).{_RESET}", flush=True)
+        except Exception as e:
+            logger.warning("Semantic search in planner failed (non-fatal): %s", e)
+
+        try:
+            internal_matches = internal_future.result()
+            if internal_matches:
+                top = internal_matches[0]
+                print(
+                    f"  {_GREEN}📚 Internal Library: "
+                    f"matched '{top.get('tag')}' "
+                    f"(similarity {top['similarity_score'] * 100:.1f}%){_RESET}",
+                    flush=True,
+                )
+            else:
+                print(
+                    f"  {_DIM}ℹ  Internal Library: no match "
+                    f"(threshold {scenario_lib.MIN_SIMILARITY:.2f}).{_RESET}",
+                    flush=True,
+                )
+        except Exception as e:
+            logger.warning("Internal scenario lookup failed (non-fatal): %s", e)
+
+    # Splice the internal-library block onto the GCL block so the planner sees
+    # both signals with their similarity scores under the same Mode A logic.
+    if internal_matches:
+        internal_block = scenario_lib.format_for_planner(internal_matches)
+        if internal_block:
+            semantic_context = (
+                (semantic_context + "\n\n" if semantic_context else "")
+                + internal_block
             )
-        else:
-            print(f"  {_DIM}ℹ  No semantic context (API may be unreachable).{_RESET}", flush=True)
-    except Exception as e:
-        logger.warning("Semantic search in planner failed (non-fatal): %s", e)
 
     # ── Step 2: LLM creates the plan (planner tier — strong reasoning for
     #            fact-vs-gap judgement and step decomposition) ──
