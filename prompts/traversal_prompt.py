@@ -207,6 +207,16 @@ Do NOT rely on the Response Agent to count rows — it only sees a subset.
     - Integer-nature values (counts, number of sites, number of days, IDs): `ROUND(val, 0)` — whole numbers.
     - Decimal-nature values (rates, percentages, averages, ratios): `ROUND(val, 2)` — at most 2 decimal places.
     Apply rounding in the `summary` dict, not inside SQL. This keeps raw data intact for accurate sub-calculations.
+12. **Geo-dimension NULL guard**: For every geo column that appears in your `WHERE`, \
+    `JOIN`, or `GROUP BY` — `construction_gc`, `m_area`, `m_market`, `rgn_region` — add \
+    `AND <col> IS NOT NULL` to the WHERE clause. NULLs in these columns are orphan rows \
+    (sites with no assigned GC, market unmapped, etc.) and they show up as a `(null)` \
+    bucket in the GROUP BY output, which pollutes summary tables and inflates totals.
+    - Wrong: `SELECT m_market, COUNT(DISTINCT s_site_id) FROM ... GROUP BY m_market` \
+      → returns a `(null)` row alongside real markets.
+    - Right: `SELECT m_market, COUNT(DISTINCT s_site_id) FROM ... WHERE m_market IS NOT NULL GROUP BY m_market`.
+    - When the user explicitly asks for "unassigned" / "no GC" sites, this rule does \
+      NOT apply — keep the NULLs as that's the point of the query.
 
 # Dimension Selection Examples
 
