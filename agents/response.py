@@ -124,35 +124,45 @@ _CURRENT_STATUS_MARKER_RE = re.compile(
 )
 
 
-def _extract_current_status(markdown: str) -> list[str]:
+def _split_current_status(markdown: str) -> tuple[list[str], str]:
     """
     Parse the markdown's "Current Status" table into a flat list of
-    "<Metric>: <Value>" strings. Returns [] when the section is absent (TYPE 1 /
-    greeting) or the table can't be parsed.
+    "<Metric>: <Value>" strings AND return the markdown with that section
+    removed so the data lives in exactly one place (the `current_status`
+    sibling field, not duplicated in `final_response`).
+
+    Returns ([], <unchanged markdown>) when the section is absent (TYPE 1 /
+    greeting) or the table can't be parsed. The original markdown is preserved
+    in those cases — we only strip when we have rows to put somewhere safe.
 
     Robust to common emission variants — the section title can be a `##`
     heading, plain text, bold, or end with a colon. The table that follows is
-    found by walking lines after the marker; the parser breaks at the first
-    blank line *after* table rows start, or at the next heading / `---`
-    separator if no table was found.
+    found by walking lines after the marker; parsing stops at the first blank
+    line *after* table rows start, or at the next heading / `---` separator
+    if no table was found.
 
     Bold markers (`**`) and surrounding whitespace are stripped from each cell.
     """
     if not markdown:
-        return []
+        return [], markdown
     m = _CURRENT_STATUS_MARKER_RE.search(markdown)
     if not m:
-        return []
+        return [], markdown
+
+    section_start = m.start()
     rows: list[str] = []
     seen_separator = False
     in_table = False
-    for line in markdown[m.end():].splitlines():
+    # Track running char offset so we know exactly where the section ends.
+    pos = m.end()
+    for line in markdown[m.end():].splitlines(keepends=True):
         stripped = line.strip()
         if not stripped:
             # Blank line ends the table once we've started parsing one;
             # before the table starts, blanks are tolerated.
             if in_table:
                 break
+            pos += len(line)
             continue
         if stripped.startswith("|"):
             in_table = True
@@ -160,16 +170,20 @@ def _extract_current_status(markdown: str) -> list[str]:
             # Separator row like "|---|---|"
             if cells and all(set(c) <= set("-: ") and "-" in c for c in cells):
                 seen_separator = True
+                pos += len(line)
                 continue
             # Row before the separator is the header — skip it
             if not seen_separator:
+                pos += len(line)
                 continue
             if len(cells) < 2:
+                pos += len(line)
                 continue
             metric = re.sub(r"\*+", "", cells[0]).strip()
             value = re.sub(r"\*+", "", cells[1]).strip()
             if metric and value:
                 rows.append(f"{metric}: {value}")
+            pos += len(line)
             continue
         # Non-table, non-blank line — if we were parsing a table, it just ended.
         if in_table:
@@ -179,7 +193,18 @@ def _extract_current_status(markdown: str) -> list[str]:
         # the marker) is tolerated so the table can still be found.
         if stripped.startswith("---") or re.match(r"^#{1,6}\s+\S", stripped):
             break
-    return rows
+        pos += len(line)
+
+    # If we couldn't extract any rows, leave the markdown untouched —
+    # we don't want to silently drop content the parser didn't understand.
+    if not rows:
+        return [], markdown
+
+    section_end = pos
+    trimmed = markdown[:section_start] + markdown[section_end:]
+    # Collapse the 3+ consecutive newlines that removal can introduce.
+    trimmed = re.sub(r"\n{3,}", "\n\n", trimmed).strip()
+    return rows, trimmed
 
 
 def _generate_chart(llm, user_query: str, data_context: str) -> dict[str, Any]:
@@ -418,7 +443,9 @@ def response_node(state: SimulationState) -> dict[str, Any]:
 
     logger.info("Response agent generated final output")
 
-    current_status = _extract_current_status(final_response)
+    # Split the Current Status table out of the markdown so the same data
+    # doesn't appear twice (once in current_status, once in final_response).
+    current_status, final_response = _split_current_status(final_response)
 
     return {
         "final_response": final_response,
