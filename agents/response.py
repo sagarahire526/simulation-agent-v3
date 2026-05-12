@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 from datetime import date
 from typing import Any
@@ -110,6 +111,77 @@ def _compact_output(raw: str, max_len: int = 200) -> str:
     return text[:max_len] + "…" if len(text) > max_len else text
 
 
+# "Current Status" section marker — tolerant to all the variants the response
+# model emits in practice:
+#   ## Current Status      (intended — heading prefix)
+#   Current Status         (plain text — model sometimes drops the `##`)
+#   **Current Status**     (bolded)
+#   Current Status:        (trailing colon)
+# Anchored to start-of-line so mid-sentence mentions don't false-match.
+_CURRENT_STATUS_MARKER_RE = re.compile(
+    r"^(?:#{1,6}\s+)?(?:\*\*)?Current Status(?:\*\*)?\s*:?\s*$",
+    re.MULTILINE | re.IGNORECASE,
+)
+
+
+def _extract_current_status(markdown: str) -> list[str]:
+    """
+    Parse the markdown's "Current Status" table into a flat list of
+    "<Metric>: <Value>" strings. Returns [] when the section is absent (TYPE 1 /
+    greeting) or the table can't be parsed.
+
+    Robust to common emission variants — the section title can be a `##`
+    heading, plain text, bold, or end with a colon. The table that follows is
+    found by walking lines after the marker; the parser breaks at the first
+    blank line *after* table rows start, or at the next heading / `---`
+    separator if no table was found.
+
+    Bold markers (`**`) and surrounding whitespace are stripped from each cell.
+    """
+    if not markdown:
+        return []
+    m = _CURRENT_STATUS_MARKER_RE.search(markdown)
+    if not m:
+        return []
+    rows: list[str] = []
+    seen_separator = False
+    in_table = False
+    for line in markdown[m.end():].splitlines():
+        stripped = line.strip()
+        if not stripped:
+            # Blank line ends the table once we've started parsing one;
+            # before the table starts, blanks are tolerated.
+            if in_table:
+                break
+            continue
+        if stripped.startswith("|"):
+            in_table = True
+            cells = [c.strip() for c in stripped.strip("|").split("|")]
+            # Separator row like "|---|---|"
+            if cells and all(set(c) <= set("-: ") and "-" in c for c in cells):
+                seen_separator = True
+                continue
+            # Row before the separator is the header — skip it
+            if not seen_separator:
+                continue
+            if len(cells) < 2:
+                continue
+            metric = re.sub(r"\*+", "", cells[0]).strip()
+            value = re.sub(r"\*+", "", cells[1]).strip()
+            if metric and value:
+                rows.append(f"{metric}: {value}")
+            continue
+        # Non-table, non-blank line — if we were parsing a table, it just ended.
+        if in_table:
+            break
+        # Before the table starts, treat the next heading or "---" as the
+        # boundary of the section. Anything else (e.g. a one-line intro under
+        # the marker) is tolerated so the table can still be found.
+        if stripped.startswith("---") or re.match(r"^#{1,6}\s+\S", stripped):
+            break
+    return rows
+
+
 def _generate_chart(llm, user_query: str, data_context: str) -> dict[str, Any]:
     """
     Ask the LLM to produce a Highcharts-compatible chart spec from the
@@ -202,7 +274,12 @@ def response_node(state: SimulationState) -> dict[str, Any]:
     Reads: refined_query (or user_query), traversal/planner data, errors
     Writes: final_response, calculations, data_summary, current_phase, messages
     """
-    llm = LLMProvider.get_llm("gpt-5-mini", reasoning_effort="medium")
+    # gpt-5-mini is a reasoning model: max_tokens covers BOTH internal reasoning
+    # and visible output. With reasoning_effort="medium" the model can easily
+    # spend 3–5k tokens reasoning before emitting any output — so the default
+    # 4096 cap leaves nothing for the response itself and returns empty content.
+    # 16000 is comfortable for a long structured markdown answer plus reasoning.
+    llm = LLMProvider.get_llm("gpt-5-mini", reasoning_effort="medium", max_tokens=16000)
 
     # Prefer the query refiner's cleaned-up version
     user_query = state.get("user_query") or state["refined_query"]
@@ -334,13 +411,18 @@ def response_node(state: SimulationState) -> dict[str, Any]:
                 data_summary[f"call_{i}_{tc['tool_name']}"] = tc["tool_output"]
 
     # ── Chart generation (fast tier — structured JSON, no deep reasoning) ──
-    chart_llm = LLMProvider.get_llm("gpt-5-mini", temperature=0.0)
+    # Same reasoning-budget caveat as the main response LLM — bump max_tokens
+    # so reasoning + JSON output both fit comfortably.
+    chart_llm = LLMProvider.get_llm("gpt-5-mini", temperature=0.0, max_tokens=8000)
     graph_data = _generate_chart(chart_llm, user_query, data_context)
 
     logger.info("Response agent generated final output")
 
+    current_status = _extract_current_status(final_response)
+
     return {
         "final_response": final_response,
+        "current_status": current_status,
         "execution_algorithm": execution_algorithm,
         "calculations": calculations_output,
         "data_summary": data_summary,

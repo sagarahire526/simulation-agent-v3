@@ -123,6 +123,7 @@ def _shape_response(state: dict) -> dict:
     return {
         "status": "complete",
         "final_response": state.get("final_response", ""),
+        "current_status": state.get("current_status", []),
         "execution_algorithm": state.get("execution_algorithm", ""),
         "errors": state.get("errors", []),
         "routing_decision": state.get("routing_decision", ""),
@@ -189,6 +190,7 @@ def run_query(
             routing_decision=state.get("routing_decision", ""),
             planner_steps=state.get("planner_steps", []),
             final_response=state.get("final_response", ""),
+            current_status=state.get("current_status", []),
             duration_ms=duration_ms,
             graph_data=state.get("graph_data"),
             traces=traces,
@@ -243,6 +245,7 @@ def resume_query(clarification: str, thread_id: str) -> dict:
                 routing_decision=state.get("routing_decision", ""),
                 planner_steps=state.get("planner_steps", []),
                 final_response=state.get("final_response", ""),
+                current_status=state.get("current_status", []),
                 duration_ms=duration_ms,
                 graph_data=state.get("graph_data"),
                 traces=traces,

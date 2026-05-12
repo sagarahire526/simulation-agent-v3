@@ -51,6 +51,7 @@ class ClarificationPayload(BaseModel):
 class SimulateResponse(BaseModel):
     status: str                        # "complete" | "clarification_needed"
     final_response: str
+    current_status: list[str] = []     # Flattened rows from the markdown's "## Current Status" table (sibling to final_response)
     execution_algorithm: str = ""      # Numbered step-by-step narrative of how the system answered
     thread_id: str
     errors: list[str]
@@ -173,6 +174,7 @@ class MessageRecord(BaseModel):
     routing_decision: Optional[str] = None
     planning_rationale: Optional[Any] = None   # JSON array of planner steps
     final_response: Optional[str] = None
+    current_status: list[str] = []             # Flattened rows from the markdown's "## Current Status" table (sibling to final_response)
     algorithm: Optional[str] = None            # Step-by-step execution narrative
     graph: Optional[dict[str, Any]] = None     # Highcharts-compatible chart JSON
     analysis: Optional[dict[str, list]] = None  # Semantic search headings

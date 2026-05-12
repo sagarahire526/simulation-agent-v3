@@ -734,7 +734,7 @@ async def atraversal_node(state: SimulationState) -> dict[str, Any]:
     safe_kg_schema = kg_schema.replace("{", "{{").replace("}", "}}")
     safe_semantic  = semantic_context.replace("{", "{{").replace("}", "}}")
     safe_pt_filter = project_type_filter.replace("{", "{{").replace("}", "}}")
-    print(f"Safe knowledge graph schema is as follows: {safe_kg_schema}")
+    # print(f"Safe knowledge graph schema is as follows: {safe_kg_schema}")
     system_prompt = TRAVERSAL_SYSTEM.format(
         today_date=today_date_context(),
         kg_schema=safe_kg_schema,

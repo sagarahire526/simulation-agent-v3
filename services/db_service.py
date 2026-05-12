@@ -156,6 +156,7 @@ def ensure_tables() -> None:
             routing_decision    VARCHAR(50),
             planning_rationale  JSONB,
             final_response      TEXT,
+            current_status      JSONB,
             algorithm           TEXT,
             graph               JSONB,
             started_at          TIMESTAMP       NOT NULL DEFAULT NOW(),
@@ -210,6 +211,10 @@ def ensure_tables() -> None:
         ALTER TABLE {_SCHEMA}.simulation_agent_queries
             ADD COLUMN IF NOT EXISTS algorithm TEXT;
     """
+    migrate_current_status_col = f"""
+        ALTER TABLE {_SCHEMA}.simulation_agent_queries
+            ADD COLUMN IF NOT EXISTS current_status JSONB;
+    """
     try:
         with _pooled_conn() as conn:
             with conn.cursor() as cur:
@@ -218,6 +223,7 @@ def ensure_tables() -> None:
                 cur.execute(migrate_traces_col)
                 cur.execute(migrate_analysis_col)
                 cur.execute(migrate_algorithm_col)
+                cur.execute(migrate_current_status_col)
         logger.info("pwc_simulation_agent_schema tables verified / created.")
     except Exception as exc:
         logger.error("ensure_tables failed: %s", exc)
@@ -339,6 +345,7 @@ def update_query_complete(
     planner_steps: list[str],
     final_response: str,
     duration_ms: float,
+    current_status: list[str] | None = None,
     graph_data: dict | None = None,
     traces: dict | None = None,
     analysis: dict | None = None,
@@ -347,6 +354,9 @@ def update_query_complete(
     """
     Finalize a completed query.
     planning_rationale is stored as a JSON array of the planner steps.
+    final_response holds the full markdown response.
+    current_status is a sibling field — a JSONB array of flattened "Metric: Value"
+    rows extracted from the markdown's "## Current Status" table.
     graph is stored as a Highcharts-compatible chart JSON object.
     traces is stored as a JSONB object with full execution trace.
     analysis is stored as a JSONB object with semantic search headings.
@@ -354,6 +364,7 @@ def update_query_complete(
     by the fast-tier LLM in parallel with the response agent.
     """
     planning_rationale = _safe_dumps(planner_steps) if planner_steps else None
+    current_status_json = _safe_dumps(current_status) if current_status else None
     graph_json = _safe_dumps(graph_data) if graph_data else None
     traces_json = _safe_dumps(traces) if traces else None
     analysis_json = _safe_dumps(analysis) if analysis else None
@@ -365,6 +376,7 @@ def update_query_complete(
             routing_decision   = %s,
             planning_rationale = %s,
             final_response     = %s,
+            current_status     = %s,
             algorithm          = %s,
             graph              = %s,
             traces             = %s,
@@ -379,6 +391,7 @@ def update_query_complete(
             routing_decision,
             planning_rationale,
             final_response,
+            current_status_json,
             algorithm_text,
             graph_json,
             traces_json,
@@ -561,6 +574,7 @@ def get_messages_by_thread(thread_id: str) -> list[dict]:
             routing_decision,
             planning_rationale,
             final_response,
+            current_status,
             algorithm,
             graph,
             analysis,

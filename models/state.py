@@ -69,6 +69,7 @@ class SimulationState(TypedDict):
 
     # ── Response Agent ──
     final_response: str
+    current_status: list[str]  # Sibling field: flattened rows from the markdown's "## Current Status" table (e.g. "Total Sites: 300"). [] for TYPE 1 / greeting.
     execution_algorithm: str  # Numbered step-by-step narrative of how the system answered the query
     calculations: str  # Show-your-work for transparency
     data_summary: dict[str, Any]  # Structured data for downstream

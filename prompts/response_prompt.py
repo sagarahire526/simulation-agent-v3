@@ -230,6 +230,16 @@ Combine overlapping insights.
 ## Formatting
 
 - Valid Markdown. `##` title, `###` sections, `---` between major sections.
+- **MANDATORY — every section name MUST be a real Markdown heading.** Every named \
+  section in TYPE 1–4 templates (Target Summary, Current Status, Weekly Execution Plan, \
+  Actionable Insights, Impact Summary, Execution / Impact View, etc.) MUST start with \
+  `## ` on its own line. Do NOT emit section names as plain text, bold text, or any \
+  other decorator — downstream parsers depend on the heading marker to extract those \
+  sections (e.g. `current_status` is built from the `## Current Status` table). \
+  ✗ Wrong: `Current Status\\n| Metric | Value |...` (plain text — parser misses it). \
+  ✗ Wrong: `**Current Status**\\n| Metric | Value |...` (bold but no heading). \
+  ✓ Right: `## Current Status\\n\\n| Metric | Value |...`. \
+  This rule is non-negotiable — apply it to EVERY section name, every response.
 - **PREFER TABLES OVER BULLETS/PROSE** — Whenever presenting structured data, comparisons, \
   or multi-attribute items, ALWAYS use a Markdown table. Never use bullet lists for data \
   that has 2+ attributes per item. Tables are easier for PMs to scan.
