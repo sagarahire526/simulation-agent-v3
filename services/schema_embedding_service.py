@@ -3,11 +3,17 @@ Schema Embedding Service — Replaces full KG schema fetch with semantic search
 over pre-embedded nodes and paths stored in PostgreSQL (nokia_embeddings DB).
 
 Flow:
-    1. Load node + path embedding indexes from PG (cached in-memory after first call)
+    1. Load node + path embedding indexes from PG for the requested session_id
+       (cached in-memory per-session after first call)
     2. Embed the user query with OpenAI text-embedding-3-small
     3. Cosine-similarity search → combined top-K (nodes + paths, re-ranked)
     4. For every unique node label in the combined results, fetch its `props` JSONB
     5. Return formatted schema string: combined paths + node property details
+
+Multiple disjoint BKG graphs live in the same Postgres tables, distinguished by
+`session_id`. We resolve the caller's `project_type` (NTM / AHLOB / BOTH / NAS)
+to a session_id and filter every read by it so NAS users never see telecom
+embeddings and vice-versa.
 """
 from __future__ import annotations
 
@@ -24,18 +30,46 @@ from openai import OpenAI
 logger = logging.getLogger(__name__)
 
 EMBED_MODEL = "text-embedding-3-small"
+EMBED_DIM = 1536  # text-embedding-3-small output dim
 DEFAULT_TOP_K = 5
 MIN_SCORE = 0.0  # no floor — caller can override
 
-# ── Module-level cache (thread-safe via lock) ────────────────────────────────
-_lock = threading.Lock()
-_node_rows: list[dict] | None = None
-_node_mat: np.ndarray | None = None
-_path_rows: list[dict] | None = None
-_path_mat: np.ndarray | None = None
-
-
 _PG_SCHEMA = "pwc_agent_utility_schema"
+
+# ── Project type → session_id mapping ────────────────────────────────────────
+# Two disjoint BKG graphs share the same Postgres tables. project_type from the
+# API maps to one of them so each user only ever sees their graph's embeddings.
+SESSION_ID_DEFAULT = "69a3d22f26e208edc083a06e"  # NTM / AHLOB / Both — telecom graph
+SESSION_ID_NAS     = "6a079b6bc1ea92432985ef54"  # NAS
+
+_PROJECT_TYPE_TO_SESSION_ID: dict[str, str] = {
+    "NTM":                      SESSION_ID_DEFAULT,
+    "AHLOB Modernization":      SESSION_ID_DEFAULT,
+    "NTM,AHLOB Modernization":  SESSION_ID_DEFAULT,
+    "NAS":                      SESSION_ID_NAS,
+}
+
+
+def session_id_for_project(project_type: str) -> str:
+    """Resolve a project_type string to its BKG session_id.
+
+    Unknown / empty project_type falls back to the default (telecom) graph so
+    existing callers keep working. A warning is logged so the mismatch is
+    visible without breaking the request.
+    """
+    sid = _PROJECT_TYPE_TO_SESSION_ID.get(project_type)
+    if sid is None:
+        logger.warning(
+            "Unknown project_type=%r — falling back to default session_id=%s",
+            project_type, SESSION_ID_DEFAULT,
+        )
+        return SESSION_ID_DEFAULT
+    return sid
+
+
+# ── Module-level cache (thread-safe via lock), keyed by session_id ───────────
+_lock = threading.Lock()
+_indexes_by_session: dict[str, tuple[list[dict], np.ndarray, list[dict], np.ndarray]] = {}
 
 
 def _pg_emb_conn():
@@ -49,52 +83,69 @@ def _pg_emb_conn():
     )
 
 
-def _load_indexes() -> tuple[list[dict], np.ndarray, list[dict], np.ndarray]:
-    """Load and cache node + path embedding indexes from PostgreSQL."""
-    global _node_rows, _node_mat, _path_rows, _path_mat
+def _load_indexes(session_id: str) -> tuple[list[dict], np.ndarray, list[dict], np.ndarray]:
+    """Load and cache node + path embedding indexes from PostgreSQL for one session.
 
+    Each session_id gets its own cache entry, so the first request for a
+    session pays the load cost and subsequent requests hit memory.
+    """
     with _lock:
-        if _node_rows is not None and _path_rows is not None:
-            return _node_rows, _node_mat, _path_rows, _path_mat
+        cached = _indexes_by_session.get(session_id)
+        if cached is not None:
+            return cached
 
         conn = _pg_emb_conn()
         try:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                # Nodes: element_id, node_id, label, entity_type, embedding
                 cur.execute(
                     f"SELECT element_id, node_id, label, entity_type, embedding "
-                    f"FROM {_PG_SCHEMA}.nodes ORDER BY label"
+                    f"FROM {_PG_SCHEMA}.nodes WHERE session_id = %s ORDER BY label",
+                    (session_id,),
                 )
                 n_rows = [dict(r) for r in cur.fetchall()]
 
-                # Paths: path_id, hops, node_labels, relationship_types, composed_text, embedding
                 cur.execute(
                     f"SELECT path_id, hops, node_labels, relationship_types, "
-                    f"composed_text, embedding FROM {_PG_SCHEMA}.paths"
+                    f"composed_text, embedding FROM {_PG_SCHEMA}.paths "
+                    f"WHERE session_id = %s",
+                    (session_id,),
                 )
                 p_rows = [dict(r) for r in cur.fetchall()]
         finally:
             conn.close()
 
-        # Build and normalise embedding matrices
-        n_mat = np.asarray([r["embedding"] for r in n_rows], dtype=np.float32)
-        n_mat /= np.linalg.norm(n_mat, axis=1, keepdims=True)
-        for r in n_rows:
-            del r["embedding"]
+        if not n_rows and not p_rows:
+            logger.warning(
+                "Schema embedding indexes for session_id=%s are empty. "
+                "Did you run compose_and_embed.py / compose_paths.py for this session?",
+                session_id,
+            )
 
-        p_mat = np.asarray([r["embedding"] for r in p_rows], dtype=np.float32)
-        p_mat /= np.linalg.norm(p_mat, axis=1, keepdims=True)
-        for r in p_rows:
-            del r["embedding"]
+        # Build and normalise embedding matrices. Empty session = empty matrices,
+        # which `search_schema` then handles gracefully.
+        if n_rows:
+            n_mat = np.asarray([r["embedding"] for r in n_rows], dtype=np.float32)
+            n_mat /= np.linalg.norm(n_mat, axis=1, keepdims=True)
+            for r in n_rows:
+                del r["embedding"]
+        else:
+            n_mat = np.zeros((0, EMBED_DIM), dtype=np.float32)
 
-        _node_rows, _node_mat = n_rows, n_mat
-        _path_rows, _path_mat = p_rows, p_mat
+        if p_rows:
+            p_mat = np.asarray([r["embedding"] for r in p_rows], dtype=np.float32)
+            p_mat /= np.linalg.norm(p_mat, axis=1, keepdims=True)
+            for r in p_rows:
+                del r["embedding"]
+        else:
+            p_mat = np.zeros((0, EMBED_DIM), dtype=np.float32)
+
+        _indexes_by_session[session_id] = (n_rows, n_mat, p_rows, p_mat)
 
         logger.info(
-            "Schema embedding indexes loaded: %d nodes, %d paths",
-            len(n_rows), len(p_rows),
+            "Schema embedding indexes loaded for session_id=%s: %d nodes, %d paths",
+            session_id, len(n_rows), len(p_rows),
         )
-        return _node_rows, _node_mat, _path_rows, _path_mat
+        return _indexes_by_session[session_id]
 
 
 def _embed_query(query: str) -> np.ndarray:
@@ -107,8 +158,8 @@ def _embed_query(query: str) -> np.ndarray:
     return vec / (np.linalg.norm(vec) or 1.0)
 
 
-def _fetch_node_props(labels: set[str]) -> dict[str, dict[str, Any]]:
-    """Fetch props JSONB from the nodes table for the given set of labels."""
+def _fetch_node_props(labels: set[str], session_id: str) -> dict[str, dict[str, Any]]:
+    """Fetch props JSONB from the nodes table for the given set of labels, scoped to session_id."""
     if not labels:
         return {}
 
@@ -117,8 +168,8 @@ def _fetch_node_props(labels: set[str]) -> dict[str, dict[str, Any]]:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 f"SELECT label, node_id, entity_type, props FROM {_PG_SCHEMA}.nodes "
-                "WHERE label = ANY(%s)",
-                (list(labels),),
+                "WHERE session_id = %s AND label = ANY(%s)",
+                (session_id, list(labels)),
             )
             rows = cur.fetchall()
     finally:
@@ -177,9 +228,15 @@ def _format_node_props(node_id: str, entity_type: str, props: dict) -> str:
     return "\n".join(lines)
 
 
-def search_schema(query: str, top_k: int = DEFAULT_TOP_K) -> str:
+def search_schema(
+    query: str,
+    top_k: int = DEFAULT_TOP_K,
+    *,
+    project_type: str | None = None,
+    session_id: str | None = None,
+) -> str:
     """
-    Semantic search over embedded KG nodes and paths.
+    Semantic search over embedded KG nodes and paths, scoped to one session.
 
     Returns a formatted string suitable for injection into the traversal
     system prompt as {kg_schema}. Contains:
@@ -187,13 +244,30 @@ def search_schema(query: str, top_k: int = DEFAULT_TOP_K) -> str:
       2. Node property details for every unique node appearing in those paths
 
     Args:
-        query:  The user's (refined) query.
-        top_k:  Number of combined results to return.
+        query:         The user's (refined) query.
+        top_k:         Number of combined results to return.
+        project_type:  API-layer project_type string ("NTM" / "AHLOB Modernization" /
+                       "NTM,AHLOB Modernization" / "NAS"). Resolved to a session_id
+                       via `session_id_for_project`. Ignored if `session_id` is given.
+        session_id:    Explicit BKG session_id override. Takes precedence over
+                       `project_type` — useful for tests / one-off scripts.
 
     Returns:
-        Formatted schema context string.
+        Formatted schema context string. Empty schema text (with a stub header)
+        if no rows exist for the resolved session_id.
     """
-    node_rows, n_mat, path_rows, p_mat = _load_indexes()
+    if session_id is None:
+        session_id = session_id_for_project(project_type or "")
+
+    node_rows, n_mat, path_rows, p_mat = _load_indexes(session_id)
+    if not node_rows and not path_rows:
+        logger.warning(
+            "search_schema: no embeddings available for session_id=%s (project_type=%r). "
+            "Returning empty schema context.",
+            session_id, project_type,
+        )
+        return f"── No KG embeddings indexed for session_id={session_id} ──"
+
     q_vec = _embed_query(query)
 
     # Cosine similarities
@@ -246,8 +320,8 @@ def search_schema(query: str, top_k: int = DEFAULT_TOP_K) -> str:
                         all_labels.add(lbl)
                     break
 
-    # Fetch props for matched nodes
-    node_props = _fetch_node_props(all_labels)
+    # Fetch props for matched nodes (scoped to the same session)
+    node_props = _fetch_node_props(all_labels, session_id)
 
     # ── Format output ────────────────────────────────────────────────────────
     lines = ["── Relevant Graph Paths (ranked by semantic similarity) ──"]
@@ -265,12 +339,13 @@ def search_schema(query: str, top_k: int = DEFAULT_TOP_K) -> str:
     schema_text = "\n".join(lines)
 
     logger.info(
-        "Schema embedding search: query=%s... → %d combined results, %d node details (%d chars)",
-        query[:60], len(top_combined), len(node_props), len(schema_text),
+        "Schema embedding search [session_id=%s]: query=%s... → %d combined results, %d node details (%d chars)",
+        session_id, query[:60], len(top_combined), len(node_props), len(schema_text),
     )
     print(
-        f"\n  \033[92m🔍 Schema embedding search: {len(top_combined)} paths, "
-        f"{len(node_props)} node details ({len(schema_text)} chars)\033[0m",
+        f"\n  \033[92m🔍 Schema embedding search [session_id={session_id}]: "
+        f"{len(top_combined)} paths, {len(node_props)} node details "
+        f"({len(schema_text)} chars)\033[0m",
         flush=True,
     )
 

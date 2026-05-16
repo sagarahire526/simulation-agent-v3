@@ -7,9 +7,16 @@ Tables created:
     edges(edge_id PK, source_id FK, target_id FK, relationship_type)
 
 Run:
-    python compose_and_embed.py --dry-run          # print composed text, no writes
-    python compose_and_embed.py                    # full load
-    python compose_and_embed.py --limit 3          # test with first 3 nodes
+    python compose_and_embed.py                       # auto-discover every session_id in Neo4j and load each
+    python compose_and_embed.py --dry-run             # preview composed text for every session, no writes
+    python compose_and_embed.py --session-id <sid>    # restrict to one session
+    python compose_and_embed.py --limit 3             # cap at first 3 nodes per session (smoke test)
+
+Each BKGNode in Neo4j carries a `session_id` property identifying which graph it
+belongs to. Multiple disjoint graphs can live in the same Neo4j DB; we mirror that
+in Postgres via a `session_id` column on `nodes`/`edges` so each load only touches
+rows for the given session. Without --session-id the script enumerates every
+distinct session_id present on BKGNodes and processes them sequentially.
 """
 from __future__ import annotations
 
@@ -50,6 +57,7 @@ DDL = f"""
 
 CREATE TABLE IF NOT EXISTS {_SCHEMA}.nodes (
     element_id    TEXT PRIMARY KEY,
+    session_id    TEXT NOT NULL,
     node_id       TEXT NOT NULL,
     label         TEXT NOT NULL,
     entity_type   TEXT,
@@ -59,31 +67,47 @@ CREATE TABLE IF NOT EXISTS {_SCHEMA}.nodes (
     props         JSONB NOT NULL,
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE {_SCHEMA}.nodes ADD COLUMN IF NOT EXISTS session_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_nodes_session_id  ON {_SCHEMA}.nodes(session_id);
 CREATE INDEX IF NOT EXISTS idx_nodes_node_id     ON {_SCHEMA}.nodes(node_id);
 CREATE INDEX IF NOT EXISTS idx_nodes_label       ON {_SCHEMA}.nodes(label);
 CREATE INDEX IF NOT EXISTS idx_nodes_entity_type ON {_SCHEMA}.nodes(entity_type);
 
 CREATE TABLE IF NOT EXISTS {_SCHEMA}.edges (
     edge_id           TEXT PRIMARY KEY,
+    session_id        TEXT NOT NULL,
     source_element_id TEXT NOT NULL REFERENCES {_SCHEMA}.nodes(element_id) ON DELETE CASCADE,
     target_element_id TEXT NOT NULL REFERENCES {_SCHEMA}.nodes(element_id) ON DELETE CASCADE,
     relationship_type TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_edges_source ON {_SCHEMA}.edges(source_element_id);
-CREATE INDEX IF NOT EXISTS idx_edges_target ON {_SCHEMA}.edges(target_element_id);
+ALTER TABLE {_SCHEMA}.edges ADD COLUMN IF NOT EXISTS session_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_edges_session_id ON {_SCHEMA}.edges(session_id);
+CREATE INDEX IF NOT EXISTS idx_edges_source  ON {_SCHEMA}.edges(source_element_id);
+CREATE INDEX IF NOT EXISTS idx_edges_target  ON {_SCHEMA}.edges(target_element_id);
 CREATE INDEX IF NOT EXISTS idx_edges_reltype ON {_SCHEMA}.edges(relationship_type);
 """
 
 
-def fetch_nodes_with_neighbors(session) -> list[dict[str, Any]]:
+def fetch_session_ids(session) -> list[str]:
+    """Return every distinct non-null session_id present on BKGNodes, sorted."""
     cypher = """
     MATCH (n:BKGNode)
-    OPTIONAL MATCH (n)-[r_out:RELATES_TO]->(m_out:BKGNode)
+    WHERE n.session_id IS NOT NULL
+    RETURN DISTINCT n.session_id AS session_id
+    ORDER BY session_id
+    """
+    return [r["session_id"] for r in session.run(cypher)]
+
+
+def fetch_nodes_with_neighbors(session, session_id: str) -> list[dict[str, Any]]:
+    cypher = """
+    MATCH (n:BKGNode {session_id: $session_id})
+    OPTIONAL MATCH (n)-[r_out:RELATES_TO]->(m_out:BKGNode {session_id: $session_id})
     WITH n,
          collect(DISTINCT CASE WHEN m_out IS NULL THEN NULL ELSE
             {label: m_out.label, rel: r_out.relationship_type}
          END) AS out_edges
-    OPTIONAL MATCH (n)<-[r_in:RELATES_TO]-(m_in:BKGNode)
+    OPTIONAL MATCH (n)<-[r_in:RELATES_TO]-(m_in:BKGNode {session_id: $session_id})
     WITH n, out_edges,
          collect(DISTINCT CASE WHEN m_in IS NULL THEN NULL ELSE
             {label: m_in.label, rel: r_in.relationship_type}
@@ -95,18 +119,18 @@ def fetch_nodes_with_neighbors(session) -> list[dict[str, Any]]:
            [e IN in_edges  WHERE e IS NOT NULL] AS in_edges
     ORDER BY n.label
     """
-    return [dict(r) for r in session.run(cypher)]
+    return [dict(r) for r in session.run(cypher, session_id=session_id)]
 
 
-def fetch_edges(session) -> list[dict[str, Any]]:
+def fetch_edges(session, session_id: str) -> list[dict[str, Any]]:
     cypher = """
-    MATCH (a:BKGNode)-[r:RELATES_TO]->(b:BKGNode)
+    MATCH (a:BKGNode {session_id: $session_id})-[r:RELATES_TO]->(b:BKGNode {session_id: $session_id})
     RETURN toString(elementId(r)) AS edge_id,
            elementId(a) AS source_element_id,
            elementId(b) AS target_element_id,
            r.relationship_type AS relationship_type
     """
-    return [dict(r) for r in session.run(cypher)]
+    return [dict(r) for r in session.run(cypher, session_id=session_id)]
 
 
 def _contract_params(raw: Any) -> list[str]:
@@ -172,18 +196,20 @@ def ensure_schema(conn) -> None:
     conn.commit()
 
 
-def write_nodes(conn, rows: list[dict[str, Any]]) -> None:
+def write_nodes(conn, session_id: str, rows: list[dict[str, Any]]) -> None:
     with conn.cursor() as cur:
-        cur.execute(f"TRUNCATE {_SCHEMA}.nodes CASCADE")
+        # Only wipe rows for this session — sibling graphs in the same table stay intact.
+        cur.execute(f"DELETE FROM {_SCHEMA}.nodes WHERE session_id = %s", (session_id,))
         psycopg2.extras.execute_values(
             cur,
             f"""
-            INSERT INTO {_SCHEMA}.nodes (element_id, node_id, label, entity_type, node_type, composed_text, embedding, props)
+            INSERT INTO {_SCHEMA}.nodes (element_id, session_id, node_id, label, entity_type, node_type, composed_text, embedding, props)
             VALUES %s
             """,
             [
                 (
                     r["element_id"],
+                    session_id,
                     r["node_id"],
                     r["label"],
                     r["entity_type"],
@@ -198,63 +224,66 @@ def write_nodes(conn, rows: list[dict[str, Any]]) -> None:
     conn.commit()
 
 
-def write_edges(conn, edges: list[dict[str, Any]]) -> None:
+def write_edges(conn, session_id: str, edges: list[dict[str, Any]]) -> None:
     # Dedupe by edge_id to avoid CardinalityViolation if any duplicates slipped in.
     seen: dict[str, dict[str, Any]] = {}
     for e in edges:
         seen.setdefault(e["edge_id"], e)
     deduped = list(seen.values())
     with conn.cursor() as cur:
+        # Node-side DELETE above cascades to edges, but be explicit in case session_id
+        # has stale edges left over from a partial earlier run.
+        cur.execute(f"DELETE FROM {_SCHEMA}.edges WHERE session_id = %s", (session_id,))
         psycopg2.extras.execute_values(
             cur,
             f"""
-            INSERT INTO {_SCHEMA}.edges (edge_id, source_element_id, target_element_id, relationship_type)
+            INSERT INTO {_SCHEMA}.edges (edge_id, session_id, source_element_id, target_element_id, relationship_type)
             VALUES %s
             """,
             [
-                (e["edge_id"], e["source_element_id"], e["target_element_id"], e["relationship_type"])
+                (e["edge_id"], session_id, e["source_element_id"], e["target_element_id"], e["relationship_type"])
                 for e in deduped
             ],
         )
     conn.commit()
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--dry-run", action="store_true", help="print composed text, skip writes")
-    ap.add_argument("--limit", type=int, default=0, help="only process first N nodes (0 = all)")
-    ap.add_argument("--show", type=int, default=2, help="print this many composed examples for sanity")
-    args = ap.parse_args()
+def process_session(
+    neo4j_session,
+    pg_conn,
+    openai_client: OpenAI | None,
+    session_id: str,
+    *,
+    limit: int,
+    show: int,
+    dry_run: bool,
+) -> None:
+    """Fetch + embed + write a single session_id's graph. pg_conn/openai_client may be None on dry-run."""
+    node_rows = fetch_nodes_with_neighbors(neo4j_session, session_id)
+    edges = fetch_edges(neo4j_session, session_id)
 
-    driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
-    with driver.session(database=NEO4J_DATABASE) as s:
-        node_rows = fetch_nodes_with_neighbors(s)
-        edges = fetch_edges(s)
-    driver.close()
-
-    if args.limit:
-        node_rows = node_rows[: args.limit]
+    if limit:
+        node_rows = node_rows[:limit]
         allowed = {r["element_id"] for r in node_rows}
         edges = [
             e for e in edges
             if e["source_element_id"] in allowed and e["target_element_id"] in allowed
         ]
 
-    print(f"Fetched {len(node_rows)} nodes, {len(edges)} edges from Neo4j.")
+    print(f"  fetched {len(node_rows)} nodes, {len(edges)} edges for session_id={session_id}")
 
     composed = [(r, compose_text(r)) for r in node_rows]
-    for r, text in composed[: args.show]:
-        print(f"\n===== {r['props'].get('label')} (node_id={r['node_id']}) =====\n{text}")
+    for r, text in composed[:show]:
+        print(f"\n    ----- {r['props'].get('label')} (node_id={r['node_id']}) -----\n{text}")
 
-    if args.dry_run:
-        print(f"\n[dry-run] Skipped embedding/write for {len(composed)} nodes.")
-        return 0
+    if dry_run:
+        print(f"  [dry-run] skipped embedding/write for {len(composed)} nodes.\n")
+        return
 
-    client = OpenAI(api_key=OPENAI_API_KEY)
     payloads: list[dict[str, Any]] = []
     for i in range(0, len(composed), BATCH_SIZE):
         batch = composed[i : i + BATCH_SIZE]
-        vectors = embed_batch(client, [t for _, t in batch])
+        vectors = embed_batch(openai_client, [t for _, t in batch])
         for (r, text), vec in zip(batch, vectors):
             p = r["props"]
             payloads.append(
@@ -269,21 +298,81 @@ def main() -> int:
                     "props": p,
                 }
             )
-        print(f"  embedded {i + len(batch)}/{len(composed)}")
+        print(f"    embedded {i + len(batch)}/{len(composed)}")
 
-    conn = pg_connect()
+    write_nodes(pg_conn, session_id, payloads)
+    write_edges(pg_conn, session_id, edges)
+    with pg_conn.cursor() as cur:
+        cur.execute(f"SELECT count(*) FROM {_SCHEMA}.nodes WHERE session_id = %s", (session_id,))
+        n_nodes = cur.fetchone()[0]
+        cur.execute(f"SELECT count(*) FROM {_SCHEMA}.edges WHERE session_id = %s", (session_id,))
+        n_edges = cur.fetchone()[0]
+    print(f"  wrote {n_nodes} nodes, {n_edges} edges for session_id={session_id}.\n")
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument(
+        "--session-id",
+        default=None,
+        help="restrict to one BKGNode.session_id; omit to auto-discover and process every session",
+    )
+    ap.add_argument("--dry-run", action="store_true", help="print composed text, skip writes")
+    ap.add_argument("--limit", type=int, default=0, help="cap to first N nodes per session (0 = all)")
+    ap.add_argument("--show", type=int, default=2, help="print this many composed examples per session")
+    args = ap.parse_args()
+
+    driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
     try:
-        ensure_schema(conn)
-        write_nodes(conn, payloads)
-        write_edges(conn, edges)
-        with conn.cursor() as cur:
-            cur.execute(f"SELECT count(*) FROM {_SCHEMA}.nodes")
-            n_nodes = cur.fetchone()[0]
-            cur.execute(f"SELECT count(*) FROM {_SCHEMA}.edges")
-            n_edges = cur.fetchone()[0]
-        print(f"Postgres now has {n_nodes} nodes and {n_edges} edges in `{PG_DATABASE}`.")
+        with driver.session(database=NEO4J_DATABASE) as s:
+            all_sessions = fetch_session_ids(s)
+            if args.session_id:
+                if args.session_id not in all_sessions:
+                    print(
+                        f"WARNING: --session-id={args.session_id} not found in Neo4j "
+                        f"(discovered: {all_sessions}). Proceeding anyway."
+                    )
+                targets = [args.session_id]
+            else:
+                targets = all_sessions
+
+            print(f"Neo4j DB `{NEO4J_DATABASE}` has {len(all_sessions)} distinct session_id(s): {all_sessions}")
+            print(f"Will process {len(targets)} session(s): {targets}\n")
+
+            if not targets:
+                print("Nothing to do.")
+                return 0
+
+            pg_conn = None
+            openai_client: OpenAI | None = None
+            if not args.dry_run:
+                pg_conn = pg_connect()
+                ensure_schema(pg_conn)
+                openai_client = OpenAI(api_key=OPENAI_API_KEY)
+
+            try:
+                for sid in targets:
+                    print(f"===== session_id={sid} =====")
+                    process_session(
+                        s, pg_conn, openai_client, sid,
+                        limit=args.limit, show=args.show, dry_run=args.dry_run,
+                    )
+
+                if pg_conn is not None:
+                    with pg_conn.cursor() as cur:
+                        cur.execute(f"SELECT count(*) FROM {_SCHEMA}.nodes")
+                        total_nodes = cur.fetchone()[0]
+                        cur.execute(f"SELECT count(*) FROM {_SCHEMA}.edges")
+                        total_edges = cur.fetchone()[0]
+                    print(
+                        f"Postgres `{PG_DATABASE}` totals across all sessions: "
+                        f"{total_nodes} nodes, {total_edges} edges."
+                    )
+            finally:
+                if pg_conn is not None:
+                    pg_conn.close()
     finally:
-        conn.close()
+        driver.close()
     return 0
 
 

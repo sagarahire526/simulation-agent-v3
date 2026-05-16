@@ -2,10 +2,16 @@
 Enumerate 1..N-hop simple directed paths in the BKG, linearize each as text,
 embed with OpenAI, and persist to Postgres `paths` table.
 
+Paths are enumerated per `session_id` — graphs for different sessions are disjoint
+in Neo4j, so we filter the node/edge load to a single session and never cross
+session boundaries when walking. The `paths` table carries a `session_id` column
+so multiple graphs can coexist in the same table.
+
 Run:
-    python compose_paths.py                     # default max_hops=3
+    python compose_paths.py                       # auto-discover every session_id in nodes, enumerate paths for each
     python compose_paths.py --max-hops 2
-    python compose_paths.py --dry-run --show 5  # preview path texts
+    python compose_paths.py --session-id <sid>    # restrict to one session
+    python compose_paths.py --dry-run --show 5    # preview path texts for every session, no writes
 """
 from __future__ import annotations
 
@@ -35,9 +41,9 @@ BATCH_SIZE = 128
 _SCHEMA = "pwc_agent_utility_schema"
 
 DDL = f"""
-DROP TABLE IF EXISTS {_SCHEMA}.paths;
-CREATE TABLE {_SCHEMA}.paths (
+CREATE TABLE IF NOT EXISTS {_SCHEMA}.paths (
     path_id             SERIAL PRIMARY KEY,
+    session_id          TEXT NOT NULL,
     hops                INT NOT NULL,
     node_element_ids    TEXT[] NOT NULL,
     node_labels         TEXT[] NOT NULL,
@@ -45,7 +51,9 @@ CREATE TABLE {_SCHEMA}.paths (
     composed_text       TEXT NOT NULL,
     embedding           FLOAT8[] NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_paths_hops ON {_SCHEMA}.paths(hops);
+ALTER TABLE {_SCHEMA}.paths ADD COLUMN IF NOT EXISTS session_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_paths_session_id ON {_SCHEMA}.paths(session_id);
+CREATE INDEX IF NOT EXISTS idx_paths_hops       ON {_SCHEMA}.paths(hops);
 """
 
 
@@ -56,13 +64,28 @@ def pg_connect():
     )
 
 
-def load_graph(conn) -> tuple[dict[str, dict[str, Any]], list[tuple[str, str, str]]]:
-    """Return (node_by_eid, unique_edges as (src, rel, tgt) tuples)."""
+def fetch_session_ids(conn) -> list[str]:
+    """Return every distinct non-null session_id present in nodes, sorted."""
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT DISTINCT session_id FROM {_SCHEMA}.nodes "
+            f"WHERE session_id IS NOT NULL ORDER BY session_id"
+        )
+        return [r[0] for r in cur.fetchall()]
+
+
+def load_graph(conn, session_id: str) -> tuple[dict[str, dict[str, Any]], list[tuple[str, str, str]]]:
+    """Return (node_by_eid, unique_edges as (src, rel, tgt) tuples) scoped to one session."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(f"SELECT element_id, label, entity_type FROM {_SCHEMA}.nodes")
+        cur.execute(
+            f"SELECT element_id, label, entity_type FROM {_SCHEMA}.nodes WHERE session_id = %s",
+            (session_id,),
+        )
         nodes = {r["element_id"]: dict(r) for r in cur.fetchall()}
         cur.execute(
-            f"SELECT source_element_id, target_element_id, relationship_type FROM {_SCHEMA}.edges"
+            f"SELECT source_element_id, target_element_id, relationship_type "
+            f"FROM {_SCHEMA}.edges WHERE session_id = %s",
+            (session_id,),
         )
         raw = cur.fetchall()
     uniq: set[tuple[str, str, str]] = set()
@@ -125,16 +148,18 @@ def embed_batch(client: OpenAI, texts: list[str]) -> list[list[float]]:
     return [d.embedding for d in resp.data]
 
 
-def write_paths(conn, rows: list[dict[str, Any]]) -> None:
+def write_paths(conn, session_id: str, rows: list[dict[str, Any]]) -> None:
     with conn.cursor() as cur:
+        cur.execute(f"DELETE FROM {_SCHEMA}.paths WHERE session_id = %s", (session_id,))
         psycopg2.extras.execute_values(
             cur,
             f"""
-            INSERT INTO {_SCHEMA}.paths (hops, node_element_ids, node_labels, relationship_types, composed_text, embedding)
+            INSERT INTO {_SCHEMA}.paths (session_id, hops, node_element_ids, node_labels, relationship_types, composed_text, embedding)
             VALUES %s
             """,
             [
                 (
+                    session_id,
                     r["hops"],
                     r["node_eids"],
                     r["node_labels"],
@@ -149,60 +174,115 @@ def write_paths(conn, rows: list[dict[str, Any]]) -> None:
     conn.commit()
 
 
+def process_session(
+    conn,
+    openai_client: OpenAI | None,
+    session_id: str,
+    *,
+    max_hops: int,
+    cap: int,
+    show: int,
+    dry_run: bool,
+) -> None:
+    nodes, edges = load_graph(conn, session_id)
+    print(f"  loaded {len(nodes)} nodes, {len(edges)} unique edges for session_id={session_id}")
+
+    if not nodes:
+        print(f"  (nothing to enumerate for session_id={session_id}, skipping)\n")
+        return
+
+    print(f"  enumerating simple paths of length 1..{max_hops} ...")
+    paths = enumerate_paths(nodes, edges, max_hops)
+    by_hops: dict[int, int] = defaultdict(int)
+    for p in paths:
+        by_hops[p["hops"]] += 1
+    print(f"  found {len(paths)} paths: " + ", ".join(f"{h}-hop={by_hops[h]}" for h in sorted(by_hops)))
+
+    if cap and len(paths) > cap:
+        paths = paths[:cap]
+        print(f"  capped to {len(paths)}.")
+
+    for p in paths:
+        text, labels = linearize(p, nodes)
+        p["composed_text"] = text
+        p["node_labels"] = labels
+
+    for p in paths[:show]:
+        print(f"    [{p['hops']}h] {p['composed_text']}")
+
+    if dry_run:
+        print(f"  [dry-run] skipped embedding + write for session_id={session_id}.\n")
+        return
+
+    for i in range(0, len(paths), BATCH_SIZE):
+        batch = paths[i : i + BATCH_SIZE]
+        vectors = embed_batch(openai_client, [p["composed_text"] for p in batch])
+        for p, v in zip(batch, vectors):
+            p["embedding"] = v
+        print(f"    embedded {min(i + BATCH_SIZE, len(paths))}/{len(paths)}")
+
+    write_paths(conn, session_id, paths)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT count(*), avg(array_length(embedding,1)) FROM {_SCHEMA}.paths WHERE session_id = %s",
+            (session_id,),
+        )
+        n, dim = cur.fetchone()
+    print(f"  wrote {n} paths ({int(dim)}-d embeddings) for session_id={session_id}.\n")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
+    ap.add_argument(
+        "--session-id",
+        default=None,
+        help="restrict to one session_id; omit to auto-discover and process every session found in nodes",
+    )
     ap.add_argument("--max-hops", type=int, default=3)
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--show", type=int, default=5)
-    ap.add_argument("--cap", type=int, default=0, help="cap total paths (0=no cap)")
+    ap.add_argument("--cap", type=int, default=0, help="cap total paths per session (0=no cap)")
     args = ap.parse_args()
 
     conn = pg_connect()
     try:
-        nodes, edges = load_graph(conn)
-        print(f"Loaded {len(nodes)} nodes, {len(edges)} unique edges from Postgres.")
-
-        print(f"Enumerating simple paths of length 1..{args.max_hops} ...")
-        paths = enumerate_paths(nodes, edges, args.max_hops)
-        by_hops: dict[int, int] = defaultdict(int)
-        for p in paths:
-            by_hops[p["hops"]] += 1
-        print(f"Found {len(paths)} paths: " + ", ".join(f"{h}-hop={by_hops[h]}" for h in sorted(by_hops)))
-
-        if args.cap and len(paths) > args.cap:
-            paths = paths[: args.cap]
-            print(f"Capped to {len(paths)}.")
-
-        # Linearize
-        for p in paths:
-            text, labels = linearize(p, nodes)
-            p["composed_text"] = text
-            p["node_labels"] = labels
-
-        for p in paths[: args.show]:
-            print(f"  [{p['hops']}h] {p['composed_text']}")
-
-        if args.dry_run:
-            print("[dry-run] Skipped embedding + write.")
-            return 0
-
-        client = OpenAI(api_key=OPENAI_API_KEY)
-        for i in range(0, len(paths), BATCH_SIZE):
-            batch = paths[i : i + BATCH_SIZE]
-            vectors = embed_batch(client, [p["composed_text"] for p in batch])
-            for p, v in zip(batch, vectors):
-                p["embedding"] = v
-            print(f"  embedded {min(i + BATCH_SIZE, len(paths))}/{len(paths)}")
-
+        # DDL runs upfront so an ALTER ADD COLUMN happens before we read or filter on session_id.
         with conn.cursor() as cur:
             cur.execute(DDL)
         conn.commit()
-        write_paths(conn, paths)
+
+        all_sessions = fetch_session_ids(conn)
+        if args.session_id:
+            if args.session_id not in all_sessions:
+                print(
+                    f"WARNING: --session-id={args.session_id} not found in nodes "
+                    f"(discovered: {all_sessions}). Proceeding anyway."
+                )
+            targets = [args.session_id]
+        else:
+            targets = all_sessions
+
+        print(f"Postgres `{PG_DATABASE}` has {len(all_sessions)} distinct session_id(s) in nodes: {all_sessions}")
+        print(f"Will process {len(targets)} session(s): {targets}\n")
+
+        if not targets:
+            print("Nothing to do. (Did you run compose_and_embed.py first?)")
+            return 0
+
+        openai_client: OpenAI | None = None if args.dry_run else OpenAI(api_key=OPENAI_API_KEY)
+
+        for sid in targets:
+            print(f"===== session_id={sid} =====")
+            process_session(
+                conn, openai_client, sid,
+                max_hops=args.max_hops, cap=args.cap, show=args.show, dry_run=args.dry_run,
+            )
 
         with conn.cursor() as cur:
-            cur.execute(f"SELECT count(*), avg(array_length(embedding,1)) FROM {_SCHEMA}.paths")
-            n, dim = cur.fetchone()
-        print(f"Wrote {n} paths ({int(dim)}-d embeddings) to `paths`.")
+            cur.execute(f"SELECT count(*) FROM {_SCHEMA}.paths")
+            total = cur.fetchone()[0]
+        print(f"Postgres `paths` total across all sessions: {total}.")
     finally:
         conn.close()
     return 0

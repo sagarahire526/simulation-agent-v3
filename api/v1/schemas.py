@@ -17,6 +17,7 @@ class ProjectType(str, Enum):
     NTM = "NTM"
     AHLOB = "AHLOB Modernization"
     BOTH = "NTM,AHLOB Modernization"
+    NAS = "NAS"
 
 
 # ── Simulate ──────────────────────────────────────────────────────────────────
@@ -24,7 +25,7 @@ class ProjectType(str, Enum):
 class SimulateRequest(BaseModel):
     user_id: str                       # Supplied via Swagger for now; passed by frontend later
     query: str
-    project_type: ProjectType          # Dropdown: NTM, AHLOB Modernization, or Both
+    project_type: ProjectType          # Dropdown: NTM, AHLOB Modernization, Both, or NAS
     thread_id: Optional[str] = None    # Caller-supplied conversation ID for HITL
 
     model_config = {
@@ -32,7 +33,7 @@ class SimulateRequest(BaseModel):
             "example": {
                 "user_id": "user-001",
                 "query": "How many active GC sites are in Chicago?",
-                "project_type": "NTM",  # Options: "NTM", "AHLOB Modernization", "NTM,AHLOB Modernization"
+                "project_type": "NTM",  # Options: "NTM", "AHLOB Modernization", "NTM,AHLOB Modernization", "NAS"
                 "thread_id": "session-abc-123",
             }
         }

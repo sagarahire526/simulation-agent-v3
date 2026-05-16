@@ -524,9 +524,14 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
     traversal_query = state.get("refined_query") or state["user_query"]
 
     # ── KG schema: per-query embedding search + static table list ─────────
+    # Scope embeddings to the project_type's BKG session_id so NAS/NTM/AHLOB
+    # users never cross-contaminate each other's graphs.
     table_list = state.get("kg_schema", "")  # discover_schema now stores table list only
     try:
-        kg_schema = search_schema(traversal_query) + table_list
+        kg_schema = search_schema(
+            traversal_query,
+            project_type=state.get("project_type", ""),
+        ) + table_list
     except Exception as e:
         logger.warning("Embedding schema search failed (non-fatal): %s", e)
         kg_schema = table_list or "Schema not available"
@@ -716,9 +721,13 @@ async def atraversal_node(state: SimulationState) -> dict[str, Any]:
     query = state.get("refined_query") or state["user_query"]
 
     # ── KG schema: per-query embedding search + static table list ─────────
+    # Scope embeddings to the project_type's BKG session_id (propagated from base_state by the planner).
     table_list = state.get("kg_schema", "")  # discover_schema stores table list only
     try:
-        kg_schema = search_schema(query) + table_list
+        kg_schema = search_schema(
+            query,
+            project_type=state.get("project_type", ""),
+        ) + table_list
     except Exception as e:
         logger.warning("Embedding schema search failed (non-fatal): %s", e)
         kg_schema = table_list or "Schema not available"
