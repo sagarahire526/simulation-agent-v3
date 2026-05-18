@@ -104,81 +104,32 @@ if __name__ == "__main__":
     )
 
 
-# // Step 1: Delete punch_checklist + all its connected edges
-# MATCH (n:BKGNode {
-#     session_id: '69a3d22f26e208edc083a06e',
-#     node_id: 'punch_checklist'
-# })
-# DETACH DELETE n;
+Business Knowledge Graph (BKG) — at a glance
+What it is. The BKG is the "map" our agent uses to understand the business. Instead of asking the agent to remember every table, column, and formula, we draw the business as a network of nodes (things) connected by relationships (how they relate). The agent navigates this network to answer a question.
 
+Two kinds of nodes:
 
-# // Step 2a: Create FEEDS_INTO relationship
-# // quality_session_ndpc -> closeout_package
+Node type	What it is	Example
+Core node	A real-world thing in the business — a noun. It anchors the domain.	Project, Site, General Contractor, Market, Closeout Package
+KPI node	A measurement — a number the business cares about. It pulls data from one or more core nodes and computes a result.	CX to On-Air Backlog, SCOP/COP Quality Rate, Customer & Nokia Approval & Rejection Rate
+A KPI is wired to the core nodes it depends on (e.g., SCOP/COP Quality Rate connects to Project, Site, Market, General Contractor, Closeout Package). When the agent gets a question, it picks the right KPI by following these connections.
 
-# MATCH (a:BKGNode {
-#         session_id: '69a3d22f26e208edc083a06e',
-#         node_id: 'quality_session_ndpc'
-#       }),
-#       (b:BKGNode {
-#         session_id: '69a3d22f26e208edc083a06e',
-#         node_id: 'closeout_package'
-#       })
+What we built in the last 3 months
+1) Smarter retrieval — far less wasted effort
+We tried two approaches for handing the graph to the agent:
 
-# WHERE NOT EXISTS {
-#     MATCH (a)-[r:RELATES_TO]->(b)
-#     WHERE r.relationship_type = 'FEEDS_INTO'
-# }
+Approach A — Brute force (schema dump).
+For every sub-question, we handed the agent the entire graph schema — every node, every relationship, every definition. That was ~80,000 tokens of context per sub-query. Most of it was irrelevant noise the agent had to read through.
 
-# CREATE (a)-[:RELATES_TO {
-#     relationship_type: 'FEEDS_INTO',
-#     edge_id:           '6629d1cc-755a-4fb6-ad2c-d4659339c31f',
-#     session_id:        '69a3d22f26e208edc083a06e',
-#     style:             'solid',
-#     relationship:      'feeds_into',
-#     status:            'confirmed'
-# }]->(b);
+Approach B — Optimal (embedding-based retrieval).
+We pre-computed an "embedding" (a numerical fingerprint of meaning) for every path up to 3 hops out from each node, and stored them in a lookup table. When a question comes in, we search those fingerprints and hand the agent only the paths that actually look relevant.
 
+Result: ~80K → ~5K tokens per sub-query — a ~16× reduction. The agent thinks faster, costs less to run, and gets less distracted by irrelevant context.
 
-# // Step 2b: Create REQUIRES relationship
-# // closeout_package -> integration_activity
-
-# MATCH (a:BKGNode {
-#         session_id: '69a3d22f26e208edc083a06e',
-#         node_id: 'closeout_package'
-#       }),
-#       (b:BKGNode {
-#         session_id: '69a3d22f26e208edc083a06e',
-#         node_id: 'integration_activity'
-#       })
-
-# WHERE NOT EXISTS {
-#     MATCH (a)-[r:RELATES_TO]->(b)
-#     WHERE r.relationship_type = 'REQUIRES'
-# }
-
-# CREATE (a)-[:RELATES_TO {
-#     relationship_type: 'REQUIRES',
-#     edge_id:           'c521cf25-4a5b-495e-b161-772452d82063',
-#     session_id:        '69a3d22f26e208edc083a06e',
-#     style:             'solid',
-#     relationship:      'requires',
-#     status:            'confirmed'
-# }]->(b);
-
-
-# // Step 3: Verification queries
-
-# // Verify node deletion
-# MATCH (n:BKGNode {
-#     session_id: '69a3d22f26e208edc083a06e',
-#     node_id: 'punch_checklist'
-# })
-# RETURN count(n) AS punch_checklist_count;
-
-
-# // Verify closeout_package edge count
-# MATCH (n:BKGNode {
-#     session_id: '69a3d22f26e208edc083a06e',
-#     node_id: 'closeout_package'
-# })-[r:RELATES_TO]-()
-# RETURN count(r) AS closeout_package_edge_count;
+2) Logical refinements that improved data quality
+Geography filter guard. All geo filters (region/area/market/GC) now require IS NOT NULL — rows with missing geography no longer pollute regional roll-ups.
+Cleaner KPI definitions. Several KPIs (e.g., CX to On-Air Backlog, Planned Sites Count) were simplified to use a single canonical date column instead of legacy fallback chains, removing duplicate-counting and ambiguity.
+HSE compliance rules tightened. Refined which projects are counted as in-scope, eliminating false negatives.
+Removed a redundant core node. The old Punch Checklist node duplicated Closeout Package and confused the retrieval agent on "punch"-style keywords. Merged the workflow edges onto Closeout Package and dropped the duplicate.
+Open, consistent filter surfaces. KPIs now accept the same standard set of optional filters (program, region, area, market, GC, project, site, date range), so the agent can mix and match without special-cased branching.
+New KPIs for the customer/Nokia review cycle. Added Customer & Nokia Approval & Rejection Rate and Customer & Nokia Punch Point Count to measure quality-review outcomes from both sides of the workflow — previously only the site-level FTR rate was visible.
