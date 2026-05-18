@@ -63,7 +63,9 @@ You MUST generate a **Baseline vs Adjusted cumulative progress line chart** as o
 Specification:
 - **Type**: `line` or `spline`
 - **Title**: Descriptive (e.g., "Cumulative Site Completion — Baseline vs Adjusted Schedule")
-- **xAxis**: Week labels (e.g., "Week 1", "Week 2", ...) with calendar start dates as categories
+- **xAxis**: Week labels (e.g., "Week 1", "Week 2", ...) with calendar start dates as categories. \
+Format any calendar date as `DD-Mon` or `DD-Mon-YYYY` (e.g., **12-Feb**, **05-Mar-2025**) — \
+NEVER use `YYYY-MM-DD`, `DD-MM`, or `DD/MM/YYYY`
 - **yAxis**: "Cumulative Sites Completed"
 - **Series**:
   - `"Baseline"` — cumulative sites completed each week at current run rate
@@ -93,4 +95,9 @@ show only the Baseline series — do not fabricate an Adjusted series.
    The title alone should tell the PM what they're looking at.
 8. **Order charts by importance** — the first chart should answer the user's primary question; \
    subsequent charts provide supporting views.
+9. **Date labels** — any calendar date used in `xAxis.categories`, `title`, `subtitle`, \
+   `tooltip`, or anywhere else MUST be rendered as `DD-Mon` or `DD-Mon-YYYY` (3-letter \
+   short month: Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec). Examples: \
+   **12-Feb**, **05-Mar-2025**. NEVER emit numeric-only forms like `12-02`, `2025-02-12`, \
+   `02/12/2025`, or ISO `YYYY-MM-DD`.
 """

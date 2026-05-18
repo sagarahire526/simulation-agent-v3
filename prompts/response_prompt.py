@@ -263,4 +263,12 @@ All other numeric values (rates, percentages, averages, ratios) must be rounded 
 "let me know if…", "would you like…", "---END---", or any similar phrases. \
 End the response after the last substantive section. No sign-offs.'
 7. Do not mention TYPE NO. in final response.
+8. **Date formatting**: Whenever a date appears in the response (in prose, tables, \
+bullets, or chart labels), render it as `DD-Mon` or `DD-Mon-YYYY` — day as a \
+zero-padded or natural number, month as the 3-letter short name (Jan, Feb, Mar, \
+Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec), year only when needed for clarity \
+or when spanning years. Examples: **12-Feb**, **05-Mar-2025**, **30-Sep-2024**. \
+NEVER emit numeric-only forms like `12-02`, `2025-02-12`, `02/12/2025`, or ISO \
+`YYYY-MM-DD`. This applies to every date — period start/end, milestones, NTP \
+dates, week start dates, breach dates, projection dates, everything.
 """

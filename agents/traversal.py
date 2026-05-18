@@ -463,11 +463,37 @@ def _build_project_type_filter(project_type_raw: str) -> str:
     `map_python_function` with the user-selected value — without it, the LLM
     sometimes copies the reference's `smp_name = 'NTM'` verbatim and ignores
     the user's selection.
+
+    NAS is special: the `smp_name` column on the macro table only carries
+    'NTM' / 'AHLOB Modernization', so forcing `smp_name = 'NAS'` returns zero
+    rows. For NAS we emit a "DO NOT FILTER" instruction instead.
     """
     if not project_type_raw:
         return ""
 
     types = [t.strip() for t in project_type_raw.split(",") if t.strip()]
+
+    # NAS lives in its own BKG graph and does NOT use the smp_name column on
+    # stg_ndpd_mbt_tmobile_macro_combined. Emit an explicit "drop the clause"
+    # instruction so the LLM neither defaults to `smp_name = 'NAS'` nor copies
+    # an `smp_name = 'NTM'` literal from a telecom reference.
+    if types == ["NAS"]:
+        return (
+            f'- **⚠️ NAS — DO NOT FILTER BY `smp_name`**: The user selected project '
+            f'type **NAS**. The `smp_name` column on '
+            f'`pwc_macro_staging_schema.stg_ndpd_mbt_tmobile_macro_combined` '
+            f'only contains the literal values `\'NTM\'` and '
+            f'`\'AHLOB Modernization\'` — there is NO `\'NAS\'` value. NEVER add '
+            f'`WHERE smp_name = \'NAS\'` (or any other `smp_name` clause) to a NAS '
+            f'query. If a reference function contains an `smp_name = \'...\'` literal, '
+            f'DROP that clause entirely — do not replace it with `\'NAS\'`.\n'
+            f'- **NAS reference functions are NOT branched on `smp_upper`**: For NAS '
+            f'KPIs the `kpi_python_function` body applies as-is; do not look for or '
+            f'copy any NTM / AHLOB branch.\n'
+            f'- **Column name reminder**: The column is `smp_name`, NEVER '
+            f'`pj_project_type`. `pj_project_type` does NOT exist.'
+        )
+
     if len(types) == 1:
         sql_filter = f"smp_name = '{types[0]}'"
         display = types[0]
@@ -572,7 +598,13 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
     project_type_raw = state.get("project_type", "")
     print(f"  {_DIM}Project type in state: '{project_type_raw}'{_RESET}", flush=True)
     project_type_filter = _build_project_type_filter(project_type_raw)
-    if project_type_filter:
+    if project_type_raw == "NAS":
+        print(
+            f"  {_GREEN}✓ NAS — `smp_name` filter intentionally OMITTED "
+            f"(column has no 'NAS' value){_RESET}",
+            flush=True,
+        )
+    elif project_type_filter:
         print(f"  {_GREEN}✓ Project type filter injected for: {project_type_raw}{_RESET}", flush=True)
     else:
         print(f"  {_YELLOW}⚠ No project type in state — smp_name filter NOT applied{_RESET}", flush=True)
