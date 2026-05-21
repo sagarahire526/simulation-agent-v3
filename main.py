@@ -102,19 +102,3 @@ if __name__ == "__main__":
         reload=reload,
         workers=1 if reload else workers,
     )
-
-
-#     Use Case: User asks — "Next month plan for Chicago – 100 sites"
-# The agent should return a week-wise schedule (W1 onwards) with site counts.
-
-# Two Outputs Per Week:
-
-# 1. As-Is — Sites planned per week based on pj_p_4225 (planned construction start date)
-# 2. Simulated — Adjusted plan where future sites are pulled forward to meet the GC run rate (fetched from last 6 months historical data for the geo)
-
-# Key Logic:
-# - If weekly target > historical run rate → use run rate as the truth
-# - Fill gaps by fetching sites with minimum milestone pending from future dates (> asked week, < infinity with milestone ageing)
-# - Milestone check should reference SLA-based milestones (pj_p_milestone_name + SLA) — not just milestone count
-
-# Script Flow: Run rate fetch → week-wise planned sites → pending site check → simulate forward-pull from future dates
