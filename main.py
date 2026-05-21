@@ -104,32 +104,17 @@ if __name__ == "__main__":
     )
 
 
-Business Knowledge Graph (BKG) — at a glance
-What it is. The BKG is the "map" our agent uses to understand the business. Instead of asking the agent to remember every table, column, and formula, we draw the business as a network of nodes (things) connected by relationships (how they relate). The agent navigates this network to answer a question.
+#     Use Case: User asks — "Next month plan for Chicago – 100 sites"
+# The agent should return a week-wise schedule (W1 onwards) with site counts.
 
-Two kinds of nodes:
+# Two Outputs Per Week:
 
-Node type	What it is	Example
-Core node	A real-world thing in the business — a noun. It anchors the domain.	Project, Site, General Contractor, Market, Closeout Package
-KPI node	A measurement — a number the business cares about. It pulls data from one or more core nodes and computes a result.	CX to On-Air Backlog, SCOP/COP Quality Rate, Customer & Nokia Approval & Rejection Rate
-A KPI is wired to the core nodes it depends on (e.g., SCOP/COP Quality Rate connects to Project, Site, Market, General Contractor, Closeout Package). When the agent gets a question, it picks the right KPI by following these connections.
+# 1. As-Is — Sites planned per week based on pj_p_4225 (planned construction start date)
+# 2. Simulated — Adjusted plan where future sites are pulled forward to meet the GC run rate (fetched from last 6 months historical data for the geo)
 
-What we built in the last 3 months
-1) Smarter retrieval — far less wasted effort
-We tried two approaches for handing the graph to the agent:
+# Key Logic:
+# - If weekly target > historical run rate → use run rate as the truth
+# - Fill gaps by fetching sites with minimum milestone pending from future dates (> asked week, < infinity with milestone ageing)
+# - Milestone check should reference SLA-based milestones (pj_p_milestone_name + SLA) — not just milestone count
 
-Approach A — Brute force (schema dump).
-For every sub-question, we handed the agent the entire graph schema — every node, every relationship, every definition. That was ~80,000 tokens of context per sub-query. Most of it was irrelevant noise the agent had to read through.
-
-Approach B — Optimal (embedding-based retrieval).
-We pre-computed an "embedding" (a numerical fingerprint of meaning) for every path up to 3 hops out from each node, and stored them in a lookup table. When a question comes in, we search those fingerprints and hand the agent only the paths that actually look relevant.
-
-Result: ~80K → ~5K tokens per sub-query — a ~16× reduction. The agent thinks faster, costs less to run, and gets less distracted by irrelevant context.
-
-2) Logical refinements that improved data quality
-Geography filter guard. All geo filters (region/area/market/GC) now require IS NOT NULL — rows with missing geography no longer pollute regional roll-ups.
-Cleaner KPI definitions. Several KPIs (e.g., CX to On-Air Backlog, Planned Sites Count) were simplified to use a single canonical date column instead of legacy fallback chains, removing duplicate-counting and ambiguity.
-HSE compliance rules tightened. Refined which projects are counted as in-scope, eliminating false negatives.
-Removed a redundant core node. The old Punch Checklist node duplicated Closeout Package and confused the retrieval agent on "punch"-style keywords. Merged the workflow edges onto Closeout Package and dropped the duplicate.
-Open, consistent filter surfaces. KPIs now accept the same standard set of optional filters (program, region, area, market, GC, project, site, date range), so the agent can mix and match without special-cased branching.
-New KPIs for the customer/Nokia review cycle. Added Customer & Nokia Approval & Rejection Rate and Customer & Nokia Punch Point Count to measure quality-review outcomes from both sides of the workflow — previously only the site-level FTR rate was visible.
+# Script Flow: Run rate fetch → week-wise planned sites → pending site check → simulate forward-pull from future dates
