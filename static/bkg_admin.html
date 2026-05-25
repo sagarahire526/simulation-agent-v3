@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>BKG Admin — Knowledge Graph Editor</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root {
+    --bg: #0f1419;
+    --panel: #1a2028;
+    --panel-2: #232b35;
+    --border: #313a47;
+    --text: #e4e9f0;
+    --muted: #8a96a8;
+    --accent: #4a9eff;
+    --accent-dim: #2a6cb8;
+    --ok: #46c071;
+    --warn: #f0b132;
+    --err: #e85a5a;
+    --kpi: #b86fff;
+    --core: #4a9eff;
+    --context: #46c071;
+    --transaction: #f0b132;
+    --reference: #8a96a8;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; height:100%; background:var(--bg); color:var(--text);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px; }
+  header {
+    display:flex; align-items:center; gap:16px;
+    padding:12px 20px; background:var(--panel); border-bottom:1px solid var(--border);
+  }
+  header h1 { font-size:16px; margin:0; font-weight:600; }
+  header .spacer { flex:1; }
+  select, input, textarea, button {
+    background:var(--panel-2); color:var(--text); border:1px solid var(--border);
+    border-radius:6px; padding:6px 10px; font:inherit;
+  }
+  select { cursor:pointer; }
+  button {
+    cursor:pointer; background:var(--accent-dim); border-color:var(--accent-dim);
+    color:#fff; font-weight:500;
+  }
+  button:hover { background:var(--accent); border-color:var(--accent); }
+  button.ghost { background:transparent; border-color:var(--border); color:var(--text); font-weight:400; }
+  button.ghost:hover { background:var(--panel-2); border-color:var(--accent); }
+  button.danger { background:transparent; border-color:var(--err); color:var(--err); }
+  button.danger:hover { background:var(--err); color:#fff; }
+  button:disabled { opacity:0.45; cursor:not-allowed; }
+
+  main { display:grid; grid-template-columns: 320px 1fr; height: calc(100vh - 53px); }
+  aside {
+    border-right:1px solid var(--border); background:var(--panel);
+    display:flex; flex-direction:column; min-height:0;
+  }
+  aside .filter-bar {
+    padding:10px; border-bottom:1px solid var(--border);
+    display:flex; flex-direction:column; gap:8px;
+  }
+  aside .filter-bar input { width:100%; }
+  aside .filter-bar .row { display:flex; gap:8px; }
+  aside .filter-bar select { flex:1; }
+  aside .node-list { flex:1; overflow:auto; padding:4px 0; }
+  .node-item {
+    padding:8px 14px; cursor:pointer; border-left:3px solid transparent;
+    display:flex; flex-direction:column; gap:2px;
+  }
+  .node-item:hover { background:var(--panel-2); }
+  .node-item.active { background:var(--panel-2); border-left-color:var(--accent); }
+  .node-item .name { font-weight:500; }
+  .node-item .meta { color:var(--muted); font-size:11px; }
+  .badge {
+    display:inline-block; padding:1px 7px; border-radius:10px;
+    font-size:10px; font-weight:600; text-transform:uppercase;
+    background:var(--border); color:var(--text);
+  }
+  .badge.core        { background:var(--core);        color:#0f1419; }
+  .badge.kpi         { background:var(--kpi);         color:#fff;    }
+  .badge.context     { background:var(--context);     color:#0f1419; }
+  .badge.transaction { background:var(--transaction); color:#0f1419; }
+  .badge.reference   { background:var(--reference);   color:#0f1419; }
+
+  section.editor { overflow:auto; padding:20px 28px; min-width:0; }
+  .empty {
+    color:var(--muted); display:flex; align-items:center; justify-content:center;
+    height:100%; font-size:15px;
+  }
+  .editor-header { display:flex; align-items:center; gap:12px; margin-bottom:18px; flex-wrap:wrap; }
+  .editor-header h2 { margin:0; font-size:18px; }
+  .editor-header .id-pill {
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size:12px; color:var(--muted);
+    background:var(--panel); border:1px solid var(--border);
+    padding:3px 8px; border-radius:6px;
+  }
+  .editor-header .spacer { flex:1; }
+
+  .tabs { display:flex; gap:0; border-bottom:1px solid var(--border); margin-bottom:18px; }
+  .tab {
+    padding:8px 16px; cursor:pointer; color:var(--muted);
+    border-bottom:2px solid transparent; user-select:none;
+  }
+  .tab.active { color:var(--text); border-bottom-color:var(--accent); }
+  .tab:hover { color:var(--text); }
+
+  .field { display:flex; flex-direction:column; gap:6px; margin-bottom:14px; }
+  .field label { font-weight:500; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; }
+  .field label .lock { color:var(--warn); font-size:10px; margin-left:8px; }
+  .field input[type="text"], .field textarea {
+    width:100%; font-family: inherit;
+  }
+  .field textarea { resize:vertical; min-height:60px; }
+  .field textarea.code {
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size:12px; min-height:140px;
+  }
+  .field .readonly {
+    background:var(--panel); padding:6px 10px; border-radius:6px;
+    border:1px solid var(--border); color:var(--muted);
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size:12px; word-break:break-all;
+  }
+
+  .rel-list { display:flex; flex-direction:column; gap:8px; }
+  .rel-row {
+    display:flex; align-items:center; gap:10px;
+    background:var(--panel); border:1px solid var(--border); border-radius:6px;
+    padding:8px 12px;
+  }
+  .rel-row .arrow { color:var(--muted); font-family: ui-monospace, monospace; }
+  .rel-row .rel-label {
+    background:var(--accent-dim); color:#fff;
+    padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600;
+  }
+  .rel-row .node-ref { flex:1; min-width:0; }
+  .rel-row .node-ref .id {
+    font-family: ui-monospace, monospace; font-size:11px; color:var(--muted);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+
+  .new-rel-form {
+    display:grid;
+    grid-template-columns: 110px 1fr 1fr 1fr auto;
+    gap:8px; align-items:end; margin-top:10px;
+    padding:10px; background:var(--panel); border:1px dashed var(--border); border-radius:6px;
+  }
+  .new-rel-form .field { margin-bottom:0; }
+
+  .save-bar {
+    position:sticky; bottom:0; background:var(--bg);
+    border-top:1px solid var(--border); margin: 24px -28px -20px;
+    padding:14px 28px; display:flex; gap:10px; align-items:center;
+  }
+  .save-bar .spacer { flex:1; }
+  .save-bar .status { color:var(--muted); font-size:13px; }
+  .save-bar .status.ok { color:var(--ok); }
+  .save-bar .status.err { color:var(--err); }
+
+  /* Modal for "new node" */
+  .modal-bg {
+    position:fixed; inset:0; background:rgba(0,0,0,0.6);
+    display:none; align-items:center; justify-content:center; z-index:50;
+  }
+  .modal-bg.open { display:flex; }
+  .modal {
+    background:var(--panel); border:1px solid var(--border); border-radius:10px;
+    width: min(720px, 92vw); max-height: 90vh; overflow:auto;
+    padding:22px 26px;
+  }
+  .modal h2 { margin-top:0; }
+
+  .toast {
+    position:fixed; bottom:24px; right:24px; z-index:100;
+    background:var(--panel-2); border:1px solid var(--border);
+    padding:10px 16px; border-radius:8px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+    opacity:0; transform: translateY(8px); transition: all 0.2s;
+  }
+  .toast.show { opacity:1; transform: translateY(0); }
+  .toast.ok  { border-color: var(--ok); }
+  .toast.err { border-color: var(--err); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>BKG Admin</h1>
+  <select id="graph-select" title="Knowledge graph">
+    <option value="">Loading graphs…</option>
+  </select>
+  <span class="spacer"></span>
+  <button id="new-node-btn" class="ghost">+ New node</button>
+</header>
+
+<main>
+  <aside>
+    <div class="filter-bar">
+      <input id="search" type="text" placeholder="Search nodes…" />
+      <div class="row">
+        <select id="type-filter">
+          <option value="">All types</option>
+          <option value="core">core</option>
+          <option value="kpi">kpi</option>
+          <option value="context">context</option>
+          <option value="transaction">transaction</option>
+          <option value="reference">reference</option>
+        </select>
+      </div>
+    </div>
+    <div id="node-list" class="node-list"></div>
+  </aside>
+
+  <section class="editor" id="editor">
+    <div class="empty">Select a node on the left to edit its content.</div>
+  </section>
+</main>
+
+<!-- New node modal -->
+<div class="modal-bg" id="modal-bg">
+  <div class="modal">
+    <h2>Create new node</h2>
+    <div class="field">
+      <label>node_id <span class="lock">required, unique within graph</span></label>
+      <input id="new-node-id" type="text" placeholder="e.g. site_inspection" />
+    </div>
+    <div class="field">
+      <label>entity_type</label>
+      <select id="new-node-type">
+        <option value="core">core</option>
+        <option value="context">context</option>
+        <option value="transaction">transaction</option>
+        <option value="reference">reference</option>
+        <option value="kpi">kpi</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>label (display name)</label>
+      <input id="new-node-label" type="text" />
+    </div>
+    <div class="field">
+      <label>definition</label>
+      <textarea id="new-node-definition"></textarea>
+    </div>
+    <div class="field">
+      <label>nl_description</label>
+      <textarea id="new-node-nldesc"></textarea>
+    </div>
+
+    <h3 style="margin-top:24px;">Initial relationships</h3>
+    <p style="color:var(--muted); margin-top:-8px;">
+      KPI ↔ KPI relationships are not allowed and will be rejected.
+    </p>
+    <div id="new-rel-rows"></div>
+    <button class="ghost" id="add-new-rel" style="margin-top:8px;">+ Add relationship</button>
+
+    <div class="save-bar" style="position:static; margin: 22px 0 0; padding:14px 0 0; border-top:1px solid var(--border);">
+      <span class="status" id="new-node-status"></span>
+      <span class="spacer"></span>
+      <button class="ghost" id="cancel-new-node">Cancel</button>
+      <button id="save-new-node">Create node</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+//─ State ─────────────────────────────────────────────────────────────────
+const state = {
+  graphKey: null,
+  graphs: [],
+  nodes: [],          // full list for current graph
+  selected: null,     // detail of selected node {properties, editable_fields, ...}
+  dirty: false,
+};
+
+const api = {
+  base: '/api/v1/bkg-admin',
+  async listGraphs() {
+    const r = await fetch(`${this.base}/graphs`);
+    return (await r.json()).graphs;
+  },
+  async listNodes(graphKey) {
+    const r = await fetch(`${this.base}/nodes?graph_key=${encodeURIComponent(graphKey)}`);
+    return (await r.json()).nodes;
+  },
+  async getNode(graphKey, nodeId) {
+    const r = await fetch(`${this.base}/nodes/${encodeURIComponent(nodeId)}?graph_key=${encodeURIComponent(graphKey)}`);
+    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    return r.json();
+  },
+  async updateNode(graphKey, nodeId, updates) {
+    const r = await fetch(`${this.base}/nodes/${encodeURIComponent(nodeId)}?graph_key=${encodeURIComponent(graphKey)}`, {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({updates}),
+    });
+    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    return r.json();
+  },
+  async createNode(graphKey, body) {
+    const r = await fetch(`${this.base}/nodes?graph_key=${encodeURIComponent(graphKey)}`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    return r.json();
+  },
+  async addRelationship(graphKey, body) {
+    const r = await fetch(`${this.base}/relationships?graph_key=${encodeURIComponent(graphKey)}`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    return r.json();
+  },
+  async deleteNode(graphKey, nodeId) {
+    const r = await fetch(`${this.base}/nodes/${encodeURIComponent(nodeId)}?graph_key=${encodeURIComponent(graphKey)}`, {method:'DELETE'});
+    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    return r.json();
+  },
+  async deleteRelationship(graphKey, edgeId) {
+    const r = await fetch(`${this.base}/relationships/${encodeURIComponent(edgeId)}?graph_key=${encodeURIComponent(graphKey)}`, {method:'DELETE'});
+    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    return r.json();
+  },
+};
+
+//─ Toast ─────────────────────────────────────────────────────────────────
+function toast(msg, kind='ok') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `toast show ${kind}`;
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.className = 'toast', 2800);
+}
+
+//─ Init ──────────────────────────────────────────────────────────────────
+async function init() {
+  state.graphs = await api.listGraphs();
+  const sel = document.getElementById('graph-select');
+  sel.innerHTML = state.graphs.map(g => `<option value="${g.key}">${g.label}</option>`).join('');
+  sel.addEventListener('change', onGraphChange);
+
+  document.getElementById('search').addEventListener('input', renderNodeList);
+  document.getElementById('type-filter').addEventListener('change', renderNodeList);
+  document.getElementById('new-node-btn').addEventListener('click', openNewNodeModal);
+  document.getElementById('cancel-new-node').addEventListener('click', closeNewNodeModal);
+  document.getElementById('add-new-rel').addEventListener('click', () => addNewRelRow());
+  document.getElementById('save-new-node').addEventListener('click', saveNewNode);
+
+  state.graphKey = state.graphs[0].key;
+  sel.value = state.graphKey;
+  await loadNodes();
+}
+
+async function onGraphChange(e) {
+  if (state.dirty && !confirm('You have unsaved changes — switch graphs anyway?')) {
+    document.getElementById('graph-select').value = state.graphKey;
+    return;
+  }
+  state.graphKey = e.target.value;
+  state.selected = null;
+  state.dirty = false;
+  await loadNodes();
+  renderEditor();
+}
+
+async function loadNodes() {
+  state.nodes = await api.listNodes(state.graphKey);
+  renderNodeList();
+}
+
+//─ Node list ─────────────────────────────────────────────────────────────
+function renderNodeList() {
+  const q = document.getElementById('search').value.toLowerCase().trim();
+  const type = document.getElementById('type-filter').value;
+  const filtered = state.nodes.filter(n => {
+    if (type && n.entity_type !== type) return false;
+    if (!q) return true;
+    return (n.node_id||'').toLowerCase().includes(q)
+        || (n.label||'').toLowerCase().includes(q)
+        || (n.name||'').toLowerCase().includes(q);
+  });
+  const list = document.getElementById('node-list');
+  list.innerHTML = filtered.map(n => {
+    const active = state.selected && state.selected.properties.node_id === n.node_id;
+    return `
+      <div class="node-item ${active?'active':''}" data-id="${escapeAttr(n.node_id)}">
+        <div class="name">${escapeHtml(n.label || n.name || n.node_id)}</div>
+        <div class="meta">
+          <span class="badge ${n.entity_type}">${escapeHtml(n.entity_type||'')}</span>
+          ${escapeHtml(n.node_id)}
+        </div>
+      </div>
+    `;
+  }).join('') || `<div style="padding:20px; color:var(--muted);">No nodes match.</div>`;
+  list.querySelectorAll('.node-item').forEach(el => {
+    el.addEventListener('click', () => selectNode(el.dataset.id));
+  });
+}
+
+async function selectNode(nodeId) {
+  if (state.dirty && !confirm('You have unsaved changes — switch nodes anyway?')) return;
+  try {
+    state.selected = await api.getNode(state.graphKey, nodeId);
+    state.dirty = false;
+    renderEditor();
+    renderNodeList(); // refresh active highlight
+  } catch (e) {
+    toast(e.message, 'err');
+  }
+}
+
+//─ Editor ────────────────────────────────────────────────────────────────
+function renderEditor() {
+  const el = document.getElementById('editor');
+  if (!state.selected) {
+    el.innerHTML = '<div class="empty">Select a node on the left to edit its content.</div>';
+    return;
+  }
+  const { properties: p, editable_fields, locked_fields, outgoing, incoming } = state.selected;
+  const et = p.entity_type || 'core';
+
+  el.innerHTML = `
+    <div class="editor-header">
+      <h2>${escapeHtml(p.label || p.name || p.node_id)}</h2>
+      <span class="badge ${et}">${escapeHtml(et)}</span>
+      <span class="id-pill">${escapeHtml(p.node_id)}</span>
+      <span class="spacer"></span>
+      <button class="danger" id="delete-node-btn">Delete node</button>
+    </div>
+
+    <div class="tabs">
+      <div class="tab active" data-tab="content">Content</div>
+      <div class="tab" data-tab="rels">Relationships (${outgoing.length + incoming.length})</div>
+      <div class="tab" data-tab="locked">Locked metadata</div>
+    </div>
+
+    <div id="tab-content"></div>
+
+    <div class="save-bar">
+      <span class="status" id="save-status"></span>
+      <span class="spacer"></span>
+      <button class="ghost" id="reset-btn">Reset</button>
+      <button id="save-btn">Save changes</button>
+    </div>
+  `;
+
+  el.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
+    el.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x === t));
+    renderTab(t.dataset.tab);
+  }));
+  document.getElementById('save-btn').addEventListener('click', saveNode);
+  document.getElementById('delete-node-btn').addEventListener('click', deleteCurrentNode);
+  document.getElementById('reset-btn').addEventListener('click', () => {
+    if (state.dirty && !confirm('Discard changes?')) return;
+    state.dirty = false;
+    renderTab('content');
+  });
+
+  renderTab('content');
+}
+
+function renderTab(name) {
+  const container = document.getElementById('tab-content');
+  const { properties: p, editable_fields, locked_fields, outgoing, incoming } = state.selected;
+
+  if (name === 'content') {
+    container.innerHTML = editable_fields.map(f => {
+      const v = p[f] == null ? '' : String(p[f]);
+      const isCode = f === 'map_python_function' || f === 'kpi_python_function'
+                  || f === 'map_sql_template'    || f === 'kpi_business_logic'
+                  || f === 'map_contract'        || f === 'kpi_contract'
+                  || f === 'kpi_output_schema';
+      const isLong = isCode || v.length > 80
+                  || f === 'definition' || f === 'nl_description' || f === 'nl_business_rule'
+                  || f === 'kpi_description' || f === 'kpi_formula_description';
+      if (isLong) {
+        return `
+          <div class="field">
+            <label>${escapeHtml(f)}</label>
+            <textarea data-field="${escapeAttr(f)}" class="${isCode?'code':''}">${escapeHtml(v)}</textarea>
+          </div>
+        `;
+      }
+      return `
+        <div class="field">
+          <label>${escapeHtml(f)}</label>
+          <input type="text" data-field="${escapeAttr(f)}" value="${escapeAttr(v)}" />
+        </div>
+      `;
+    }).join('');
+    container.querySelectorAll('[data-field]').forEach(inp => {
+      inp.addEventListener('input', () => { state.dirty = true; markDirty(); });
+    });
+  } else if (name === 'rels') {
+    container.innerHTML = `
+      <h3 style="margin-top:0;">Outgoing (this node → other)</h3>
+      <div class="rel-list">${
+        outgoing.length === 0 ? '<div style="color:var(--muted);">No outgoing relationships.</div>'
+        : outgoing.map(r => relRow(r, 'out')).join('')
+      }</div>
+
+      <h3 style="margin-top:24px;">Incoming (other → this node)</h3>
+      <div class="rel-list">${
+        incoming.length === 0 ? '<div style="color:var(--muted);">No incoming relationships.</div>'
+        : incoming.map(r => relRow(r, 'in')).join('')
+      }</div>
+
+      <h3 style="margin-top:24px;">Add new relationship</h3>
+      <div class="new-rel-form">
+        <div class="field">
+          <label>direction</label>
+          <select id="rel-direction">
+            <option value="out">→ outgoing</option>
+            <option value="in">← incoming</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>other node</label>
+          <select id="rel-target"></select>
+        </div>
+        <div class="field">
+          <label>relationship_type</label>
+          <input id="rel-type" type="text" placeholder="e.g. CONTAINS" />
+        </div>
+        <div class="field">
+          <label>relationship (human)</label>
+          <input id="rel-human" type="text" placeholder="contains (optional)" />
+        </div>
+        <button id="add-rel-btn">Add</button>
+      </div>
+    `;
+    const tgt = document.getElementById('rel-target');
+    tgt.innerHTML = state.nodes
+      .filter(n => n.node_id !== p.node_id)
+      .map(n => `<option value="${escapeAttr(n.node_id)}">${escapeHtml(n.label||n.node_id)} (${escapeHtml(n.entity_type)})</option>`)
+      .join('');
+
+    container.querySelectorAll('button.delete-rel').forEach(btn => {
+      btn.addEventListener('click', () => deleteRel(btn.dataset.edge));
+    });
+    document.getElementById('add-rel-btn').addEventListener('click', addRel);
+  } else if (name === 'locked') {
+    const lockedRows = locked_fields.map(f => `
+      <div class="field">
+        <label>${escapeHtml(f)} <span class="lock">read-only</span></label>
+        <div class="readonly">${escapeHtml(p[f] == null ? '—' : String(p[f]))}</div>
+      </div>
+    `).join('');
+    container.innerHTML = lockedRows;
+  }
+}
+
+function relRow(r, dir) {
+  const otherId    = dir==='out' ? r.target_node_id     : r.source_node_id;
+  const otherLabel = dir==='out' ? r.target_label       : r.source_label;
+  const otherType  = dir==='out' ? r.target_entity_type : r.source_entity_type;
+  return `
+    <div class="rel-row">
+      <span class="rel-label">${escapeHtml(r.relationship_type || r.relationship || '?')}</span>
+      <span class="arrow">${dir==='out' ? '→' : '←'}</span>
+      <div class="node-ref">
+        <div>${escapeHtml(otherLabel || otherId)} <span class="badge ${otherType||''}">${escapeHtml(otherType||'')}</span></div>
+        <div class="id">${escapeHtml(otherId)}</div>
+      </div>
+      <button class="danger delete-rel" data-edge="${escapeAttr(r.edge_id)}">Remove</button>
+    </div>
+  `;
+}
+
+function markDirty() {
+  const s = document.getElementById('save-status');
+  if (s) { s.textContent = 'unsaved changes'; s.className = 'status'; }
+}
+
+async function saveNode() {
+  const updates = {};
+  document.querySelectorAll('[data-field]').forEach(inp => {
+    updates[inp.dataset.field] = inp.value;
+  });
+  const status = document.getElementById('save-status');
+  status.textContent = 'saving…'; status.className = 'status';
+  try {
+    await api.updateNode(state.graphKey, state.selected.properties.node_id, updates);
+    state.dirty = false;
+    status.textContent = 'saved'; status.className = 'status ok';
+    toast('Node saved', 'ok');
+    // refresh
+    state.selected = await api.getNode(state.graphKey, state.selected.properties.node_id);
+    await loadNodes();
+    renderEditor();
+  } catch (e) {
+    status.textContent = e.message; status.className = 'status err';
+    toast(e.message, 'err');
+  }
+}
+
+async function deleteCurrentNode() {
+  const p = state.selected.properties;
+  const relCount = state.selected.outgoing.length + state.selected.incoming.length;
+  const warning = relCount > 0
+    ? `\n\nThis will also delete ${relCount} attached relationship${relCount===1?'':'s'}.`
+    : '';
+  if (!confirm(`Delete node "${p.label || p.node_id}"?${warning}\n\nThis cannot be undone.`)) return;
+  try {
+    const res = await api.deleteNode(state.graphKey, p.node_id);
+    toast(`Deleted node and ${res.deleted_relationships} relationship(s)`, 'ok');
+    state.selected = null;
+    state.dirty = false;
+    await loadNodes();
+    renderEditor();
+  } catch (e) {
+    toast(e.message, 'err');
+  }
+}
+
+async function addRel() {
+  const direction = document.getElementById('rel-direction').value;
+  const target    = document.getElementById('rel-target').value;
+  const rtype     = document.getElementById('rel-type').value.trim();
+  const rhuman    = document.getElementById('rel-human').value.trim();
+  if (!rtype) return toast('relationship_type is required', 'err');
+  const me = state.selected.properties.node_id;
+  const body = direction==='out'
+    ? {source_node_id: me, target_node_id: target, relationship_type: rtype, relationship: rhuman || null}
+    : {source_node_id: target, target_node_id: me, relationship_type: rtype, relationship: rhuman || null};
+  try {
+    await api.addRelationship(state.graphKey, body);
+    toast('Relationship added', 'ok');
+    state.selected = await api.getNode(state.graphKey, me);
+    renderTab('rels');
+  } catch (e) {
+    toast(e.message, 'err');
+  }
+}
+
+async function deleteRel(edgeId) {
+  if (!confirm('Delete this relationship?')) return;
+  try {
+    await api.deleteRelationship(state.graphKey, edgeId);
+    toast('Relationship deleted', 'ok');
+    state.selected = await api.getNode(state.graphKey, state.selected.properties.node_id);
+    renderTab('rels');
+  } catch (e) {
+    toast(e.message, 'err');
+  }
+}
+
+//─ New node modal ────────────────────────────────────────────────────────
+function openNewNodeModal() {
+  document.getElementById('modal-bg').classList.add('open');
+  ['new-node-id','new-node-label','new-node-definition','new-node-nldesc']
+    .forEach(id => document.getElementById(id).value = '');
+  document.getElementById('new-node-type').value = 'core';
+  document.getElementById('new-rel-rows').innerHTML = '';
+  document.getElementById('new-node-status').textContent = '';
+  addNewRelRow();
+}
+function closeNewNodeModal() {
+  document.getElementById('modal-bg').classList.remove('open');
+}
+
+function addNewRelRow() {
+  const container = document.getElementById('new-rel-rows');
+  const idx = container.children.length;
+  const optionsHtml = state.nodes
+    .map(n => `<option value="${escapeAttr(n.node_id)}">${escapeHtml(n.label||n.node_id)} (${escapeHtml(n.entity_type)})</option>`)
+    .join('');
+  const row = document.createElement('div');
+  row.className = 'new-rel-form';
+  row.style.marginTop = '8px';
+  row.innerHTML = `
+    <div class="field"><label>direction</label>
+      <select class="r-dir">
+        <option value="out">→ outgoing</option>
+        <option value="in">← incoming</option>
+      </select>
+    </div>
+    <div class="field"><label>target</label>
+      <select class="r-tgt">${optionsHtml}</select>
+    </div>
+    <div class="field"><label>relationship_type</label>
+      <input class="r-type" type="text" placeholder="CONTAINS" />
+    </div>
+    <div class="field"><label>relationship (human)</label>
+      <input class="r-human" type="text" placeholder="contains" />
+    </div>
+    <button class="ghost danger r-del">×</button>
+  `;
+  container.appendChild(row);
+  row.querySelector('.r-del').addEventListener('click', () => row.remove());
+}
+
+async function saveNewNode() {
+  const status = document.getElementById('new-node-status');
+  const node_id = document.getElementById('new-node-id').value.trim();
+  const entity_type = document.getElementById('new-node-type').value;
+  if (!node_id) { status.textContent = 'node_id is required'; status.className='status err'; return; }
+  const properties = {
+    label: document.getElementById('new-node-label').value,
+    definition: document.getElementById('new-node-definition').value,
+    nl_description: document.getElementById('new-node-nldesc').value,
+    name: node_id, // sensible default; user can edit later
+  };
+  const rels = [];
+  document.querySelectorAll('#new-rel-rows .new-rel-form').forEach(row => {
+    const direction = row.querySelector('.r-dir').value;
+    const target    = row.querySelector('.r-tgt').value;
+    const rtype     = row.querySelector('.r-type').value.trim();
+    const rhuman    = row.querySelector('.r-human').value.trim();
+    if (!target || !rtype) return; // skip incomplete
+    rels.push({direction, target_node_id: target, relationship_type: rtype, relationship: rhuman || null});
+  });
+
+  status.textContent = 'creating…'; status.className='status';
+  try {
+    await api.createNode(state.graphKey, {
+      node_id, entity_type, properties, relationships: rels,
+    });
+    toast(`Node "${node_id}" created`, 'ok');
+    closeNewNodeModal();
+    await loadNodes();
+    await selectNode(node_id);
+  } catch (e) {
+    status.textContent = e.message; status.className='status err';
+  }
+}
+
+//─ Escape helpers ────────────────────────────────────────────────────────
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[c]));
+}
+function escapeAttr(s) { return escapeHtml(s); }
+
+init();
+</script>
+</body>
+</html>

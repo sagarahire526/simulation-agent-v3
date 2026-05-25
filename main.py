@@ -49,6 +49,8 @@ Swagger UI:  http://localhost:8000/docs
 ReDoc:       http://localhost:8000/redoc
 """
 from contextlib import asynccontextmanager
+from pathlib import Path
+from fastapi.responses import FileResponse
 from api.v1.router import router as v1_router
 import services.db_service as db_svc
 
@@ -85,6 +87,13 @@ async def root():
     }
 
 app.include_router(v1_router, prefix="/api")
+
+
+@app.get("/bkg-admin", tags=["BKG Admin UI"], include_in_schema=False)
+async def bkg_admin_ui():
+    """Serve the single-page BKG admin interface."""
+    html_path = Path(__file__).parent / "static" / "bkg_admin.html"
+    return FileResponse(html_path)
 
 if __name__ == "__main__":
     import os
