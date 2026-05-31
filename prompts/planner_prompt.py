@@ -377,6 +377,26 @@ Workfront sub-query.
 `pj_project_id`, `s_site_id`, `smp_name`
 - Date range (on entitlement-complete date): `start_date`, `end_date`
 
+## Construction Plan Forecast KPI — Planning / Scheduling Queries
+When the user asks to **plan, schedule, or forecast a target number of sites over a future \
+window** (e.g. "plan 500 sites in next 2 months", "what sites can we ready for Cx start in \
+the next 6 weeks", "build a week-by-week plan for 1,000 sites by quarter-end"), there is a \
+dedicated KPI that answers this end-to-end: the **Construction Plan Forecast**. It returns \
+committed sites (planned start in window) + pull-forward candidates (planned later but with \
+high pre-requisite completion), bucketed by week, with a GC run-rate capacity ceiling.
+
+**Step phrasing rule for these queries:**
+- Include ONE step that asks for the construction plan forecast in business language — \
+  e.g. *"Sub-query 1: Retrieve the week-by-week construction plan forecast for {{N}} sites \
+  over the next {{M}} months, including committed sites planned in window, pull-forward \
+  candidates with pre-requisite completion ≥ 80%, and the GC run-rate weekly capacity."* \
+  Do NOT decompose this into separate "committed" / "pull-forward" / "capacity" steps — the \
+  KPI returns all three together; splitting them creates redundant retrievals.
+- If the user named additional concerns (specific blockers, GC performance, regional \
+  breakdowns), add those as separate sub-queries per Rule 2a — but the forecast step stays \
+  as the single primary retrieval.
+- Carry user filters (region, market, project_type) into the forecast step.
+
 ## Rules
 - Each step string MUST start with "Sub-query N: " where N is the step number.
 - **NEVER fabricate identifiers**: Do not include numeric IDs (e.g. `kpi_id: 783134`), \

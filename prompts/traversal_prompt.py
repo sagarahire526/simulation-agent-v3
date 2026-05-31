@@ -139,6 +139,44 @@ Civil stages are optional for some projects.
 Whenever a query involves completed sites, remaining sites, completion %, or progress tracking, \
 you MUST include Workfront KPI data — even if the query doesn't explicitly say "completed".
 
+**Construction Plan Forecast — Planning / Scheduling sub-queries** — \
+When the sub-query asks to **plan, schedule, or forecast a target number of sites over a \
+future window** (e.g. "week-by-week construction plan for 500 sites in next 2 months", \
+"pull-forward candidates for the next 6 weeks"), use the **Construction Plan Forecast** KPI \
+node (`cpf-001-construction-plan-forecast`). Special execution path — it ships its own \
+algorithm and SLA DAG on the node:
+
+1. `get_kpi('cpf-001-construction-plan-forecast')` — returns `kpi_python_function` (full \
+   `build_plan` source), `kpi_sla_dag` (JSON DAG of milestones + SLA day weights per \
+   project_type), `kpi_contract` (input/output schema), and config defaults \
+   (`kpi_prereq_threshold_default`, `kpi_window_days_default`).
+2. ONE `run_sql_python` call that:
+   ```python
+   import json
+   sla_dag = json.loads(<kpi_sla_dag value>)
+   exec(<kpi_python_function value>)   # defines build_plan
+   plan = build_plan(target_sites=<N from query>,
+                     window_days=<M*30 if user said months, else as stated>,
+                     prereq_threshold=0.80,
+                     project_type=<NTM | AHLOB based on user query/filter>,
+                     sla_dag=sla_dag,
+                     execute_query=execute_query)
+   result = {{"summary": plan["summary"],
+              "weekly_buckets": plan["weekly_buckets"],
+              "capacity": plan["capacity"],
+              "pull_forward_sites": plan["pull_forward_sites"][:50],
+              "total_pull_forward_sites": len(plan["pull_forward_sites"]),
+              "config": plan["config"]}}
+   ```
+   Do NOT write your own SQL or your own forecast logic — the embedded `build_plan` IS the \
+   logic. Substitute params from the sub-query (target_sites, window_months → window_days) \
+   and the user's project_type filter; everything else is a default on the node.
+3. STOP — the result dict is the findings.
+
+This is the ONE case where `kpi_python_function` is meant to be exec'd verbatim (with \
+parameter substitution) rather than treated as a reference; the rule at STEP 2b "do not \
+copy verbatim" does NOT apply here.
+
 **Site Identifier Override — ALWAYS use `s_site_id`, NEVER `pj_project_id`** — \
 When writing any SQL/Python in `run_sql_python`, you MUST count, group by, join on, \
 and de-duplicate using **`s_site_id`** as the site identifier. This applies even when \

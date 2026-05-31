@@ -71,6 +71,94 @@ unless user explicitly asked for it.
 When the user asks to build a schedule, plan rollout timing, forecast completion, \
 or any query involving timelines and dependencies:
 
+#### TYPE 2-A — Construction Plan Forecast output (pre-computed plan, render-only)
+
+**Detection — apply BEFORE Type 2's scheduling rules.** If any traversal step returned \
+a JSON object containing **all** of these keys: `summary`, `weekly_buckets`, `capacity`, \
+`pull_forward_sites` (the signature output of the `Construction Plan Forecast` KPI \
+`cpf-001-construction-plan-forecast`), then the plan has **already been computed** by \
+the `build_plan` algorithm on the KG node. **Render it directly using the rules in \
+this 2-A sub-section. Do NOT apply the FORBIDDEN MATH / REALISTIC SCHEDULING RULES \
+listed in the rest of TYPE 2** — those rules tell you to derive a weekly schedule from \
+raw run-rate × remaining-sites, which would double-compute and contradict the \
+authoritative `weekly_buckets`.
+
+Required sections (in order):
+
+1. **Target Summary** — 2-3 sentences. Use the fields from `summary` verbatim. \
+   Mandatory numbers in BOLD: `target`, `committed_count`, `pull_forward_count`, \
+   `total_in_window`, `gap_vs_target`. Mandatory phrasing: *"Of the **<target>** sites \
+   the plan needs, **<committed_count>** are already planned to start within the next \
+   <window_days> days and **<pull_forward_count>** more are pull-forward candidates \
+   (planned later but pre-requisites are ≥<prereq_threshold×100>% complete), leaving \
+   a gap of **<gap_vs_target>** sites."*
+
+2. **Current Status** — compact table built from `summary` + `capacity`:
+   | Metric | Value |
+   |--------|-------|
+   | Committed (planned in window) | `<summary.committed_count>` |
+   | Pull-forward candidates | `<summary.pull_forward_count>` |
+   | Total covered in window | `<summary.total_in_window>` |
+   | Gap vs target | `<summary.gap_vs_target>` |
+   | GC run-rate weekly cap | `<capacity.weekly_cap>` (from `<capacity.completed_last_60d>` completions in last 60d) |
+
+3. **Weekly Execution Plan** — one row per item in `weekly_buckets`, in order. Use \
+   this exact column layout (do NOT add Cumulative; do NOT compute Adjusted columns; \
+   do NOT change the math):
+   | Week | Start Date | Committed | Pull-Forward | Total | Capacity Cap | Status |
+   |------|------------|-----------|--------------|-------|--------------|--------|
+   - **Week**: 1-indexed (Week 1 = first bucket).
+   - **Start Date**: format `<week_start>` as `Mon DD, YYYY` (e.g. "Jun 01, 2026").
+   - **Committed / Pull-Forward / Total / Capacity Cap**: take values verbatim from the bucket.
+   - **Status**: emit `⚠️ Over capacity` (or plain text "Over capacity") when \
+     `over_capacity == true`; otherwise leave the cell empty or write `On track`.
+   - **No Cumulative column**, no Adjusted column, no flat-rate stamping, no \
+     partial-first-week recomputation — the `build_plan` algorithm already determined \
+     which sites land in which ISO week from their `pj_p_4225` or forecast date.
+   - If `weekly_buckets` is empty, write: *"No sites land in this window — the gap \
+     equals the full target. See Actionable Insights below for what to expedite."*
+
+4. **Pull-Forward Detail** *(include only when `pull_forward_sites` is non-empty AND \
+   the user asked anything site-level or about which sites are unblocked-soon)*. \
+   Show the first 10 entries from `pull_forward_sites`, sorted by `forecast_cx_ready` \
+   ascending:
+   | Site ID | Planned Cx | Forecast Cx-Ready | Pre-req % | Last Milestone | Blockers |
+   |---------|-----------|-------------------|-----------|----------------|----------|
+   Cite total count below the table: *"Showing 10 of `<total>` pull-forward candidates."*
+
+5. **Actionable Insights** — same MANDATORY TABLE FORMAT as the rest of TYPE 2 \
+   (Action | Data Observation | Why It Matters | Expected Impact). Derive each row \
+   from the actual data in this output:
+   - If any week has `over_capacity == true`: one row recommending which work to \
+     defer/shift, citing the over-cap week's `total` vs `capacity_cap`.
+   - If `pull_forward_sites` exists: aggregate `blockers` across the candidate list. \
+     The top-2 blockers (by frequency) become rows: *"Expedite `<blocker>` for \
+     `<count>` sites to convert pull-forward candidates into committed."* with \
+     Expected Impact quantified as "+`<count>` sites land in window".
+   - If `gap_vs_target > 0`: one row recommending where the remaining gap comes from \
+     (e.g. lower the pre-req threshold to widen the pull-forward pool, or accept \
+     fewer sites in window).
+   Skip any row you cannot quantify from the data; do not pad with generic advice.
+
+6. **Impact Summary** — 2-3 sentences. State (a) how many sites of the target the \
+   plan covers (`<total_in_window>/<target>`), (b) the largest over-capacity week if \
+   any (week + delta), (c) the single highest-impact expedite suggested in section 5.
+
+**Things to NOT do in 2-A** (each of these will produce a wrong plan):
+- Do not re-bucket sites yourself from raw rows — the buckets are authoritative.
+- Do not compute weeks-needed = remaining/run-rate — that's a different model.
+- Do not add a partial-first-week ramp — `build_plan` already used real planned/ \
+  forecasted dates per site, not a flat weekly rate.
+- Do not show an "Adjusted" column unless the user *explicitly* asked for a \
+  what-if (e.g. "what if we raise the prereq threshold to 90%?"). For that, the \
+  agent should have re-run `build_plan` with the new params and produced a second \
+  output — render both side by side, do not algebraically derive the second one.
+
+---
+
+**For all OTHER scheduling/forecasting queries (no `weekly_buckets` in the data) — \
+apply the original TYPE 2 structure below.**
+
 1. **Target Summary** — 2-3 sentences answering the core question with key numbers in BOLD. \
    What the target is, the current state, and the gap. **This goes first** — a PM \
    opening the response should see the answer before the supporting data.
