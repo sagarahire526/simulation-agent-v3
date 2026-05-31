@@ -53,13 +53,65 @@ def collect_columns_from_sla_dag(dag: dict) -> set[str]:
 
 def fetch_sla_dag_from_kg() -> dict:
     nt = Neo4jTool()
+
+    # 1. Broad diagnostic — what does Neo4j see for this id?
+    diag = nt.run_cypher(
+        """
+        MATCH (n:BKGNode {node_id: $nid})
+        RETURN n.node_id          AS node_id,
+               n.label            AS label,
+               n.entity_type      AS entity_type,
+               n.kpi_sla_dag      IS NOT NULL AS has_sla_dag,
+               size(coalesce(n.kpi_sla_dag, '')) AS dag_chars,
+               size(coalesce(n.kpi_python_function, '')) AS fn_chars
+        """,
+        {"nid": NODE_ID},
+    )
+    print(f"[diag] run_cypher status: {diag.get('status')}")
+    print(f"[diag] keys in response : {sorted(diag.keys())}")
+    rows = diag.get("records") or diag.get("results") or diag.get("rows") or []
+    print(f"[diag] record count     : {len(rows)}")
+    if rows:
+        print(f"[diag] first row        : {rows[0]}")
+
+    if not rows:
+        # Fallback diagnostics — count BKGNodes overall and prefix-search for our id.
+        total = nt.run_cypher("MATCH (n:BKGNode) RETURN count(n) AS c")
+        prefix = nt.run_cypher(
+            "MATCH (n:BKGNode) WHERE n.node_id STARTS WITH 'cpf' "
+            "RETURN n.node_id AS node_id LIMIT 10"
+        )
+        print(f"[diag] total BKGNodes in this DB : {(total.get('records') or [{}])[0].get('c')}")
+        print(f"[diag] node_ids matching 'cpf...': "
+              f"{[r.get('node_id') for r in (prefix.get('records') or [])]}")
+        sys.exit(
+            f"\nnode '{NODE_ID}' not in Neo4j (or your Neo4jTool is pointed at a different DB).\n"
+            "Likely causes:\n"
+            "  1. Forgot to run: python3 -m scripts.load_cpf_node --force\n"
+            "  2. The .env / config picked a different Neo4j database than the one you loaded into\n"
+            "     (check config.neo4j.database). Confirm with: MATCH (n {node_id:'cpf-001-...'}) RETURN n;\n"
+            "     in the same browser session this script connects to.\n"
+            "  3. The loader wrote to a different node_id (check the [verify] line from load output).\n"
+        )
+
+    row = rows[0]
+    if not row.get("has_sla_dag"):
+        sys.exit(
+            f"node '{NODE_ID}' EXISTS but kpi_sla_dag is missing/empty. "
+            "The cypher append probably needs a re-load with --force after the latest patch."
+        )
+    if row.get("dag_chars", 0) < 100:
+        sys.exit(f"kpi_sla_dag suspiciously small ({row['dag_chars']} chars) — re-load with --force.")
+    return json.loads(row.get("kpi_sla_dag") or row.get("dag") or "{}") if False else _refetch_dag(nt)
+
+
+def _refetch_dag(nt: Neo4jTool) -> dict:
+    """Second-step fetch now that we've confirmed the node exists with a valid SLA DAG."""
     out = nt.run_cypher(
         "MATCH (n:BKGNode {node_id: $nid}) RETURN coalesce(n.kpi_sla_dag, '{}') AS dag",
         {"nid": NODE_ID},
     )
     rows = out.get("records") or []
-    if not rows:
-        sys.exit(f"node '{NODE_ID}' not in Neo4j — run scripts/load_cpf_node.py first")
     return json.loads(rows[0]["dag"])
 
 
@@ -70,7 +122,7 @@ def run_inspect(with_samples: bool) -> None:
     print(f"\n[info] SLA DAG references {len(sla_cols)} milestone columns")
     print(f"[info] + {len(FIXED_COLUMNS)} fixed + {len(FILTER_COLUMNS)} filter columns")
 
-    main_columns = sorted(sla_cols | FIXED_COLUMNS | FILTER_COLUMNS) - NAS_COLUMNS
+    main_columns = sorted((sla_cols | FIXED_COLUMNS | FILTER_COLUMNS) - NAS_COLUMNS)
     # NAS table has its own columns
     nas_columns = sorted(c for c in (sla_cols | NAS_COLUMNS) if c in NAS_COLUMNS or c.startswith("nas_"))
 
