@@ -448,26 +448,35 @@ class BKGTool:
             MATCH (n:BKGNode {node_id: $nid})
             WHERE n.entity_type = 'kpi'
             RETURN
-                n.node_id                   AS node_id,
-                n.label                     AS label,
-                n.definition                AS definition,
-                n.entity_type               AS entity_type,
-                n.kpi_python_function       AS kpi_python_function,
-                n.nl_description            AS nl_description,
-                n.kpi_formula_description   AS kpi_formula_description,
-                n.kpi_source_tables         AS kpi_source_tables,
-                n.kpi_source_columns        AS kpi_source_columns,
-                n.kpi_business_logic        AS kpi_business_logic,
-                n.kpi_contract              AS kpi_contract,
-                n.kpi_filters               AS kpi_filters,
-                n.kpi_name                  AS kpi_name,
-                n.kpi_kpi_id                AS kpi_kpi_id,
-                n.kpi_description           AS kpi_description,
-                n.kpi_relationship_type     AS kpi_relationship_type,
-                n.kpi_related_core_node_ids AS kpi_related_core_node_ids,
-                n.kpi_dimensions            AS kpi_dimensions,
-                n.kpi_output_schema         AS kpi_output_schema,
-                n.name                      AS name
+                n.node_id                       AS node_id,
+                n.label                         AS label,
+                n.definition                    AS definition,
+                n.entity_type                   AS entity_type,
+                n.kpi_python_function           AS kpi_python_function,
+                n.nl_description                AS nl_description,
+                n.kpi_formula_description       AS kpi_formula_description,
+                n.kpi_source_tables             AS kpi_source_tables,
+                n.kpi_source_columns            AS kpi_source_columns,
+                n.kpi_business_logic            AS kpi_business_logic,
+                n.kpi_contract                  AS kpi_contract,
+                n.kpi_filters                   AS kpi_filters,
+                n.kpi_name                      AS kpi_name,
+                n.kpi_kpi_id                    AS kpi_kpi_id,
+                n.kpi_description               AS kpi_description,
+                n.kpi_relationship_type         AS kpi_relationship_type,
+                n.kpi_related_core_node_ids     AS kpi_related_core_node_ids,
+                n.kpi_dimensions                AS kpi_dimensions,
+                n.kpi_output_schema             AS kpi_output_schema,
+                n.name                          AS name,
+                // ─ Construction Plan Forecast (cpf-001) extra properties ─
+                // Carries the SLA DAG + capacity method + defaults that the embedded
+                // build_plan() needs. Returns NULL for KPIs that don't define them.
+                n.kpi_sla_dag                   AS kpi_sla_dag,
+                n.kpi_capacity_method           AS kpi_capacity_method,
+                n.kpi_run_rate_column           AS kpi_run_rate_column,
+                n.kpi_run_rate_lookback_days    AS kpi_run_rate_lookback_days,
+                n.kpi_prereq_threshold_default  AS kpi_prereq_threshold_default,
+                n.kpi_window_days_default       AS kpi_window_days_default
             """
         rows = self._run(kpi_query, nid=node_id)
         if not rows:
