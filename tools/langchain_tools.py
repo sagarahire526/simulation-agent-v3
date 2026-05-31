@@ -55,6 +55,14 @@ _TOOL_CHAR_LIMITS = {
     "run_cypher":     6000,
 }
 
+# Tools whose output must NEVER be truncated. get_kpi / get_node are the
+# traversal agent's source of truth — they return executable Python
+# (kpi_python_function / map_python_function) plus large JSON specs
+# (kpi_sla_dag, kpi_contract). Truncating these forces the LLM to re-type
+# the function body from memory and substitute empty fallbacks, which
+# silently breaks every downstream run_sql_python call.
+_TOOL_NEVER_TRUNCATE = {"get_kpi", "get_node"}
+
 
 def _truncate_tool_output(tool_name: str, raw_json: str) -> str:
     """
@@ -66,6 +74,10 @@ def _truncate_tool_output(tool_name: str, raw_json: str) -> str:
     traversal agent has its own message history — truncation is local,
     no cross-agent interference.
     """
+    # Metadata tools that carry executable spec — bypass truncation entirely.
+    if tool_name in _TOOL_NEVER_TRUNCATE:
+        return raw_json
+
     limit = _TOOL_CHAR_LIMITS.get(tool_name, 3000)
 
     if len(raw_json) <= limit:

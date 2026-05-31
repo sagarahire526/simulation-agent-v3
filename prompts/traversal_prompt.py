@@ -143,39 +143,97 @@ you MUST include Workfront KPI data — even if the query doesn't explicitly say
 When the sub-query asks to **plan, schedule, or forecast a target number of sites over a \
 future window** (e.g. "week-by-week construction plan for 500 sites in next 2 months", \
 "pull-forward candidates for the next 6 weeks"), use the **Construction Plan Forecast** KPI \
-node (`cpf-001-construction-plan-forecast`). Special execution path — it ships its own \
-algorithm and SLA DAG on the node:
+node (`cpf-001-construction-plan-forecast`). This is the ONE KPI node whose response \
+contains a self-contained, deterministic algorithm: you exec it verbatim and call it; you \
+do NOT write your own forecast SQL.
 
-1. `get_kpi('cpf-001-construction-plan-forecast')` — returns `kpi_python_function` (full \
-   `build_plan` source), `kpi_sla_dag` (JSON DAG of milestones + SLA day weights per \
-   project_type), `kpi_contract` (input/output schema), and config defaults \
-   (`kpi_prereq_threshold_default`, `kpi_window_days_default`).
-2. ONE `run_sql_python` call that:
-   ```python
-   import json
-   sla_dag = json.loads(<kpi_sla_dag value>)
-   exec(<kpi_python_function value>)   # defines build_plan
-   plan = build_plan(target_sites=<N from query>,
-                     window_days=<M*30 if user said months, else as stated>,
-                     prereq_threshold=0.80,
-                     project_type=<NTM | AHLOB based on user query/filter>,
-                     sla_dag=sla_dag,
-                     execute_query=execute_query)
-   result = {{"summary": plan["summary"],
-              "weekly_buckets": plan["weekly_buckets"],
-              "capacity": plan["capacity"],
-              "pull_forward_sites": plan["pull_forward_sites"][:50],
-              "total_pull_forward_sites": len(plan["pull_forward_sites"]),
-              "config": plan["config"]}}
-   ```
-   Do NOT write your own SQL or your own forecast logic — the embedded `build_plan` IS the \
-   logic. Substitute params from the sub-query (target_sites, window_months → window_days) \
-   and the user's project_type filter; everything else is a default on the node.
-3. STOP — the result dict is the findings.
+**Step A — get_kpi.** Call `get_kpi('cpf-001-construction-plan-forecast')`. The response \
+is delivered without truncation. You MUST use these fields exactly as returned:
+- `kpi_python_function` — the full source of `build_plan(...)`. Paste it **verbatim as \
+  top-level Python statements** in the next `run_sql_python` call. Do NOT wrap it in any \
+  string literal (no raw-triple-double-quote, no triple-single-quote, no single-line \
+  string, no concatenation tricks) and then exec it — that path has repeatedly produced \
+  "unterminated triple-quoted string literal" errors. The function source goes directly \
+  into the code block as top-level Python, unindented.
+- `kpi_sla_dag` — a JSON STRING. You MUST `json.loads(...)` it. **Never substitute an \
+  empty fallback like `{{"NTM": {{}}}}`** — an empty DAG makes every prereq_pct = 0, the \
+  pull-forward pool empty, and the plan meaningless. If the field is missing/empty, \
+  STOP and report that as the finding.
 
-This is the ONE case where `kpi_python_function` is meant to be exec'd verbatim (with \
-parameter substitution) rather than treated as a reference; the rule at STEP 2b "do not \
-copy verbatim" does NOT apply here.
+**Step B — extract sub-query parameters.** Read the sub-query carefully and map the \
+user's words to `build_plan` parameters:
+
+| Sub-query phrase | build_plan param | Example |
+|------------------|------------------|---------|
+| "plan/schedule N sites" | `target_sites = N` | "plan 500 sites" → `target_sites=500` |
+| "next M months" | `window_days = M*30` | "next 2 months" → `window_days=60` |
+| "next W weeks" | `window_days = W*7` | "next 6 weeks" → `window_days=42` |
+| "next D days" | `window_days = D` | "next 90 days" → `window_days=90` |
+| "AHLOA / AHLOB project" | `project_type='AHLOB'` | default is `'NTM'` |
+| "pre-req threshold X%" | `prereq_threshold=X/100` | default is `0.80` |
+| "in SOUTH region" / "for CHICAGO market" / "for GC X" / "in GREAT LAKES area" / etc. | one or more entries in `filters` dict | see Step C |
+
+**Step C — extract filter dict.** Whenever the sub-query names a region/market/area/GC/ \
+project-status/site-class, pack those into a `filters` dict and pass it. Allowed keys \
+(unknown keys are silently dropped by the function — only these scope the SQL):
+`rgn_region`, `m_area`, `m_market`, `construction_gc`, `por_category`, \
+`pj_project_status`, `s_site_class`, `smp_name`. Values can be scalar or list (the \
+function builds equality or IN clauses accordingly). The same filters are also applied \
+to the GC run-rate query, so capacity stays scoped to the same slice (a CHICAGO plan \
+gets CHICAGO's weekly cap, not the portfolio's).
+
+**Step D — exactly ONE run_sql_python call.** Use this skeleton (substitute the four \
+angle-brackets, do not change the structure):
+```python
+import json
+
+# kpi_sla_dag is a JSON string from get_kpi — paste verbatim inside json.loads(r'''...''').
+sla_dag = json.loads(r'''<paste the kpi_sla_dag value here as-is>''')
+
+# kpi_python_function source goes here as TOP-LEVEL STATEMENTS (no string wrapper).
+<paste the entire kpi_python_function source here, unindented, no quoting>
+
+plan = build_plan(
+    target_sites      = <N>,
+    window_days       = <window_days_int>,
+    prereq_threshold  = <0.80 unless user named another>,
+    project_type      = <'NTM' or 'AHLOB'>,
+    sla_dag           = sla_dag,
+    execute_query     = execute_query,
+    filters           = <dict from Step C, or None if no scoping filters in sub-query>,
+)
+result = {{
+    "summary":                  plan["summary"],
+    "weekly_buckets":           plan["weekly_buckets"],
+    "capacity":                 plan["capacity"],
+    "pull_forward_sites":       plan["pull_forward_sites"][:50],
+    "total_pull_forward_sites": len(plan["pull_forward_sites"]),
+    "config":                   plan["config"],   # echoes filters + threshold + project_type
+}}
+```
+
+**Step E — STOP.** The `result` dict is the findings. No second `run_sql_python` call. \
+No extra SQL — no region breakdown, no per-GC counts, no "let me also fetch…". If the \
+planner asked for an additional dimension, it arrived as a SEPARATE sub-query that \
+another traversal instance is already handling; do not duplicate that work here.
+
+**Hard prohibitions for this sub-query type** (each maps to a real failure mode):
+- ✗ Do NOT wrap `kpi_python_function` in any string literal (raw triple-double, \
+  triple-single, single-line, or concatenated chunks) and then `exec()` it. Paste the \
+  source as top-level statements directly.
+- ✗ Do NOT supply an empty or partial `sla_dag`. The DAG names every milestone column \
+  the algorithm reads — without it nothing works.
+- ✗ Do NOT write your own SQL after `build_plan` returns. The function already issued \
+  both queries it needs (filter-scoped in-flight fetch + filter-scoped GC run-rate).
+- ✗ Do NOT post-process with pandas date-vs-timestamp comparisons. The function already \
+  date-normalizes internally.
+- ✓ DO pass user-named scoping filters (`rgn_region`, `m_market`, `construction_gc`, \
+  …) via the `filters` param. Without them, the plan covers the whole portfolio, which \
+  is wrong when the user asked about a slice.
+
+This is the ONE case where `kpi_python_function` is meant to be exec'd verbatim (as \
+inlined source code) rather than treated as a SQL reference; the rule at STEP 2b "do \
+not copy verbatim" does NOT apply here.
 
 **Site Identifier Override — ALWAYS use `s_site_id`, NEVER `pj_project_id`** — \
 When writing any SQL/Python in `run_sql_python`, you MUST count, group by, join on, \
