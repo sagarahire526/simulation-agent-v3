@@ -182,7 +182,36 @@ function builds equality or IN clauses accordingly). The same filters are also a
 to the GC run-rate query, so capacity stays scoped to the same slice (a CHICAGO plan \
 gets CHICAGO's weekly cap, not the portfolio's).
 
-**Step D — exactly ONE run_sql_python call.** Use this skeleton (substitute the four \
+**Step C-bis — detect cohort-split conditions.** When the sub-query names a specific \
+pre-requisite that is **missing / blocked / pending / not done** for a subset of sites \
+(e.g. *"plan 500 sites; PO is missing for 300 of them"*, *"100 sites are blocked on \
+access"*, *"materials not picked up for half the cohort"*), set `split_on_gate="<gate>"` \
+so `build_plan` returns two cohorts side-by-side — sites where that gate is DONE vs \
+sites where it's MISSING. This is the ONLY supported way to handle these conditions; \
+do NOT call `build_plan` twice yourself.
+
+Gate-name mapping (user phrasing → `split_on_gate` value):
+| User term | Gate name |
+|-----------|-----------|
+| PO / CPO / Customer PO / "PO missing" | `cpo` |
+| SPO / Supplier PO | `spo` |
+| material / BOM picked up / MSL pickup | `material_picked` |
+| BoM in AIIMS / BoM received | `bom_in_aiims` |
+| BoM in BAT | `bom_in_bat` |
+| NTP / tower NTP / NTP accepted | `ntp` |
+| site access / 24x7 access | `access_confirmation` |
+| crane / crane readiness | `crane_readiness` |
+| scoping / scoping validated / quote validated | `scoping_validated` |
+| quote submitted / quote to customer | `quote_submitted` |
+| ready for scoping | `ready_for_scoping` |
+| site walk / drone survey | `site_walk` |
+| entitlement | `entitlement_complete` |
+
+If the user's phrase doesn't match any of these, OR if the user just states a target \
+without naming a missing pre-req, **leave `split_on_gate=None`** — do NOT guess at a \
+gate name. Only set it when the user explicitly names a milestone+condition.
+
+**Step D — exactly ONE run_sql_python call.** Use this skeleton (substitute the five \
 angle-brackets, do not change the structure):
 ```python
 import json
@@ -201,21 +230,46 @@ plan = build_plan(
     sla_dag           = sla_dag,
     execute_query     = execute_query,
     filters           = <dict from Step C, or None if no scoping filters in sub-query>,
+    split_on_gate     = <gate name from Step C-bis, or None>,
 )
-result = {{
-    "summary":                  plan["summary"],
-    "weekly_buckets":           plan["weekly_buckets"],
-    "capacity":                 plan["capacity"],
-    "pull_forward_sites":       plan["pull_forward_sites"][:50],
-    "total_pull_forward_sites": len(plan["pull_forward_sites"]),
-    "config":                   plan["config"],   # echoes filters + threshold + project_type
-}}
+
+# The shape of `plan` depends on whether split_on_gate was set.
+# Default (split_on_gate=None) — flat shape:
+#     plan["summary"], plan["weekly_buckets"], plan["pull_forward_sites"], plan["capacity"], plan["config"]
+# Split (split_on_gate set) — cohorts shape:
+#     plan["cohorts"]["<gate>_done"]    = {summary, weekly_buckets, pull_forward_sites}
+#     plan["cohorts"]["<gate>_missing"] = {summary, weekly_buckets, pull_forward_sites}
+#     plan["capacity"], plan["config"]
+# Return whichever shape build_plan produced — do NOT flatten or merge cohorts.
+if "cohorts" in plan:
+    result = {{
+        "split_on_gate": plan["config"]["split_on_gate"],
+        "cohorts":       {{name: {{
+            "summary":            c["summary"],
+            "weekly_buckets":     c["weekly_buckets"],
+            "pull_forward_sites": c["pull_forward_sites"][:25],
+            "total_pull_forward_sites": len(c["pull_forward_sites"]),
+        }} for name, c in plan["cohorts"].items()}},
+        "capacity":      plan["capacity"],
+        "config":        plan["config"],
+    }}
+else:
+    result = {{
+        "summary":                  plan["summary"],
+        "weekly_buckets":           plan["weekly_buckets"],
+        "capacity":                 plan["capacity"],
+        "pull_forward_sites":       plan["pull_forward_sites"][:50],
+        "total_pull_forward_sites": len(plan["pull_forward_sites"]),
+        "config":                   plan["config"],
+    }}
 ```
 
 **Step E — STOP.** The `result` dict is the findings. No second `run_sql_python` call. \
 No extra SQL — no region breakdown, no per-GC counts, no "let me also fetch…". If the \
 planner asked for an additional dimension, it arrived as a SEPARATE sub-query that \
-another traversal instance is already handling; do not duplicate that work here.
+another traversal instance is already handling; do not duplicate that work here. The \
+cohort split (when `split_on_gate` is set) is the ONLY allowed multi-result shape — \
+do NOT call `build_plan` again to compare project_types, thresholds, or scenarios.
 
 **Hard prohibitions for this sub-query type** (each maps to a real failure mode):
 - ✗ Do NOT wrap `kpi_python_function` in any string literal (raw triple-double, \

@@ -110,15 +110,24 @@ or any query involving timelines and dependencies:
 
 #### TYPE 2-A — Construction Plan Forecast output (pre-computed plan, render-only)
 
-**Detection — apply BEFORE Type 2's scheduling rules.** If any traversal step returned \
-a JSON object containing **all** of these keys: `summary`, `weekly_buckets`, `capacity`, \
-`pull_forward_sites` (the signature output of the `Construction Plan Forecast` KPI \
-`cpf-001-construction-plan-forecast`), then the plan has **already been computed** by \
-the `build_plan` algorithm on the KG node. **Render it directly using the rules in \
-this 2-A sub-section. Do NOT apply the FORBIDDEN MATH / REALISTIC SCHEDULING RULES \
-listed in the rest of TYPE 2** — those rules tell you to derive a weekly schedule from \
-raw run-rate × remaining-sites, which would double-compute and contradict the \
-authoritative `weekly_buckets`.
+**Detection — apply BEFORE Type 2's scheduling rules.** TYPE 2-A applies when any \
+traversal step returned the `Construction Plan Forecast` output (KPI \
+`cpf-001-construction-plan-forecast`). Two valid shapes exist; detect and route on the \
+top-level keys:
+
+- **Flat shape** — contains `summary` + `weekly_buckets` + `capacity` + \
+  `pull_forward_sites`. Single-cohort plan. Render via **section 2-A-Flat**.
+- **Cohort shape** — contains `cohorts` (dict of 2 named sub-plans like `cpo_done` and \
+  `cpo_missing`) + `capacity` + `config` (with `split_on_gate` key). Two-cohort plan \
+  driven by a user-named missing pre-req. Render via **section 2-A-Cohort**.
+
+Either way, the plan has **already been computed** by `build_plan` on the KG node. \
+**Render it directly. Do NOT apply the FORBIDDEN MATH / REALISTIC SCHEDULING RULES \
+listed in the rest of TYPE 2** — those rules derive a schedule from raw run-rate × \
+remaining-sites, which would double-compute and contradict the authoritative buckets.
+
+────────────────────────────────────────────────────────────────────────
+## 2-A-Flat — Single-cohort plan (no split_on_gate)
 
 Required sections (in order):
 
@@ -191,10 +200,88 @@ Required sections (in order):
   agent should have re-run `build_plan` with the new params and produced a second \
   output — render both side by side, do not algebraically derive the second one.
 
+────────────────────────────────────────────────────────────────────────
+## 2-A-Cohort — Two-cohort plan (split_on_gate is set)
+
+Triggered by sub-queries like *"plan 500 sites; PO is missing for 300"*. The data has \
+`cohorts: {{"<gate>_done": {{...}}, "<gate>_missing": {{...}}}}`. Render BOTH cohorts \
+side-by-side so the PM can see what's plannable now vs what unblocking the gate would \
+unlock. `<gate>` comes from `config.split_on_gate` (e.g. `cpo`).
+
+Required sections (in order):
+
+1. **Target Summary** — 2-3 sentences. Lead with the *gate name in user terms* (CPO → \
+   "PO", spo → "SPO", material_picked → "material pickup", etc.) and the cohort split. \
+   Mandatory phrasing template:
+   > *"Of the **<target>** sites the plan needs, sites split into two cohorts based on \
+   > **<user_gate_term>**: **<done.committed_count + done.pull_forward_count>** are \
+   > <gate>-ready and land inside the window, while **<missing.committed_count + \
+   > missing.pull_forward_count>** are <gate>-blocked. Unblocking <user_gate_term> on \
+   > the blocked cohort would shift those sites' weekly buckets forward."*
+
+2. **Cohort Snapshot** — single side-by-side table summarizing both cohorts. NEVER \
+   sum/merge them; PM needs to see the contrast directly:
+   | Metric | `<gate>` ready | `<gate>` blocked |
+   |--------|----------------|------------------|
+   | Sites in this cohort (total in-flight) | `<done.summary.cohort_row_count>` | `<missing.summary.cohort_row_count>` |
+   | Committed in window | `<done.summary.committed_count>` | `<missing.summary.committed_count>` |
+   | Pull-forward candidates | `<done.summary.pull_forward_count>` | `<missing.summary.pull_forward_count>` |
+   | Total in window | `<done.summary.total_in_window>` | `<missing.summary.total_in_window>` |
+   | Gap vs target | `<done.summary.gap_vs_target>` | `<missing.summary.gap_vs_target>` |
+
+   Below this table, one line citing capacity (it's portfolio-wide, shared by both \
+   cohorts — not per-cohort): *"GC run-rate weekly cap: **<capacity.weekly_cap>** sites \
+   (from <capacity.completed_last_60d> completions in last 60d)."*
+
+3. **Weekly Execution Plan — by cohort** — two parallel tables, one per cohort, in \
+   this order: gate-ready cohort first (the actionable plan), gate-blocked cohort \
+   second (what unblocks if the gate is expedited). Use the SAME column layout as \
+   2-A-Flat's Weekly Execution Plan for each table. Heading each table with the \
+   cohort name in user terms, e.g. `### <user_gate_term>-Ready Cohort (Week-by-Week)` \
+   then `### <user_gate_term>-Blocked Cohort (Week-by-Week)`.
+
+   If either cohort's `weekly_buckets` is empty, replace the table with one line: \
+   *"No sites in the <cohort_name> cohort land in this window."*
+
+4. **Pull-Forward Detail** *(optional — include only when at least one cohort has \
+   `pull_forward_sites` non-empty AND the user asked anything site-level)*. Show ONE \
+   combined table with a "Cohort" column to label which cohort each row came from. \
+   First 5 from each cohort by `forecast_cx_ready` ascending:
+   | Cohort | Site ID | Planned Cx | Forecast Cx-Ready | Pre-req % | Last Milestone | Blockers |
+   |--------|---------|-----------|-------------------|-----------|----------------|----------|
+
+5. **Actionable Insights** — same MANDATORY TABLE FORMAT as the rest of TYPE 2. \
+   Required rows for the cohort case:
+   - **Expedite `<user_gate_term>` on `<missing.summary.cohort_row_count>` blocked \
+     sites** → Data Observation: count of missing-cohort sites and how many would \
+     land in window if unblocked (i.e. `missing.summary.pull_forward_count` already \
+     counted as candidates — these are the ones whose other pre-reqs are ≥ threshold, \
+     waiting on this one gate). Expected Impact: those move from "blocked" to \
+     "committable" once `<user_gate_term>` lands.
+   - If any week in EITHER cohort is `over_capacity`, one row recommending defer/ \
+     redistribution, citing the over-cap week.
+   - If gap is still positive after both cohorts: one row on lowering the prereq \
+     threshold or accepting a smaller in-window count.
+   Skip rows you cannot quantify.
+
+6. **Impact Summary** — 2-3 sentences. State (a) ready-cohort count vs target, \
+   (b) blocked-cohort count + the single user-facing gate term that unblocks them, \
+   (c) the resulting in-window total if the unblock happens.
+
+**Things to NOT do in 2-A-Cohort:**
+- Do not collapse the cohorts into a single weekly table (the contrast IS the value).
+- Do not invent a third cohort, a percentage split, or a "what if PO drops to X%" \
+  comparison — only the two cohorts in the data.
+- Do not compute capacity per cohort — `capacity` is a single portfolio-wide cap.
+- Do not re-derive which gate is "PO" or "material" — use `config.split_on_gate` \
+  verbatim, and translate that gate name to the user-friendly term for headings only.
+
+────────────────────────────────────────────────────────────────────────
+
 ---
 
-**For all OTHER scheduling/forecasting queries (no `weekly_buckets` in the data) — \
-apply the original TYPE 2 structure below.**
+**For all OTHER scheduling/forecasting queries (no `weekly_buckets` AND no `cohorts` \
+in the data) — apply the original TYPE 2 structure below.**
 
 1. **Target Summary** — 2-3 sentences answering the core question with key numbers in BOLD. \
    What the target is, the current state, and the gap. **This goes first** — a PM \

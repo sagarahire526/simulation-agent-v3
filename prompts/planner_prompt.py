@@ -378,24 +378,77 @@ Workfront sub-query.
 - Date range (on entitlement-complete date): `start_date`, `end_date`
 
 ## Construction Plan Forecast KPI — Planning / Scheduling Queries
+
 When the user asks to **plan, schedule, or forecast a target number of sites over a future \
 window** (e.g. "plan 500 sites in next 2 months", "what sites can we ready for Cx start in \
-the next 6 weeks", "build a week-by-week plan for 1,000 sites by quarter-end"), there is a \
-dedicated KPI that answers this end-to-end: the **Construction Plan Forecast**. It returns \
-committed sites (planned start in window) + pull-forward candidates (planned later but with \
-high pre-requisite completion), bucketed by week, with a GC run-rate capacity ceiling.
+the next 6 weeks", "build a week-by-week plan for 1,000 sites by quarter-end", "300 of \
+those have PO missing"), there is a dedicated KPI that answers the entire question \
+end-to-end: the **Construction Plan Forecast**.
 
-**Step phrasing rule for these queries:**
-- Include ONE step that asks for the construction plan forecast in business language — \
-  e.g. *"Sub-query 1: Retrieve the week-by-week construction plan forecast for {{N}} sites \
-  over the next {{M}} months, including committed sites planned in window, pull-forward \
-  candidates with pre-requisite completion ≥ 80%, and the GC run-rate weekly capacity."* \
-  Do NOT decompose this into separate "committed" / "pull-forward" / "capacity" steps — the \
-  KPI returns all three together; splitting them creates redundant retrievals.
-- If the user named additional concerns (specific blockers, GC performance, regional \
-  breakdowns), add those as separate sub-queries per Rule 2a — but the forecast step stays \
-  as the single primary retrieval.
-- Carry user filters (region, market, project_type) into the forecast step.
+### HARD RULE: planning queries get EXACTLY ONE step. No exceptions.
+
+When the query matches the planning pattern above, emit **one and only one** sub-query — \
+the Construction Plan Forecast step. Do **NOT** add adjacent sub-queries for any of the \
+concerns below; the KPI already returns all of them in its single response:
+
+| Concern the planner often tries to add as an extra step | Already covered by the Forecast KPI |
+|--------------------------------------------------------|--------------------------------------|
+| "Per-region / per-market / per-GC breakdown of remaining sites" | Pass `filters={{rgn_region: …}}` or `{{m_market: …}}` into the forecast step |
+| "Pre-requisite readiness rate per gate" | The KPI computes `prereq_pct` per site and lists per-site `blockers` |
+| "Top blockers / delay codes" | `pull_forward_sites[*].blockers` enumerates missing gates per candidate site |
+| "Site readiness cohort (how many at 80% prereq)" | That IS the pull-forward count returned by the KPI |
+| "GC / crew capacity by region" | `capacity.weekly_cap` is the GC run-rate, filter-scoped to the same slice |
+| "Material backlog / BoM status" | Material gate (`material_picked`) is in the SLA DAG; blocked sites surface in `blockers` |
+| "Sites where PO/SPO/NTP/access is missing" | Pass `split_on_gate="cpo"` / `"spo"` / `"ntp"` / `"access_confirmation"` to get the two-cohort split |
+| "Compare AHLOA vs NTM" | Out of scope — the user said not to support this; do not plan it |
+| "Compare threshold 80% vs 90%" | Out of scope — do not plan it |
+
+**Decision rule before adding ANY second step to a planning query:** ask yourself *"Could \
+the Construction Plan Forecast KPI return this if called with the right `filters` / \
+`split_on_gate` / `prereq_threshold` / `window_days`?"* If YES (which is the case for \
+every cell in the table above) — do NOT add the step. The traversal will parametrize the \
+forecast step instead.
+
+### Step phrasing
+
+One step, written as a business-language ask that names every parameter the traversal \
+needs to extract. Template:
+
+> *"Sub-query 1: Retrieve the week-by-week construction plan forecast for **{N}** sites \
+> over the next **{M} months / {W} weeks / {D} days** [optional: , scoped to \
+> **{scope_filter}**] [optional: , with sites split into cohorts by **{missing_gate}** \
+> completion]. Include committed sites planned in window, pull-forward candidates whose \
+> pre-requisite completion is ≥ **{threshold}%** (default 80%), the GC run-rate weekly \
+> capacity, and per-site blockers for any pull-forward sites."*
+
+Substitute only what the user actually said; drop the optional clauses if they didn't \
+mention scope filters or a missing gate.
+
+**Worked examples:**
+
+*User:* "Plan 500 sites in next 2 months."
+> *Sub-query 1: Retrieve the week-by-week construction plan forecast for 500 sites over \
+> the next 2 months. Include committed sites planned in window, pull-forward candidates \
+> with pre-requisite completion ≥ 80%, the GC run-rate weekly capacity, and per-site \
+> blockers.*
+
+*User:* "Plan 500 sites in next 2 months. PO is missing for 300 of them."
+> *Sub-query 1: Retrieve the week-by-week construction plan forecast for 500 sites over \
+> the next 2 months, with sites split into cohorts by PO (CPO) completion. Include \
+> committed sites planned in window, pull-forward candidates with pre-requisite \
+> completion ≥ 80% per cohort, the GC run-rate weekly capacity, and per-site blockers.*
+
+*User:* "Plan 200 SOUTH region sites in next 6 weeks."
+> *Sub-query 1: Retrieve the week-by-week construction plan forecast for 200 sites over \
+> the next 6 weeks, scoped to the SOUTH region. Include committed sites planned in \
+> window, pull-forward candidates with pre-requisite completion ≥ 80%, the GC run-rate \
+> weekly capacity (SOUTH only), and per-site blockers.*
+
+**`planning_rationale` should explicitly justify the single-step plan**, e.g. *"Single \
+step — the Construction Plan Forecast KPI returns committed + pull-forward + capacity + \
+blockers in one response, so per-region / per-blocker / per-GC sub-queries would \
+duplicate data the KPI already provides."* This makes the omission deliberate, not a \
+mistake.
 
 ## Rules
 - Each step string MUST start with "Sub-query N: " where N is the step number.
