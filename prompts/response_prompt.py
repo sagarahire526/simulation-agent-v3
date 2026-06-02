@@ -253,8 +253,10 @@ apply the original TYPE 2 structure below.**
      Recalculate the run rate with the new parameters and build a second column. \
      Show the new `weeks_needed` and compare to baseline.
    - Show accurate calculation inline so the PM can verify, e.g. \
-     `Week 1: (3 workdays remaining / 5) × 22 sites/week ≈ 13 sites` \
-     and `142 remaining − 13 (Week 1) = 129 to schedule from Week 2 onward`.
+     `Week 1 (full week from buffered start): 22 sites/week × 5 workdays = 22 sites` \
+     and `142 remaining − 22 (Week 1) = 120 to schedule from Week 2 onward`. \
+     (When the explicit-start partial-week exception applies, use the partial-week \
+     formula instead: `(3 workdays remaining / 5) × 22 sites/week ≈ 13 sites`.)
 
    **SAMPLE table format** — every row MUST include the calendar start date for that week:
    - Can change the table format according to requirement of data display.
