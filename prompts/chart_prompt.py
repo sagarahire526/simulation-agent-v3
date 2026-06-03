@@ -79,6 +79,76 @@ NEVER use `YYYY-MM-DD`, `DD-MM`, or `DD/MM/YYYY`
 If the user did NOT specify any parameter changes (pure forecast with baseline only), \
 show only the Baseline series — do not fabricate an Adjusted series.
 
+## MANDATORY — Construction Plan Forecast Queries (Gantt chart)
+
+Detection: the traversal data contains `weekly_buckets` AND `capacity.method == "gc_run_rate"` \
+(the signature output of the `Construction Plan Forecast` KPI). In that case you MUST add a \
+**Gantt chart** as the FIRST chart in the array, showing the week-by-week distribution of work \
+split by source. This is the most important visualization for the PM — it shows the temporal \
+flow of the plan at a glance.
+
+### Date format for Gantt (CRITICAL — the renderer parses these)
+- Every `start` and `end` value in `series[].data[]` MUST be an **ISO date string** \
+  `YYYY-MM-DD` (e.g. `"2026-06-15"`). \
+  This is the ONE place in the entire chart spec where ISO `YYYY-MM-DD` is REQUIRED — \
+  the DD-Mon rule above does NOT apply to Gantt `start`/`end`. The renderer converts these \
+  to Unix milliseconds via `Date.parse()`; non-ISO strings will be silently skipped.
+- Tooltips, titles, axis labels in the Gantt chart still follow the DD-Mon rule.
+- Bad / missing dates in any point cause that point to be skipped; the chart still renders \
+  with the remaining valid points. Don't rely on this — emit clean ISO strings.
+
+### Gantt spec for single-cohort plans (flat shape: `weekly_buckets` at top level)
+```json
+{
+  "type": "gantt",
+  "title": "Construction Plan — Week-by-Week",
+  "subtitle": "Plan starts <DD-Mon> · capacity cap <N>/wk",
+  "yAxis": { "categories": ["Committed", "Pull-forward"], "title": { "text": "" } },
+  "series": [
+    {
+      "name": "Committed",
+      "color": "#4a7cf7",
+      "data": [
+        { "name": "Wk of 15-Jun: 2 sites",
+          "start": "2026-06-15", "end": "2026-06-22",
+          "y": 0 }
+      ]
+    },
+    {
+      "name": "Pull-forward",
+      "color": "#f59e0b",
+      "data": [
+        { "name": "Wk of 15-Jun: 12 sites",
+          "start": "2026-06-15", "end": "2026-06-22",
+          "y": 1 }
+      ]
+    }
+  ]
+}
+```
+
+Rules:
+- One `data[]` entry per `weekly_buckets[i]` per non-zero source (committed or pull_forward).
+- `start` = `weekly_buckets[i].week_start` (ISO). `end` = `start + 7 days` (ISO, just add 7 to the date).
+- `y: 0` for committed entries, `y: 1` for pull-forward entries — matching the `yAxis.categories` order.
+- Skip entries where the count is 0 (don't render empty bars).
+- Use `color: "#c0392b"` (red) override on any data point whose week has `over_capacity == true`.
+
+### Gantt spec for cohort-split plans (`cohorts` at top level, e.g. `cpo_done` + `cpo_missing`)
+Four lanes instead of two. Example for `split_on_gate: "cpo"`:
+```json
+"yAxis": { "categories": [
+  "PO-ready · Committed", "PO-ready · Pull-forward",
+  "PO-blocked · Committed", "PO-blocked · Pull-forward"
+]}
+```
+Then emit one data point per `(cohort, source, week)` combination with the appropriate `y` index.
+
+### Important: Gantt is ALSO required for these queries — IN ADDITION to other charts
+The Gantt is the timeline view; a column chart of weekly totals (committed + pull-forward stacked) \
+is still helpful as the second chart. So a Construction Plan Forecast response typically returns: \
+**[Gantt, stacked-column weekly totals, optional pie of cohort split if `split_on_gate` is set]**.
+
 ## Rules
 1. **Data integrity** — use ONLY numbers present in the traversal data. **Never invent or estimate values.** \
    If a number is not explicitly in the data, do not include it in any chart.
