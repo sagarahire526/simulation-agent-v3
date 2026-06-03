@@ -142,27 +142,42 @@ Required sections (in order):
 2. **Current Status** — compact table built from `summary` + `capacity`:
    | Metric | Value |
    |--------|-------|
-   | Committed (planned in window) | `<summary.committed_count>` |
-   | Pull-forward candidates | `<summary.pull_forward_count>` |
+   | Planned Sites (in window) | `<summary.committed_count>` |
+   | Preponed sites (candidates) | `<summary.pull_forward_count>` |
    | Total covered in window | `<summary.total_in_window>` |
    | Gap vs target | `<summary.gap_vs_target>` |
-   | GC run-rate weekly cap | `<capacity.weekly_cap>` (from `<capacity.completed_last_60d>` completions in last 60d) |
+   | Historical Capacity (weekly) | `<capacity.weekly_cap>` (from `<capacity.completed_last_60d>` completions in last 60d) |
 
-3. **Weekly Execution Plan** — one row per item in `weekly_buckets`, in order. Use \
-   this exact column layout (do NOT add Cumulative; do NOT compute Adjusted columns; \
-   do NOT change the math):
-   | Week | Start Date | Committed | Pull-Forward | Total | Capacity Cap | Status |
-   |------|------------|-----------|--------------|-------|--------------|--------|
+3. **Weekly Execution Plan** — one row per item in `weekly_buckets`, in order, **plus a \
+   final "Total" row summing the numeric columns**. Use this exact column layout (do NOT \
+   add Cumulative; do NOT compute Adjusted columns; do NOT change the math):
+   | Week | Start Date | Planned Sites | Preponed sites | Total | Historical Capacity | Status |
+   |------|------------|---------------|----------------|-------|---------------------|--------|
+   | Week 1 | Jun 15, 2026 | … | … | … | … | … |
+   | … | … | … | … | … | … | … |
+   | **Total** | — | **`<sum committed>`** | **`<sum pull_forward>`** | **`<sum total>`** | — | — |
    - **Week**: 1-indexed (Week 1 = first bucket).
-   - **Start Date**: format `<week_start>` as `Mon DD, YYYY` (e.g. "Jun 01, 2026").
-   - **Committed / Pull-Forward / Total / Capacity Cap**: take values verbatim from the bucket.
+   - **Start Date**: format `<week_start>` as `Mon DD, YYYY` (e.g. "Jun 15, 2026").
+   - **Planned Sites** ← `weekly_buckets[i].committed` (verbatim).
+   - **Preponed sites** ← `weekly_buckets[i].pull_forward` (verbatim).
+   - **Total** ← `weekly_buckets[i].total` (verbatim, already pre-summed by the algorithm).
+   - **Historical Capacity** ← `weekly_buckets[i].capacity_cap` (this is the GC run-rate \
+     ceiling — same value on every row, but include it so the PM can compare each week's \
+     Total against the cap inline).
    - **Status**: emit `⚠️ Over capacity` (or plain text "Over capacity") when \
      `over_capacity == true`; otherwise leave the cell empty or write `On track`.
+   - **Final "Total" row (REQUIRED):** sum the Planned Sites, Preponed sites, and Total \
+     columns across ALL weekly_buckets. Leave Start Date / Historical Capacity / Status \
+     cells as `—` or blank — those columns aren't summable. Bold the "Total" label and \
+     bold the three summed numbers so the PM can scan the totals at a glance. The summed \
+     Total column MUST equal `summary.total_in_window` — if it doesn't, you've miscounted; \
+     recheck.
    - **No Cumulative column**, no Adjusted column, no flat-rate stamping, no \
      partial-first-week recomputation — the `build_plan` algorithm already determined \
      which sites land in which ISO week from their `pj_p_4225` or forecast date.
    - If `weekly_buckets` is empty, write: *"No sites land in this window — the gap \
-     equals the full target. See Actionable Insights below for what to expedite."*
+     equals the full target. See Actionable Insights below for what to expedite."* (no \
+     Total row needed in that case).
 
 4. **Pull-Forward Detail** *(include only when `pull_forward_sites` is non-empty AND \
    the user asked anything site-level or about which sites are unblocked-soon)*. \
@@ -224,24 +239,26 @@ Required sections (in order):
    | Metric | `<gate>` ready | `<gate>` blocked |
    |--------|----------------|------------------|
    | Sites in this cohort (total in-flight) | `<done.summary.cohort_row_count>` | `<missing.summary.cohort_row_count>` |
-   | Committed in window | `<done.summary.committed_count>` | `<missing.summary.committed_count>` |
-   | Pull-forward candidates | `<done.summary.pull_forward_count>` | `<missing.summary.pull_forward_count>` |
+   | Planned Sites (in window) | `<done.summary.committed_count>` | `<missing.summary.committed_count>` |
+   | Preponed sites (candidates) | `<done.summary.pull_forward_count>` | `<missing.summary.pull_forward_count>` |
    | Total in window | `<done.summary.total_in_window>` | `<missing.summary.total_in_window>` |
    | Gap vs target | `<done.summary.gap_vs_target>` | `<missing.summary.gap_vs_target>` |
 
    Below this table, one line citing capacity (it's portfolio-wide, shared by both \
-   cohorts — not per-cohort): *"GC run-rate weekly cap: **<capacity.weekly_cap>** sites \
-   (from <capacity.completed_last_60d> completions in last 60d)."*
+   cohorts — not per-cohort): *"Historical Capacity (weekly): **<capacity.weekly_cap>** \
+   sites (from <capacity.completed_last_60d> completions in last 60d)."*
 
 3. **Weekly Execution Plan — by cohort** — two parallel tables, one per cohort, in \
    this order: gate-ready cohort first (the actionable plan), gate-blocked cohort \
    second (what unblocks if the gate is expedited). Use the SAME column layout as \
-   2-A-Flat's Weekly Execution Plan for each table. Heading each table with the \
-   cohort name in user terms, e.g. `### <user_gate_term>-Ready Cohort (Week-by-Week)` \
-   then `### <user_gate_term>-Blocked Cohort (Week-by-Week)`.
+   2-A-Flat's Weekly Execution Plan for each table **including the mandatory final \
+   "Total" row** that sums Planned Sites / Preponed sites / Total for that cohort. \
+   Heading each table with the cohort name in user terms, e.g. \
+   `### <user_gate_term>-Ready Cohort (Week-by-Week)` then \
+   `### <user_gate_term>-Blocked Cohort (Week-by-Week)`.
 
    If either cohort's `weekly_buckets` is empty, replace the table with one line: \
-   *"No sites in the <cohort_name> cohort land in this window."*
+   *"No sites in the <cohort_name> cohort land in this window."* (no Total row needed).
 
 4. **Pull-Forward Detail** *(optional — include only when at least one cohort has \
    `pull_forward_sites` non-empty AND the user asked anything site-level)*. Show ONE \

@@ -97,52 +97,80 @@ flow of the plan at a glance.
 - Bad / missing dates in any point cause that point to be skipped; the chart still renders \
   with the remaining valid points. Don't rely on this — emit clean ISO strings.
 
-### Gantt spec for single-cohort plans (flat shape: `weekly_buckets` at top level)
+### Gantt spec — per-site rows (matches the "Simple Gantt Chart" template style)
+
+One row per site. One colored horizontal bar per site spanning its construction window. \
+Time axis at top shows quarters with monthly tick labels underneath. This is the layout \
+PMs expect — a glance tells them "this site is being worked on around this week."
+
+Layout:
+- **y-axis row labels** = site IDs (one row per site). Order sites by effective start date ascending.
+- **x-axis** = calendar dates. The renderer adds Q1/Q2/Q3/Q4 groupings + month tick labels automatically.
+- **Each site** = exactly ONE bar. Bar `start` = the site's effective start date (see below). \
+  Bar `end` = `start + 14 days` (assumed 2-week construction window — uniform across sites).
+- **Color** by cohort:
+  - Committed sites → `#4a7cf7` (blue)
+  - Pull-forward sites, non-stale → `#22c55e` (green)
+  - Pull-forward sites, stale (forecast_is_stale=true) → `#f59e0b` (amber)
+  - Sites in an over-capacity week → tooltip note, but keep their cohort color
+
+Effective start date per site (LLM computes this):
+- Committed site: `start = planned_cx`
+- Pull-forward site: `start = max(forecast_cx_ready, config.earliest_start_monday)` — \
+  clamps stale forecasts to the post-mobilization Monday so bars never appear in the past
+
+Volume cap: render up to **20 sites** total (combined committed + pull-forward). Pick by earliest \
+effective start so the densest near-term work is visible. Cite total count in the chart \
+subtitle so the PM knows there's more not shown.
+
 ```json
 {
   "type": "gantt",
-  "title": "Construction Plan — Week-by-Week",
-  "subtitle": "Plan starts <DD-Mon> · capacity cap <N>/wk",
-  "yAxis": { "categories": ["Committed", "Pull-forward"], "title": { "text": "" } },
+  "title": "Construction Plan — Per-Site Schedule (NTM)",
+  "subtitle": "Showing 20 of 47 sites · plan starts 15-Jun · cap 3/wk",
   "series": [
     {
-      "name": "Committed",
-      "color": "#4a7cf7",
+      "name": "Construction sites",
       "data": [
-        { "name": "Wk of 15-Jun: 2 sites",
-          "start": "2026-06-15", "end": "2026-06-22",
-          "y": 0 }
-      ]
-    },
-    {
-      "name": "Pull-forward",
-      "color": "#f59e0b",
-      "data": [
-        { "name": "Wk of 15-Jun: 12 sites",
-          "start": "2026-06-15", "end": "2026-06-22",
-          "y": 1 }
+        { "name": "ML10003A",
+          "start": "2026-07-13", "end": "2026-07-27",
+          "y": 0, "color": "#4a7cf7",
+          "cohort": "committed", "prereq_pct": 0.4, "planned_cx": "2026-07-12" },
+        { "name": "DN10084C",
+          "start": "2026-06-15", "end": "2026-06-29",
+          "y": 1, "color": "#f59e0b",
+          "cohort": "pull-forward (stale)", "prereq_pct": 0.83, "blockers": ["cpo","spo"] },
+        { "name": "PT10172A",
+          "start": "2026-06-15", "end": "2026-06-29",
+          "y": 2, "color": "#22c55e",
+          "cohort": "pull-forward", "prereq_pct": 0.88 }
       ]
     }
-  ]
+  ],
+  "yAxis": { "title": { "text": "" }, "uniqueNames": true },
+  "tooltip": {
+    "pointFormat": "<b>{point.name}</b><br/>{point.cohort}<br/>Pre-req: {point.prereq_pct}<br/>{point.start:%e %b %Y} → {point.end:%e %b %Y}"
+  }
 }
 ```
 
 Rules:
-- One `data[]` entry per `weekly_buckets[i]` per non-zero source (committed or pull_forward).
-- `start` = `weekly_buckets[i].week_start` (ISO). `end` = `start + 7 days` (ISO, just add 7 to the date).
-- `y: 0` for committed entries, `y: 1` for pull-forward entries — matching the `yAxis.categories` order.
-- Skip entries where the count is 0 (don't render empty bars).
-- Use `color: "#c0392b"` (red) override on any data point whose week has `over_capacity == true`.
+- ONE data point per site. Never aggregate (no "Wk of X: N sites" entries on this chart).
+- `y` value = the site's row index in the chart (0, 1, 2, ...). Order matches sorted-by-start.
+- `name` = site_id (this becomes the row label on the y-axis).
+- Custom fields like `cohort`, `prereq_pct`, `blockers` are passed through cleanly — they show in tooltips.
+- Skip the Gantt entirely (return only the other charts) if `committed_count + pull_forward_count == 0`.
 
-### Gantt spec for cohort-split plans (`cohorts` at top level, e.g. `cpo_done` + `cpo_missing`)
-Four lanes instead of two. Example for `split_on_gate: "cpo"`:
-```json
-"yAxis": { "categories": [
-  "PO-ready · Committed", "PO-ready · Pull-forward",
-  "PO-blocked · Committed", "PO-blocked · Pull-forward"
-]}
-```
-Then emit one data point per `(cohort, source, week)` combination with the appropriate `y` index.
+### Gantt spec for cohort-split plans (`cohorts` at top level)
+
+Same per-site layout, but pull sites from both cohorts and color-code by which cohort they came from:
+
+- `<gate>_done` cohort sites → `#22c55e` (green) — these are the "actionable now" sites
+- `<gate>_missing` cohort sites → `#94a3b8` (slate gray) — sites whose forecast assumes the gate is somehow resolved
+
+Title becomes `"Construction Plan — Per-Site (<gate> ready vs blocked)"`. Subtitle includes \
+both cohort counts. Take the top 10 from each cohort so contrast is visible. The `cohort` \
+field in each data point should be set to the gate name + status (e.g. `"PO ready"` / `"PO blocked"`).
 
 ### Important: Gantt is ALSO required for these queries — IN ADDITION to other charts
 The Gantt is the timeline view; a column chart of weekly totals (committed + pull-forward stacked) \

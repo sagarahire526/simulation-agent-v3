@@ -140,21 +140,81 @@ _CHART_HTML_TEMPLATE = """\
           return false;
         }
 
+        // X-axis: a two-tier date axis with Quarter labels on top and month
+        // tick labels underneath, matching the "Simple Gantt Chart" template
+        // style. Highcharts xAxis accepts an array → multi-level header.
+        // Compute the overall date range from the (already normalized to ms)
+        // series points so the axis padding is sensible.
+        var allStarts = [], allEnds = [];
+        ganttSeries.forEach(function(s) {
+          s.data.forEach(function(p) { allStarts.push(p.start); allEnds.push(p.end); });
+        });
+        var minMs = Math.min.apply(null, allStarts);
+        var maxMs = Math.max.apply(null, allEnds);
+        var dayMs = 24 * 3600 * 1000;
+        var xAxisLayered = [
+          { // top row: quarter labels
+            type: 'datetime',
+            tickInterval: 1000 * 3600 * 24 * 90,   // ~quarter (90d)
+            labels: { format: 'Q{value:%q}', style: { fontWeight: 'bold' } },
+            min: minMs - 3 * dayMs,
+            max: maxMs + 3 * dayMs,
+            grid: { enabled: false },
+          },
+          { // bottom row: monthly labels
+            type: 'datetime',
+            tickInterval: 1000 * 3600 * 24 * 30,   // ~month (30d)
+            labels: { format: '{value:%b}' },
+            min: minMs - 3 * dayMs,
+            max: maxMs + 3 * dayMs,
+            grid: { enabled: false },
+          }
+        ];
+        // Highcharts doesn't expose %q natively for quarter — derive a
+        // quarter formatter via a labels.formatter on the top axis.
+        xAxisLayered[0].labels = {
+          formatter: function() {
+            var d = new Date(this.value);
+            var q = Math.floor(d.getUTCMonth() / 3) + 1;
+            return 'Q' + q;
+          },
+          style: { fontWeight: 'bold', fontSize: '13px' }
+        };
+
         try {
           Highcharts.ganttChart(container.id, {
-            title:       { text: spec.title || '' },
-            subtitle:    { text: spec.subtitle || '' },
-            xAxis:       spec.xAxis || {},
+            chart: { backgroundColor: '#ffffff', spacingBottom: 24, spacingTop: 16 },
+            title:       {
+              text: spec.title || '',
+              style: { fontSize: '16px', fontWeight: '600' }
+            },
+            subtitle:    {
+              text: spec.subtitle || '',
+              style: { fontSize: '12px', color: '#666' }
+            },
+            xAxis:       (spec.xAxis && Object.keys(spec.xAxis).length) ? spec.xAxis : xAxisLayered,
             yAxis:       Object.assign({}, spec.yAxis || {}, {
               uniqueNames: true,
+              staticScale: 28,                       // fixed row height
+              grid: { enabled: true, columns: [{ title: { text: 'Site' }, labels: { format: '{point.name}' } }] },
               title: (spec.yAxis && spec.yAxis.title) || { text: '' }
             }),
             series:      ganttSeries,
-            legend:      spec.legend || { enabled: true },
-            tooltip:     spec.tooltip || {
-              pointFormat: '<b>{point.name}</b><br/>{point.start:%e %b %Y} → {point.end:%e %b %Y}'
-            },
-            plotOptions: Object.assign({ series: { dataLabels: { enabled: false } } }, spec.plotOptions || {}),
+            legend:      spec.legend || { enabled: false },     // colors are per-point; legend just adds noise
+            tooltip:     Object.assign({
+              pointFormat: '<b>{point.name}</b><br/>{point.start:%e %b %Y} → {point.end:%e %b %Y}',
+              backgroundColor: 'rgba(255,255,255,0.97)',
+              borderWidth: 1
+            }, spec.tooltip || {}),
+            plotOptions: Object.assign({
+              series: {
+                dataLabels: { enabled: false },
+                borderRadius: 6,                     // rounded bars (template style)
+                borderWidth: 0,
+                pointPadding: 0.15,
+                groupPadding: 0
+              }
+            }, spec.plotOptions || {}),
             credits:     { enabled: false },
           });
         } catch (e) {
