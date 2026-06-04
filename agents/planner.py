@@ -258,7 +258,7 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
         semantic_context=safe_semantic,
     )
 
-    llm_response = llm.invoke([
+    llm_response = llm.bind(response_format={"type": "json_object"}).invoke([
         SystemMessage(content=planning_prompt),
         HumanMessage(content=refined_query),
     ])
