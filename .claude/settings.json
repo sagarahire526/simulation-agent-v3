@@ -23,7 +23,12 @@
       "Bash(python3 -c \"import ast; ast.parse\\(open\\('models/state.py'\\).read\\(\\)\\); print\\('state.py OK'\\)\")",
       "Bash(python3 -c \"import ast; ast.parse\\(open\\('prompts/planner_prompt.py'\\).read\\(\\)\\); print\\('planner_prompt.py OK'\\)\")",
       "Bash(python3 -c \"import ast; ast.parse\\(open\\('prompts/response_prompt.py'\\).read\\(\\)\\); print\\('response_prompt.py OK'\\)\")",
-      "Read(//Users/sagaraahire/Downloads/**)"
+      "Read(//Users/sagaraahire/Downloads/**)",
+      "Bash(python3 -c ' *)",
+      "Bash(python -c \"from api.v1.endpoints import embeddings; print\\('OK', [r.path for r in embeddings.router.routes]\\)\")",
+      "Read(//Users/sagaraahire/Desktop/**)",
+      "Bash(awk 'NR==114' \"/Users/sagaraahire/Desktop/projects QUESTT/simulation agent v3/simulation-agent-v1/bkg_export_slim \\(14\\).cypher\")",
+      "Bash(awk 'NR==114 {print substr\\($0, 1, 80\\)}' \"/Users/sagaraahire/Desktop/projects QUESTT/simulation agent v3/simulation-agent-v1/bkg_export_slim \\(14\\).cypher\")"
     ]
   }
 }

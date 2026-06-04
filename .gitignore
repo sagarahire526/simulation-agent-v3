@@ -60,3 +60,7 @@ logs/
 .langgraph/
 langgraph.json
 mock_semantic_server.py
+
+scripts/verify_construction_plan_forecast.py
+scripts/load_cpf_node.py
+.claude/settings.json
