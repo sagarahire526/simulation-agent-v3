@@ -21,6 +21,8 @@ distinct session_id present on BKGNodes and processes them sequentially.
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import json
 import os
 import sys
@@ -28,6 +30,41 @@ from typing import Any
 
 import psycopg2
 import psycopg2.extras
+
+
+def _pg_float_array(vals: list[float]) -> str:
+    """Format a Python list of floats as a PostgreSQL array literal."""
+    return "{" + ",".join(repr(float(v)) for v in vals) + "}"
+
+
+def _pg_text_array(vals: list[str] | None) -> str:
+    """Format a Python list of strings as a PostgreSQL text[] array literal."""
+    if not vals:
+        return "{}"
+    out = []
+    for v in vals:
+        s = str(v).replace("\\", "\\\\").replace('"', '\\"')
+        out.append(f'"{s}"')
+    return "{" + ",".join(out) + "}"
+
+
+def _copy_rows(cur, table: str, columns: list[str], rows) -> None:
+    """Stream rows into Postgres via COPY ... FROM STDIN (CSV).
+
+    `rows` is an iterable of tuples whose values are already serialized to
+    strings appropriate for each column type (PG array literals, JSON text,
+    plain text). None values become CSV empty fields → SQL NULL.
+    """
+    buf = io.StringIO()
+    writer = csv.writer(buf, quoting=csv.QUOTE_MINIMAL)
+    for row in rows:
+        writer.writerow(["" if v is None else v for v in row])
+    buf.seek(0)
+    cur.copy_expert(
+        f"COPY {table} ({', '.join(columns)}) FROM STDIN "
+        f"WITH (FORMAT csv, NULL '')",
+        buf,
+    )
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
 from openai import OpenAI
@@ -198,15 +235,17 @@ def ensure_schema(conn) -> None:
 
 def write_nodes(conn, session_id: str, rows: list[dict[str, Any]]) -> None:
     with conn.cursor() as cur:
+        # Loosen durability for the duration of this transaction — bulk loads
+        # don't need fsync per commit.
+        cur.execute("SET LOCAL synchronous_commit = OFF")
         # Only wipe rows for this session — sibling graphs in the same table stay intact.
         cur.execute(f"DELETE FROM {_SCHEMA}.nodes WHERE session_id = %s", (session_id,))
-        psycopg2.extras.execute_values(
+        _copy_rows(
             cur,
-            f"""
-            INSERT INTO {_SCHEMA}.nodes (element_id, session_id, node_id, label, entity_type, node_type, composed_text, embedding, props)
-            VALUES %s
-            """,
-            [
+            f"{_SCHEMA}.nodes",
+            ["element_id", "session_id", "node_id", "label", "entity_type",
+             "node_type", "composed_text", "embedding", "props"],
+            (
                 (
                     r["element_id"],
                     session_id,
@@ -215,11 +254,11 @@ def write_nodes(conn, session_id: str, rows: list[dict[str, Any]]) -> None:
                     r["entity_type"],
                     r["node_type"],
                     r["composed_text"],
-                    r["embedding"],
-                    psycopg2.extras.Json(r["props"]),
+                    _pg_float_array(r["embedding"]),
+                    json.dumps(r["props"]),
                 )
                 for r in rows
-            ],
+            ),
         )
     conn.commit()
 
@@ -231,19 +270,20 @@ def write_edges(conn, session_id: str, edges: list[dict[str, Any]]) -> None:
         seen.setdefault(e["edge_id"], e)
     deduped = list(seen.values())
     with conn.cursor() as cur:
+        cur.execute("SET LOCAL synchronous_commit = OFF")
         # Node-side DELETE above cascades to edges, but be explicit in case session_id
         # has stale edges left over from a partial earlier run.
         cur.execute(f"DELETE FROM {_SCHEMA}.edges WHERE session_id = %s", (session_id,))
-        psycopg2.extras.execute_values(
+        _copy_rows(
             cur,
-            f"""
-            INSERT INTO {_SCHEMA}.edges (edge_id, session_id, source_element_id, target_element_id, relationship_type)
-            VALUES %s
-            """,
-            [
-                (e["edge_id"], session_id, e["source_element_id"], e["target_element_id"], e["relationship_type"])
+            f"{_SCHEMA}.edges",
+            ["edge_id", "session_id", "source_element_id",
+             "target_element_id", "relationship_type"],
+            (
+                (e["edge_id"], session_id, e["source_element_id"],
+                 e["target_element_id"], e["relationship_type"])
                 for e in deduped
-            ],
+            ),
         )
     conn.commit()
 

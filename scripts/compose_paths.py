@@ -16,6 +16,8 @@ Run:
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import os
 import sys
 from collections import defaultdict
@@ -23,6 +25,33 @@ from typing import Any
 
 import psycopg2
 import psycopg2.extras
+
+
+def _pg_float_array(vals: list[float]) -> str:
+    return "{" + ",".join(repr(float(v)) for v in vals) + "}"
+
+
+def _pg_text_array(vals: list[str] | None) -> str:
+    if not vals:
+        return "{}"
+    out = []
+    for v in vals:
+        s = str(v).replace("\\", "\\\\").replace('"', '\\"')
+        out.append(f'"{s}"')
+    return "{" + ",".join(out) + "}"
+
+
+def _copy_rows(cur, table: str, columns: list[str], rows) -> None:
+    buf = io.StringIO()
+    writer = csv.writer(buf, quoting=csv.QUOTE_MINIMAL)
+    for row in rows:
+        writer.writerow(["" if v is None else v for v in row])
+    buf.seek(0)
+    cur.copy_expert(
+        f"COPY {table} ({', '.join(columns)}) FROM STDIN "
+        f"WITH (FORMAT csv, NULL '')",
+        buf,
+    )
 from dotenv import load_dotenv
 from openai import OpenAI
 
@@ -150,26 +179,25 @@ def embed_batch(client: OpenAI, texts: list[str]) -> list[list[float]]:
 
 def write_paths(conn, session_id: str, rows: list[dict[str, Any]]) -> None:
     with conn.cursor() as cur:
+        cur.execute("SET LOCAL synchronous_commit = OFF")
         cur.execute(f"DELETE FROM {_SCHEMA}.paths WHERE session_id = %s", (session_id,))
-        psycopg2.extras.execute_values(
+        _copy_rows(
             cur,
-            f"""
-            INSERT INTO {_SCHEMA}.paths (session_id, hops, node_element_ids, node_labels, relationship_types, composed_text, embedding)
-            VALUES %s
-            """,
-            [
+            f"{_SCHEMA}.paths",
+            ["session_id", "hops", "node_element_ids", "node_labels",
+             "relationship_types", "composed_text", "embedding"],
+            (
                 (
                     session_id,
                     r["hops"],
-                    r["node_eids"],
-                    r["node_labels"],
-                    r["rel_types"],
+                    _pg_text_array(r["node_eids"]),
+                    _pg_text_array(r["node_labels"]),
+                    _pg_text_array(r["rel_types"]),
                     r["composed_text"],
-                    r["embedding"],
+                    _pg_float_array(r["embedding"]),
                 )
                 for r in rows
-            ],
-            page_size=500,
+            ),
         )
     conn.commit()
 
