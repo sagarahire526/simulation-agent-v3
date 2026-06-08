@@ -414,11 +414,11 @@ forecast step instead.
 One step, written as a business-language ask that names every parameter the traversal \
 needs to extract. Template:
 
-> *"Sub-query 1: Retrieve the week-by-week construction plan forecast for **{N}** sites \
-> over the next **{M} months / {W} weeks / {D} days** [optional: , scoped to \
-> **{scope_filter}**] [optional: , with sites split into cohorts by **{missing_gate}** \
+> *"Sub-query 1: Retrieve the week-by-week construction plan forecast for **{{N}}** sites \
+> over the next **{{M}} months / {{W}} weeks / {{D}} days** [optional: , scoped to \
+> **{{scope_filter}}**] [optional: , with sites split into cohorts by **{{missing_gate}}** \
 > completion]. Include committed sites planned in window, pull-forward candidates whose \
-> pre-requisite completion is ≥ **{threshold}%** (default 80%), the GC run-rate weekly \
+> pre-requisite completion is ≥ **{{threshold}}%** (default 80%), the GC run-rate weekly \
 > capacity, and per-site blockers for any pull-forward sites."*
 
 Substitute only what the user actually said; drop the optional clauses if they didn't \

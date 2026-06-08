@@ -6,22 +6,24 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <style>
   :root {
-    --bg: #0f1419;
-    --panel: #1a2028;
-    --panel-2: #232b35;
-    --border: #313a47;
-    --text: #e4e9f0;
-    --muted: #8a96a8;
-    --accent: #4a9eff;
-    --accent-dim: #2a6cb8;
-    --ok: #46c071;
-    --warn: #f0b132;
-    --err: #e85a5a;
-    --kpi: #b86fff;
-    --core: #4a9eff;
-    --context: #46c071;
-    --transaction: #f0b132;
-    --reference: #8a96a8;
+    /* Light theme — primary brand #005AFF */
+    --bg: #f4f7fb;
+    --panel: #ffffff;
+    --panel-2: #eef2f8;
+    --border: #d6dde6;
+    --text: #0e1a2b;
+    --muted: #5b6776;
+    --accent: #005AFF;
+    --accent-dim: #003fb3;
+    --accent-soft: #e6efff;       /* tinted background for active rows / focus rings */
+    --ok: #1f9d55;
+    --warn: #d97706;
+    --err: #d63a3a;
+    --kpi: #7c3aed;
+    --core: #005AFF;
+    --context: #1f9d55;
+    --transaction: #d97706;
+    --reference: #5b6776;
   }
   * { box-sizing: border-box; }
   html, body { margin:0; padding:0; height:100%; background:var(--bg); color:var(--text);
@@ -34,22 +36,50 @@
   header h1 { font-size:16px; margin:0; font-weight:600; }
   header .spacer { flex:1; }
   select, input, textarea, button {
-    background:var(--panel-2); color:var(--text); border:1px solid var(--border);
+    background:var(--panel); color:var(--text); border:1px solid var(--border);
     border-radius:6px; padding:6px 10px; font:inherit;
+  }
+  select:focus, input:focus, textarea:focus {
+    outline:none; border-color:var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
   }
   select { cursor:pointer; }
   button {
-    cursor:pointer; background:var(--accent-dim); border-color:var(--accent-dim);
+    cursor:pointer; background:var(--accent); border-color:var(--accent);
     color:#fff; font-weight:500;
   }
-  button:hover { background:var(--accent); border-color:var(--accent); }
-  button.ghost { background:transparent; border-color:var(--border); color:var(--text); font-weight:400; }
-  button.ghost:hover { background:var(--panel-2); border-color:var(--accent); }
+  button:hover { background:var(--accent-dim); border-color:var(--accent-dim); }
+  button.ghost { background:var(--panel); border-color:var(--border); color:var(--text); font-weight:500; }
+  button.ghost:hover { background:var(--accent-soft); border-color:var(--accent); color:var(--accent-dim); }
   button.danger { background:transparent; border-color:var(--err); color:var(--err); }
   button.danger:hover { background:var(--err); color:#fff; }
   button:disabled { opacity:0.45; cursor:not-allowed; }
 
+  nav.tabs { display:flex; gap:4px; }
+  nav.tabs .tab {
+    background:transparent; border:1px solid transparent; color:var(--muted);
+    padding:6px 14px; border-radius:6px; font-weight:500; cursor:pointer;
+  }
+  nav.tabs .tab:hover { color:var(--text); background:var(--panel-2); }
+  nav.tabs .tab.active {
+    color:var(--text); background:var(--panel-2); border-color:var(--border);
+  }
+
   main { display:grid; grid-template-columns: 320px 1fr; height: calc(100vh - 53px); }
+  main[hidden] { display:none; }
+
+  .scenario-meta {
+    background:var(--panel-2); border:1px solid var(--border);
+    padding:14px 18px; border-radius:8px; margin-bottom:18px;
+    display:flex; flex-direction:column; gap:8px;
+  }
+  .scenario-meta .label-row { display:flex; gap:10px; align-items:baseline; }
+  .scenario-meta .label-row .id { color:var(--muted); font-family: ui-monospace, monospace; font-size:12px; }
+  .scenario-meta .label-row .tag { font-weight:600; font-size:15px; }
+  .scenario-meta .question { color:var(--text); }
+  .scenario-meta .steps-title { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:0.5px; margin-top:6px; }
+  .scenario-meta ol { margin:4px 0 0; padding-left:22px; }
+  .scenario-meta ol li { margin:3px 0; }
   aside {
     border-right:1px solid var(--border); background:var(--panel);
     display:flex; flex-direction:column; min-height:0;
@@ -67,7 +97,8 @@
     display:flex; flex-direction:column; gap:2px;
   }
   .node-item:hover { background:var(--panel-2); }
-  .node-item.active { background:var(--panel-2); border-left-color:var(--accent); }
+  .node-item.active { background:var(--accent-soft); border-left-color:var(--accent); }
+  .node-item.active .name { color:var(--accent-dim); }
   .node-item .name { font-weight:500; }
   .node-item .meta { color:var(--muted); font-size:11px; }
   .badge {
@@ -75,11 +106,11 @@
     font-size:10px; font-weight:600; text-transform:uppercase;
     background:var(--border); color:var(--text);
   }
-  .badge.core        { background:var(--core);        color:#0f1419; }
-  .badge.kpi         { background:var(--kpi);         color:#fff;    }
-  .badge.context     { background:var(--context);     color:#0f1419; }
-  .badge.transaction { background:var(--transaction); color:#0f1419; }
-  .badge.reference   { background:var(--reference);   color:#0f1419; }
+  .badge.core        { background:var(--core);        color:#fff; }
+  .badge.kpi         { background:var(--kpi);         color:#fff; }
+  .badge.context     { background:var(--context);     color:#fff; }
+  .badge.transaction { background:var(--transaction); color:#fff; }
+  .badge.reference   { background:var(--reference);   color:#fff; }
 
   section.editor { overflow:auto; padding:20px 28px; min-width:0; }
   .empty {
@@ -159,7 +190,7 @@
 
   /* Modal for "new node" */
   .modal-bg {
-    position:fixed; inset:0; background:rgba(0,0,0,0.6);
+    position:fixed; inset:0; background:rgba(15,26,43,0.35);
     display:none; align-items:center; justify-content:center; z-index:50;
   }
   .modal-bg.open { display:flex; }
@@ -167,14 +198,15 @@
     background:var(--panel); border:1px solid var(--border); border-radius:10px;
     width: min(720px, 92vw); max-height: 90vh; overflow:auto;
     padding:22px 26px;
+    box-shadow: 0 12px 40px rgba(0,90,255,0.12), 0 4px 12px rgba(15,26,43,0.08);
   }
   .modal h2 { margin-top:0; }
 
   .toast {
     position:fixed; bottom:24px; right:24px; z-index:100;
-    background:var(--panel-2); border:1px solid var(--border);
+    background:var(--panel); border:1px solid var(--border); color:var(--text);
     padding:10px 16px; border-radius:8px;
-    box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+    box-shadow: 0 6px 20px rgba(15,26,43,0.12);
     opacity:0; transform: translateY(8px); transition: all 0.2s;
   }
   .toast.show { opacity:1; transform: translateY(0); }
@@ -186,14 +218,21 @@
 
 <header>
   <h1>BKG Admin</h1>
+  <nav class="tabs">
+    <button class="tab active" data-view="bkg">Knowledge Graph</button>
+    <button class="tab" data-view="sim">Simulation Scenarios</button>
+    <button class="tab" data-view="rca">RCA/Recc Scenarios</button>
+  </nav>
   <select id="graph-select" title="Knowledge graph">
     <option value="">Loading graphs…</option>
   </select>
   <span class="spacer"></span>
+  <button id="rebuild-embeddings-btn" class="ghost" title="Rebuild node, edge and path embeddings so recent edits become visible to the agent.">↻ Rebuild embeddings</button>
   <button id="new-node-btn" class="ghost">+ New node</button>
+  <button id="new-scenario-btn" class="ghost" hidden>+ New scenario</button>
 </header>
 
-<main>
+<main id="view-bkg">
   <aside>
     <div class="filter-bar">
       <input id="search" type="text" placeholder="Search nodes…" />
@@ -215,6 +254,50 @@
     <div class="empty">Select a node on the left to edit its content.</div>
   </section>
 </main>
+
+<!-- Scenarios view -->
+<main id="view-scenarios" hidden>
+  <aside>
+    <div class="filter-bar">
+      <input id="scenario-search" type="text" placeholder="Search scenarios…" />
+    </div>
+    <div id="scenario-list" class="node-list"></div>
+  </aside>
+
+  <section class="editor" id="scenario-editor">
+    <div class="empty">Select a scenario on the left, or click “+ New scenario” to add one.</div>
+  </section>
+</main>
+
+<!-- New scenario modal -->
+<div class="modal-bg" id="scenario-modal-bg">
+  <div class="modal">
+    <h2>Add scenario to internal library</h2>
+    <p style="color:var(--muted); margin-top:-8px;">
+      The question text is embedded with <code>text-embedding-3-small</code> at save time
+      and matched at planner time (threshold ≥ 0.8).
+    </p>
+    <div class="field">
+      <label>tag <span class="lock">short label, e.g. "Crew shortage % impact in a region"</span></label>
+      <input id="new-scenario-tag" type="text" />
+    </div>
+    <div class="field">
+      <label>question <span class="lock">user-style question this scenario answers</span></label>
+      <textarea id="new-scenario-question" rows="3"></textarea>
+    </div>
+    <div class="field">
+      <label>steps <span class="lock">one step per line — mixed retrieval + synthesis is fine</span></label>
+      <textarea id="new-scenario-steps" rows="8" placeholder="1. ...\n2. ..."></textarea>
+    </div>
+
+    <div class="save-bar" style="position:static; margin: 22px 0 0; padding:14px 0 0; border-top:1px solid var(--border);">
+      <span class="status" id="new-scenario-status"></span>
+      <span class="spacer"></span>
+      <button class="ghost" id="cancel-new-scenario">Cancel</button>
+      <button id="save-new-scenario">Save scenario</button>
+    </div>
+  </div>
+</div>
 
 <!-- New node modal -->
 <div class="modal-bg" id="modal-bg">
@@ -267,13 +350,66 @@
 
 <script>
 //─ State ─────────────────────────────────────────────────────────────────
+// ── Scenario source config ──────────────────────────────────────────────
+// Two backends share the same UI. Edit RCA_BASE to point at your RCA
+// service (different origin from the simulation agent).
+const RCA_BASE = 'http://localhost:8002/api';
+
+const SCENARIO_SOURCES = {
+  sim: {
+    label: 'Simulation Scenarios',
+    addLabel: '+ New simulation scenario',
+    modalTitle: 'Add simulation scenario to internal library',
+    base: '/api/v1/internal-scenarios',
+  },
+  rca: {
+    label: 'RCA/Recc Scenarios',
+    addLabel: '+ New RCA/Recc scenario',
+    modalTitle: 'Add RCA/Recc scenario to internal library',
+    base: `${RCA_BASE}/v1/internal-scenarios`,
+  },
+};
+
 const state = {
   graphKey: null,
   graphs: [],
   nodes: [],          // full list for current graph
   selected: null,     // detail of selected node {properties, editable_fields, ...}
   dirty: false,
+  view: 'bkg',        // 'bkg' | 'sim' | 'rca'
+  scenariosBySource: { sim: [], rca: [] },
+  selectedBySource:  { sim: null, rca: null },
+  loadedSources:     new Set(),
 };
+
+function activeScenarioSource() {
+  return state.view === 'rca' ? 'rca' : 'sim';
+}
+
+function scenarioApi(source) {
+  const base = SCENARIO_SOURCES[source].base;
+  return {
+    async list() {
+      const r = await fetch(base);
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+      return r.json();
+    },
+    async create(body) {
+      const r = await fetch(base, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+      return r.json();
+    },
+    async remove(scenarioId) {
+      const r = await fetch(`${base}/${encodeURIComponent(scenarioId)}`, {method:'DELETE'});
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+      return r.json();
+    },
+  };
+}
 
 const api = {
   base: '/api/v1/bkg-admin',
@@ -329,6 +465,226 @@ const api = {
   },
 };
 
+//─ Rebuild embeddings ───────────────────────────────────────────────────
+// Triggers POST /api/v1/embeddings/rebuild — runs compose_and_embed.py
+// (nodes + edges) followed by compose_paths.py (paths). Long-running, so we
+// disable the button + show progress in the toast for the duration.
+async function rebuildEmbeddings() {
+  const btn = document.getElementById('rebuild-embeddings-btn');
+  if (!confirm(
+    'Rebuild all node, edge and path embeddings?\n\n' +
+    'This re-runs compose_and_embed.py then compose_paths.py against the live BKG. ' +
+    'It can take several minutes; the agent may return stale schema context until it completes.'
+  )) return;
+
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '↻ Rebuilding…';
+  toast('Rebuilding embeddings — this may take a few minutes…', 'ok');
+
+  try {
+    const res = await fetch('/api/v1/embeddings/rebuild', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dry_run: false, limit: 0, max_hops: 3, cap: 0 }),
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok || payload.status !== 'ok') {
+      const failed = (payload.steps || []).find(s => s.returncode !== 0);
+      const detail = failed
+        ? `${failed.script} failed (rc=${failed.returncode}): ${(failed.stderr || '').slice(0, 200)}`
+        : (payload.detail || `HTTP ${res.status}`);
+      throw new Error(detail);
+    }
+    const summary = (payload.steps || [])
+      .map(s => `${s.script} ${s.duration_seconds}s`)
+      .join(' · ');
+    toast(`Embeddings rebuilt ✓ — ${summary}`, 'ok');
+  } catch (e) {
+    toast(`Rebuild failed: ${e.message}`, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+
+//─ Tab switching ────────────────────────────────────────────────────────
+function switchView(view) {
+  state.view = view;
+  document.querySelectorAll('nav.tabs .tab').forEach(b => {
+    b.classList.toggle('active', b.dataset.view === view);
+  });
+  document.getElementById('view-bkg').hidden = view !== 'bkg';
+  // Both sim and rca share the same <main> element; source decides the data.
+  document.getElementById('view-scenarios').hidden = (view !== 'sim' && view !== 'rca');
+
+  // Header controls — show only what's relevant for the active view.
+  const isBkg = view === 'bkg';
+  document.getElementById('graph-select').hidden = !isBkg;
+  document.getElementById('new-node-btn').hidden = !isBkg;
+  document.getElementById('rebuild-embeddings-btn').hidden = !isBkg;
+
+  const addBtn = document.getElementById('new-scenario-btn');
+  addBtn.hidden = isBkg;
+  if (!isBkg) addBtn.textContent = SCENARIO_SOURCES[activeScenarioSource()].addLabel;
+
+  if (!isBkg) {
+    const src = activeScenarioSource();
+    if (!state.loadedSources.has(src)) {
+      loadScenarios(src);
+    } else {
+      renderScenarioList();
+      const sel = state.selectedBySource[src];
+      renderScenarioDetail(sel ? state.scenariosBySource[src].find(s => s.id === sel) : null);
+    }
+  }
+}
+
+//─ Scenarios ───────────────────────────────────────────────────────────
+async function loadScenarios(source = activeScenarioSource()) {
+  try {
+    state.scenariosBySource[source] = await scenarioApi(source).list();
+    state.loadedSources.add(source);
+    if (source === activeScenarioSource()) {
+      renderScenarioList();
+      const sel = state.selectedBySource[source];
+      renderScenarioDetail(sel ? state.scenariosBySource[source].find(s => s.id === sel) : null);
+    }
+  } catch (e) {
+    toast(`Failed to load ${SCENARIO_SOURCES[source].label}: ${e.message}`, 'err');
+  }
+}
+
+function renderScenarioList() {
+  const source = activeScenarioSource();
+  const scenarios = state.scenariosBySource[source] || [];
+  const selectedId = state.selectedBySource[source];
+  const q = (document.getElementById('scenario-search').value || '').toLowerCase();
+  const list = document.getElementById('scenario-list');
+  const filtered = scenarios.filter(s => {
+    if (!q) return true;
+    return (s.tag || '').toLowerCase().includes(q)
+        || (s.question || '').toLowerCase().includes(q);
+  });
+  if (!filtered.length) {
+    list.innerHTML = `<div class="empty" style="height:auto; padding:24px;">No scenarios yet.</div>`;
+    return;
+  }
+  list.innerHTML = filtered.map(s => `
+    <div class="node-item ${s.id === selectedId ? 'active' : ''}" data-id="${s.id}">
+      <div class="name">${escapeHtml(s.tag || '(no tag)')}</div>
+      <div class="meta">${escapeHtml((s.question || '').slice(0, 60))}${(s.question || '').length > 60 ? '…' : ''}</div>
+    </div>
+  `).join('');
+  list.querySelectorAll('.node-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const src = activeScenarioSource();
+      state.selectedBySource[src] = el.dataset.id;
+      renderScenarioList();
+      renderScenarioDetail(state.scenariosBySource[src].find(s => s.id === el.dataset.id));
+    });
+  });
+}
+
+function renderScenarioDetail(s) {
+  const root = document.getElementById('scenario-editor');
+  if (!s) {
+    root.innerHTML = `<div class="empty">Select a scenario on the left, or click “+ New scenario” to add one.</div>`;
+    return;
+  }
+  const stepsHtml = (s.steps || []).map(st => `<li>${escapeHtml(st)}</li>`).join('');
+  root.innerHTML = `
+    <div class="editor-header">
+      <h2>${escapeHtml(s.tag || '(no tag)')}</h2>
+      <span class="spacer"></span>
+      <button class="danger" id="delete-scenario-btn">Delete scenario</button>
+    </div>
+    <div class="scenario-meta">
+      <div class="label-row">
+        <span class="tag">${escapeHtml(s.tag || '')}</span>
+      </div>
+      <div class="question">${escapeHtml(s.question || '')}</div>
+      <div class="steps-title">Steps</div>
+      <ol>${stepsHtml || '<li style="color:var(--muted);">(no steps)</li>'}</ol>
+      ${s.created_at ? `<div style="color:var(--muted); font-size:12px; margin-top:8px;">Created ${escapeHtml(s.created_at)}</div>` : ''}
+    </div>
+  `;
+  document.getElementById('delete-scenario-btn').addEventListener('click', () => deleteScenario(s.id));
+}
+
+function openNewScenarioModal() {
+  const source = activeScenarioSource();
+  document.querySelector('#scenario-modal-bg .modal h2').textContent =
+    SCENARIO_SOURCES[source].modalTitle;
+  document.getElementById('new-scenario-tag').value = '';
+  document.getElementById('new-scenario-question').value = '';
+  document.getElementById('new-scenario-steps').value = '';
+  document.getElementById('new-scenario-status').textContent = '';
+  document.getElementById('scenario-modal-bg').classList.add('open');
+}
+function closeNewScenarioModal() {
+  document.getElementById('scenario-modal-bg').classList.remove('open');
+}
+
+async function saveNewScenario() {
+  const source = activeScenarioSource();
+  const tag = document.getElementById('new-scenario-tag').value.trim();
+  const question = document.getElementById('new-scenario-question').value.trim();
+  const stepsRaw = document.getElementById('new-scenario-steps').value;
+  const steps = stepsRaw.split('\n')
+    .map(s => s.replace(/^\s*\d+\.\s*/, '').trim())   // strip "1. " / "2. " prefixes
+    .filter(Boolean);
+
+  if (!tag || !question || steps.length === 0) {
+    document.getElementById('new-scenario-status').textContent = 'tag, question and at least one step are required.';
+    return;
+  }
+
+  const btn = document.getElementById('save-new-scenario');
+  btn.disabled = true;
+  document.getElementById('new-scenario-status').textContent = 'Embedding the question…';
+  try {
+    const res = await scenarioApi(source).create({ tag, question, steps });
+    closeNewScenarioModal();
+    toast('Scenario added', 'ok');
+    await loadScenarios(source);
+    // Both backends return the saved entry under `scenario`; fall back to the
+    // raw payload in case a future endpoint returns the entry directly.
+    const newId = res?.scenario?.id || res?.id;
+    if (newId) {
+      state.selectedBySource[source] = newId;
+      renderScenarioList();
+      renderScenarioDetail(state.scenariosBySource[source].find(s => s.id === newId));
+    }
+  } catch (e) {
+    document.getElementById('new-scenario-status').textContent = e.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function deleteScenario(scenarioId) {
+  const source = activeScenarioSource();
+  const s = (state.scenariosBySource[source] || []).find(x => x.id === scenarioId);
+  const label = s?.tag || 'this scenario';
+  if (!confirm(`Delete "${label}"? This cannot be undone.`)) return;
+  try {
+    await scenarioApi(source).remove(scenarioId);
+    toast('Scenario deleted', 'ok');
+    if (state.selectedBySource[source] === scenarioId) state.selectedBySource[source] = null;
+    await loadScenarios(source);
+    renderScenarioDetail(null);
+  } catch (e) {
+    toast(`Delete failed: ${e.message}`, 'err');
+  }
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+  }[c]));
+}
+
 //─ Toast ─────────────────────────────────────────────────────────────────
 function toast(msg, kind='ok') {
   const el = document.getElementById('toast');
@@ -348,6 +704,16 @@ async function init() {
   document.getElementById('search').addEventListener('input', renderNodeList);
   document.getElementById('type-filter').addEventListener('change', renderNodeList);
   document.getElementById('new-node-btn').addEventListener('click', openNewNodeModal);
+  document.getElementById('rebuild-embeddings-btn').addEventListener('click', rebuildEmbeddings);
+
+  // Tabs + scenarios view
+  document.querySelectorAll('nav.tabs .tab').forEach(b => {
+    b.addEventListener('click', () => switchView(b.dataset.view));
+  });
+  document.getElementById('scenario-search').addEventListener('input', renderScenarioList);
+  document.getElementById('new-scenario-btn').addEventListener('click', openNewScenarioModal);
+  document.getElementById('cancel-new-scenario').addEventListener('click', closeNewScenarioModal);
+  document.getElementById('save-new-scenario').addEventListener('click', saveNewScenario);
   document.getElementById('cancel-new-node').addEventListener('click', closeNewNodeModal);
   document.getElementById('add-new-rel').addEventListener('click', () => addNewRelRow());
   document.getElementById('save-new-node').addEventListener('click', saveNewNode);

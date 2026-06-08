@@ -180,6 +180,7 @@ class MessageRecord(BaseModel):
     graph: Optional[dict[str, Any]] = None     # Highcharts-compatible chart JSON
     analysis: Optional[dict[str, list]] = None  # Semantic search headings
     traces: Optional[dict[str, Any]] = None    # Execution trace: nodes, tool calls, results
+    scenario_match_found: Optional[bool] = None  # True if a scenario in either source ≥ 0.8; False if neither matched; None for legacy/pre-feature rows
     started_at: Any
     completed_at: Optional[Any] = None
     duration_ms: Optional[float] = None

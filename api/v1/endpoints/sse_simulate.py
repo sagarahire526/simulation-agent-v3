@@ -118,6 +118,7 @@ def _run_stream_thread(
             traces=traces,
             analysis=final_state.get("semantic_analysis"),
             algorithm=final_state.get("execution_algorithm", ""),
+            scenario_match_found=final_state.get("scenario_match_found"),
         )
         sse_manager.put_sync(query_id, "complete", {
             "final_response":       final_state.get("final_response", ""),

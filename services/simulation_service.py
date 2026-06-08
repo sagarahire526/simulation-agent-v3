@@ -196,6 +196,7 @@ def run_query(
             traces=traces,
             analysis=state.get("semantic_analysis"),
             algorithm=state.get("execution_algorithm", ""),
+            scenario_match_found=state.get("scenario_match_found"),
         )
         response["traces"] = traces
 
@@ -250,6 +251,7 @@ def resume_query(clarification: str, thread_id: str) -> dict:
                 graph_data=state.get("graph_data"),
                 traces=traces,
                 analysis=state.get("semantic_analysis"),
+                scenario_match_found=state.get("scenario_match_found"),
             )
             response["traces"] = traces
         else:

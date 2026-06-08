@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 # ── Module config ────────────────────────────────────────────────────────────
 EMBEDDING_MODEL = "text-embedding-3-small"
-MIN_SIMILARITY = 0.9
+MIN_SIMILARITY = 0.8
 DEFAULT_TOP_K = 1
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent

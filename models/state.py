@@ -66,6 +66,10 @@ class SimulationState(TypedDict):
 
     # ── Semantic Scenario Guidance (traversal/planner → response) ──
     scenario_simulation_guidance: str
+    # True if GCL sim or internal library had a match ≥ 0.8; False if neither;
+    # None until the planner runs. Persisted via checkpointer so the UI can
+    # render a no-match notice when the user re-opens the question.
+    scenario_match_found: Optional[bool]
 
     # ── Response Agent ──
     final_response: str

@@ -149,6 +149,7 @@ def _make_initial_state(query: str, max_steps: int, project_type: str = "") -> S
         "traversal_steps_taken": 0,
         "max_traversal_steps": max_steps,
         "scenario_simulation_guidance": "",
+        "scenario_match_found": None,
         "final_response": "",
         "calculations": "",
         "data_summary": {},

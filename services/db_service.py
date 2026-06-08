@@ -215,6 +215,10 @@ def ensure_tables() -> None:
         ALTER TABLE {_SCHEMA}.simulation_agent_queries
             ADD COLUMN IF NOT EXISTS current_status JSONB;
     """
+    migrate_scenario_match_col = f"""
+        ALTER TABLE {_SCHEMA}.simulation_agent_queries
+            ADD COLUMN IF NOT EXISTS scenario_match_found BOOLEAN;
+    """
     try:
         with _pooled_conn() as conn:
             with conn.cursor() as cur:
@@ -224,6 +228,7 @@ def ensure_tables() -> None:
                 cur.execute(migrate_analysis_col)
                 cur.execute(migrate_algorithm_col)
                 cur.execute(migrate_current_status_col)
+                cur.execute(migrate_scenario_match_col)
         logger.info("pwc_simulation_agent_schema tables verified / created.")
     except Exception as exc:
         logger.error("ensure_tables failed: %s", exc)
@@ -350,6 +355,7 @@ def update_query_complete(
     traces: dict | None = None,
     analysis: dict | None = None,
     algorithm: str | None = None,
+    scenario_match_found: bool | None = None,
 ) -> None:
     """
     Finalize a completed query.
@@ -372,18 +378,19 @@ def update_query_complete(
     _exec(
         f"""
         UPDATE {_SCHEMA}.simulation_agent_queries SET
-            refined_query      = %s,
-            routing_decision   = %s,
-            planning_rationale = %s,
-            final_response     = %s,
-            current_status     = %s,
-            algorithm          = %s,
-            graph              = %s,
-            traces             = %s,
-            analysis           = %s,
-            completed_at       = NOW(),
-            duration_ms        = %s,
-            status             = 'complete'
+            refined_query        = %s,
+            routing_decision     = %s,
+            planning_rationale   = %s,
+            final_response       = %s,
+            current_status       = %s,
+            algorithm            = %s,
+            graph                = %s,
+            traces               = %s,
+            analysis             = %s,
+            scenario_match_found = %s,
+            completed_at         = NOW(),
+            duration_ms          = %s,
+            status               = 'complete'
         WHERE query_id = %s
         """,
         (
@@ -396,6 +403,7 @@ def update_query_complete(
             graph_json,
             traces_json,
             analysis_json,
+            scenario_match_found,
             duration_ms,
             query_id,
         ),
@@ -579,6 +587,7 @@ def get_messages_by_thread(thread_id: str) -> list[dict]:
             graph,
             analysis,
             traces,
+            scenario_match_found,
             started_at,
             completed_at,
             duration_ms,

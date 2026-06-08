@@ -42,6 +42,7 @@ _RESET  = "\033[0m"
 _MAX_PARALLEL_STEPS = 6    # Hard cap — prompt targets 4-6 focused steps
 _PLANNER_STEP_MAX_STEPS = 10  # Budget: get_kpi + run_sql_python + 3 retries + get_node fallback + run_sql_python + spare
 _STEP_TIMEOUT_SEC = 300   # Kill a runaway sub-traversal after 5 minutes
+_GCL_SIM_THRESHOLD = 0.8  # GCL `simulation` rows below this don't count as a real match
 
 # Shared executor for running asyncio event loops from sync planner nodes.
 # Bounded to 4 threads so 100 concurrent requests don't spawn 100 OS threads.
@@ -57,6 +58,11 @@ def _fetch_gcl_context(query: str) -> dict:
     try:
         semantic = SemanticService()
         data = semantic.get_all_context(query)
+        sim_rows = data.get("simulation", []) or []
+        sim_strong = sum(
+            1 for r in sim_rows
+            if (r.get("similarity_score") or 0) >= _GCL_SIM_THRESHOLD
+        )
         return {
             "formatted": semantic.format_traversal_context(data) if any(data.values()) else "",
             "guidance":  semantic.format_simulation_guidance(data) if any(data.values()) else "",
@@ -64,12 +70,13 @@ def _fetch_gcl_context(query: str) -> dict:
             "hits":      (
                 len(data.get("kpi", [])),
                 len(data.get("question_bank", [])),
-                len(data.get("simulation", [])),
+                len(sim_rows),
             ),
+            "sim_strong": sim_strong,
         }
     except Exception as e:
         logger.warning("GCL semantic search failed (non-fatal): %s", e)
-        return {"formatted": "", "guidance": "", "analysis": {}, "hits": (0, 0, 0)}
+        return {"formatted": "", "guidance": "", "analysis": {}, "hits": (0, 0, 0), "sim_strong": 0}
 
 
 def _fetch_internal_scenarios(query: str) -> list[dict]:
@@ -192,6 +199,7 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
     simulation_guidance = ""
     semantic_analysis: dict[str, list[str]] = {}
     internal_matches: list[dict] = []
+    sim_strong = 0
 
     # Run GCL semantic search and the local Internal Scenario Library lookup
     # in parallel — both feed the planner via the same semantic_context block,
@@ -206,6 +214,7 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
             simulation_guidance  = gcl["guidance"]
             semantic_analysis    = gcl["analysis"]
             kpi_hits, qb_hits, sim_hits = gcl["hits"]
+            sim_strong = gcl.get("sim_strong", 0)
             if any([kpi_hits, qb_hits, sim_hits]):
                 print(
                     f"  {_GREEN}🎯 Semantic context: "
@@ -235,6 +244,14 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
                 )
         except Exception as e:
             logger.warning("Internal scenario lookup failed (non-fatal): %s", e)
+
+    # ── Scenario-match gate ──────────────────────────────────────────────────
+    # A query is considered "covered by an approved scenario" only when at least
+    # one source clears its threshold: GCL sim row ≥ 0.8, or internal library
+    # match above MIN_SIMILARITY (also 0.8). Neither → False; the UI uses this
+    # to surface a "no matching scenario" notice when the user re-opens the q.
+    scenario_match_found = bool(sim_strong) or bool(internal_matches)
+    emit_sse("scenario_match_status", {"matched": scenario_match_found})
 
     # Splice the internal-library block onto the GCL block so the planner sees
     # both signals with their similarity scores under the same Mode A logic.
@@ -345,6 +362,7 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
         "planner_steps": steps,
         "planner_step_results": step_results,
         "scenario_simulation_guidance": simulation_guidance,
+        "scenario_match_found": scenario_match_found,
         "planner_semantic_context": semantic_context,
         "semantic_analysis": semantic_analysis,
         "current_phase": "response",
