@@ -121,6 +121,13 @@ top-level keys:
   `cpo_missing`) + `capacity` + `config` (with `split_on_gate` key). Two-cohort plan \
   driven by a user-named missing pre-req. Render via **section 2-A-Cohort**.
 
+**Optional add-on fields** (may appear in either shape):
+- `per_gc_weekly_demand` — dict keyed by GC name. Always emitted by build_plan; render \
+  as the "Per-GC Weekly Demand" section if non-empty.
+- `crew_gap` — list of per-GC crew-addition recommendations. Emitted ONLY when the \
+  user asked about crews / capacity addition. **REQUIRED to render** as the "Crew \
+  Capacity vs Demand" section when present.
+
 Either way, the plan has **already been computed** by `build_plan` on the KG node. \
 **Render it directly. Do NOT apply the FORBIDDEN MATH / REALISTIC SCHEDULING RULES \
 listed in the rest of TYPE 2** — those rules derive a schedule from raw run-rate × \
@@ -186,6 +193,31 @@ Required sections (in order):
    | Site ID | Planned Cx | Forecast Cx-Ready | Pre-req % | Last Milestone | Blockers |
    |---------|-----------|-------------------|-----------|----------------|----------|
    Cite total count below the table: *"Showing 10 of `<total>` pull-forward candidates."*
+
+4.5 **Per-GC Weekly Demand** *(include only when `per_gc_weekly_demand` is present \
+   and non-empty)*. One row per GC summarizing demand allocation across the window:
+   | GC | Sites in plan | Peak weekly demand | Total demand |
+   |----|---------------|--------------------|--------------|
+   `Sites in plan` = `total_demand` per GC. `Peak weekly demand` = `peak_weekly_demand` \
+   per GC. Order rows by Total demand desc. Skip the GC `"(unknown)"` row if it has \
+   zero demand. Limit to top 10 GCs by Total demand; if more exist, add one line: \
+   *"Plus N more GCs with smaller demand (total: M sites)."*
+
+4.6 **Crew Capacity vs Demand** *(REQUIRED when `crew_gap` is present and non-empty \
+   — i.e. user asked about crews / GC capacity addition)*. This is the bottom-line \
+   answer for "how many crews do we need to add." One row per GC, **sorted by \
+   crews_to_add desc** (the algorithm already sorted them):
+   | GC | Current Crews | Sites/Crew/Week | Current Weekly Capacity | Peak Weekly Demand | Crews to Add |
+   |----|---------------|-----------------|-------------------------|--------------------|--------------|
+   - **Current Crews** ← `current_crews` (distinct crew leads in last 30 days from HSE tracker)
+   - **Sites/Crew/Week** ← `sites_per_crew_per_week` (derived from this GC's historical completions, or portfolio default if data sparse)
+   - **Current Weekly Capacity** ← `current_weekly_capacity`
+   - **Peak Weekly Demand** ← `peak_weekly_demand`
+   - **Crews to Add** ← `crews_to_add` (BOLD this column; this is the action the PM needs)
+
+   Below the table, one-line note: *"Crew counts sourced from HSE daily tracker, \
+   last 30 days. Productivity (sites/crew/week) derived per-GC from completion \
+   history; falls back to <portfolio_avg> when a GC has no recent completions."*
 
 5. **Actionable Insights** — same MANDATORY TABLE FORMAT as the rest of TYPE 2 \
    (Action | Data Observation | Why It Matters | Expected Impact). Derive each row \

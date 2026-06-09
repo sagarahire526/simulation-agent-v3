@@ -165,13 +165,15 @@ user's words to `build_plan` parameters:
 
 | Sub-query phrase | build_plan param | Example |
 |------------------|------------------|---------|
-| "plan/schedule N sites" | `target_sites = N` | "plan 500 sites" → `target_sites=500` |
+| "plan/schedule N sites" (explicit count) | `target_sites = N` | "plan 500 sites" → `target_sites=500` |
+| **"all pending / remaining / not-completed / cx-pending sites"** | **`target_sites="all_pending"`** | "complete all cx pending sites" → `target_sites='all_pending'` (build_plan counts them automatically inside the filter scope) |
 | "next M months" | `window_days = M*30` | "next 2 months" → `window_days=60` |
 | "next W weeks" | `window_days = W*7` | "next 6 weeks" → `window_days=42` |
 | "next D days" | `window_days = D` | "next 90 days" → `window_days=90` |
 | "AHLOA / AHLOB project" | `project_type='AHLOB'` | default is `'NTM'` |
 | "pre-req threshold X%" | `prereq_threshold=X/100` | default is `0.80` |
 | "in SOUTH region" / "for CHICAGO market" / "for GC X" / "in GREAT LAKES area" / etc. | one or more entries in `filters` dict | see Step C |
+| **"crew capacity" / "GC-wise crew addition" / "how many crews" / "headcount needed"** | **`include_crew_analysis=True`** | "...required GC-wise crew capacity addition" → set this flag; build_plan pulls per-GC current crews from the HSE tracker and emits a crew_gap[] section |
 
 **Step C — extract filter dict.** Whenever the sub-query names a region/market/area/GC/ \
 project-status/site-class, pack those into a `filters` dict and pass it. Allowed keys \
@@ -223,14 +225,15 @@ sla_dag = json.loads(r'''<paste the kpi_sla_dag value here as-is>''')
 <paste the entire kpi_python_function source here, unindented, no quoting>
 
 plan = build_plan(
-    target_sites      = <N>,
-    window_days       = <window_days_int>,
-    prereq_threshold  = <0.80 unless user named another>,
-    project_type      = <'NTM' or 'AHLOB'>,
-    sla_dag           = sla_dag,
-    execute_query     = execute_query,
-    filters           = <dict from Step C, or None if no scoping filters in sub-query>,
-    split_on_gate     = <gate name from Step C-bis, or None>,
+    target_sites          = <N integer, or the literal string 'all_pending' per Step B>,
+    window_days           = <window_days_int>,
+    prereq_threshold      = <0.80 unless user named another>,
+    project_type          = <'NTM' or 'AHLOB'>,
+    sla_dag               = sla_dag,
+    execute_query         = execute_query,
+    filters               = <dict from Step C, or None if no scoping filters in sub-query>,
+    split_on_gate         = <gate name from Step C-bis, or None>,
+    include_crew_analysis = <True if user asked about crews / GC capacity addition, else False>,
 )
 
 # The shape of `plan` depends on whether split_on_gate was set.
@@ -245,12 +248,14 @@ if "cohorts" in plan:
     result = {{
         "split_on_gate": plan["config"]["split_on_gate"],
         "cohorts":       {{name: {{
-            "summary":            c["summary"],
-            "weekly_buckets":     c["weekly_buckets"],
-            "pull_forward_sites": c["pull_forward_sites"][:25],
+            "summary":              c["summary"],
+            "weekly_buckets":       c["weekly_buckets"],
+            "pull_forward_sites":   c["pull_forward_sites"][:25],
             "total_pull_forward_sites": len(c["pull_forward_sites"]),
+            "per_gc_weekly_demand": c.get("per_gc_weekly_demand", {{}}),
         }} for name, c in plan["cohorts"].items()}},
         "capacity":      plan["capacity"],
+        "crew_gap":      plan.get("crew_gap", []),
         "config":        plan["config"],
     }}
 else:
@@ -260,6 +265,8 @@ else:
         "capacity":                 plan["capacity"],
         "pull_forward_sites":       plan["pull_forward_sites"][:50],
         "total_pull_forward_sites": len(plan["pull_forward_sites"]),
+        "per_gc_weekly_demand":     plan.get("per_gc_weekly_demand", {{}}),
+        "crew_gap":                 plan.get("crew_gap", []),
         "config":                   plan["config"],
     }}
 ```
