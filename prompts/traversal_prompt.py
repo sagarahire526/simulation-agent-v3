@@ -142,23 +142,18 @@ you MUST include Workfront KPI data — even if the query doesn't explicitly say
 **Construction Plan Forecast — Planning / Scheduling sub-queries** — \
 When the sub-query asks to **plan, schedule, or forecast a target number of sites over a \
 future window** (e.g. "week-by-week construction plan for 500 sites in next 2 months", \
-"pull-forward candidates for the next 6 weeks"), use the **Construction Plan Forecast** KPI \
-node (`cpf-001-construction-plan-forecast`). This is the ONE KPI node whose response \
-contains a self-contained, deterministic algorithm: you exec it verbatim and call it; you \
-do NOT write your own forecast SQL.
+"pull-forward candidates for the next 6 weeks", "all cx pending sites + crew capacity"), \
+use the **Construction Plan Forecast** KPI node (`cpf-001-construction-plan-forecast`). \
+There is a **pre-injected sandbox helper** for this KPI — DO NOT paste the function \
+source into your code. Pasting the ~40 KB `kpi_python_function` body has repeatedly \
+caused "unindent does not match", "invalid syntax", "null bytes", and silent \
+return → result rewrites. The helper bypasses all of that.
 
-**Step A — get_kpi.** Call `get_kpi('cpf-001-construction-plan-forecast')`. The response \
-is delivered without truncation. You MUST use these fields exactly as returned:
-- `kpi_python_function` — the full source of `build_plan(...)`. Paste it **verbatim as \
-  top-level Python statements** in the next `run_sql_python` call. Do NOT wrap it in any \
-  string literal (no raw-triple-double-quote, no triple-single-quote, no single-line \
-  string, no concatenation tricks) and then exec it — that path has repeatedly produced \
-  "unterminated triple-quoted string literal" errors. The function source goes directly \
-  into the code block as top-level Python, unindented.
-- `kpi_sla_dag` — a JSON STRING. You MUST `json.loads(...)` it. **Never substitute an \
-  empty fallback like `{{"NTM": {{}}}}`** — an empty DAG makes every prereq_pct = 0, the \
-  pull-forward pool empty, and the plan meaningless. If the field is missing/empty, \
-  STOP and report that as the finding.
+**Step A — get_kpi (for context only).** Call \
+`get_kpi('cpf-001-construction-plan-forecast')` to confirm the node exists and to read \
+its contract / kpi_description so you understand what the algorithm does. You do **NOT** \
+need to read `kpi_python_function` or `kpi_sla_dag` from the response — the helper in \
+Step D pulls them directly from Neo4j when invoked.
 
 **Step B — extract sub-query parameters.** Read the sub-query carefully and map the \
 user's words to `build_plan` parameters:
@@ -213,37 +208,20 @@ If the user's phrase doesn't match any of these, OR if the user just states a ta
 without naming a missing pre-req, **leave `split_on_gate=None`** — do NOT guess at a \
 gate name. Only set it when the user explicitly names a milestone+condition.
 
-**Step D — exactly ONE run_sql_python call.** Use this skeleton (substitute the five \
-angle-brackets, do not change the structure):
+**Step D — exactly ONE run_sql_python call.** Use this skeleton — do NOT add anything \
+else inside the code block:
 ```python
-import json
-
-# kpi_sla_dag is a JSON string from get_kpi — paste verbatim inside json.loads(r'''...''').
-sla_dag = json.loads(r'''<paste the kpi_sla_dag value here as-is>''')
-
-# kpi_python_function source goes here as TOP-LEVEL STATEMENTS (no string wrapper).
-<paste the entire kpi_python_function source here, unindented, no quoting>
-
-plan = build_plan(
-    target_sites          = <N integer, or the literal string 'all_pending' per Step B>,
+plan = run_construction_plan_forecast(
+    target_sites          = <N integer, OR the literal string 'all_pending' per Step B>,
     window_days           = <window_days_int>,
     prereq_threshold      = <0.80 unless user named another>,
     project_type          = <'NTM' or 'AHLOB'>,
-    sla_dag               = sla_dag,
-    execute_query         = execute_query,
-    filters               = <dict from Step C, or None if no scoping filters in sub-query>,
+    filters               = <dict from Step C, or None>,
     split_on_gate         = <gate name from Step C-bis, or None>,
-    include_crew_analysis = <True if user asked about crews / GC capacity addition, else False>,
+    include_crew_analysis = <True if user asked about crews / GC capacity, else False>,
 )
 
-# The shape of `plan` depends on whether split_on_gate was set.
-# Default (split_on_gate=None) — flat shape:
-#     plan["summary"], plan["weekly_buckets"], plan["pull_forward_sites"], plan["capacity"], plan["config"]
-# Split (split_on_gate set) — cohorts shape:
-#     plan["cohorts"]["<gate>_done"]    = {summary, weekly_buckets, pull_forward_sites}
-#     plan["cohorts"]["<gate>_missing"] = {summary, weekly_buckets, pull_forward_sites}
-#     plan["capacity"], plan["config"]
-# Return whichever shape build_plan produced — do NOT flatten or merge cohorts.
+# Build the findings payload from whichever shape `plan` came back as.
 if "cohorts" in plan:
     result = {{
         "split_on_gate": plan["config"]["split_on_gate"],
@@ -271,30 +249,34 @@ else:
     }}
 ```
 
+`run_construction_plan_forecast` is **pre-injected into the sandbox namespace** by the \
+runtime. You do NOT need to import it, define it, or fetch its source. Just call it. \
+Internally it pulls `kpi_python_function` and `kpi_sla_dag` straight from Neo4j and \
+exec's them with the same `execute_query` your code uses — the source never passes \
+through your context, so there is zero risk of paste-corruption.
+
 **Step E — STOP.** The `result` dict is the findings. No second `run_sql_python` call. \
 No extra SQL — no region breakdown, no per-GC counts, no "let me also fetch…". If the \
 planner asked for an additional dimension, it arrived as a SEPARATE sub-query that \
 another traversal instance is already handling; do not duplicate that work here. The \
 cohort split (when `split_on_gate` is set) is the ONLY allowed multi-result shape — \
-do NOT call `build_plan` again to compare project_types, thresholds, or scenarios.
+do NOT call `run_construction_plan_forecast` again to compare project_types, \
+thresholds, or scenarios.
 
-**Hard prohibitions for this sub-query type** (each maps to a real failure mode):
-- ✗ Do NOT wrap `kpi_python_function` in any string literal (raw triple-double, \
-  triple-single, single-line, or concatenated chunks) and then `exec()` it. Paste the \
-  source as top-level statements directly.
-- ✗ Do NOT supply an empty or partial `sla_dag`. The DAG names every milestone column \
-  the algorithm reads — without it nothing works.
-- ✗ Do NOT write your own SQL after `build_plan` returns. The function already issued \
-  both queries it needs (filter-scoped in-flight fetch + filter-scoped GC run-rate).
-- ✗ Do NOT post-process with pandas date-vs-timestamp comparisons. The function already \
-  date-normalizes internally.
+**Hard prohibitions for this sub-query type** (each maps to a real failure mode that \
+has actually happened in production):
+- ✗ Do NOT paste `kpi_python_function` source into your code, in any form — not as \
+  top-level statements, not in a raw string, not via `exec()`. The pre-injected helper \
+  loads it for you. Pasting a 40 KB function body has repeatedly mangled into syntax \
+  errors, indentation errors, null bytes, and silent return→result rewrites.
+- ✗ Do NOT define `build_plan` yourself. The helper does it inside its own scope.
+- ✗ Do NOT supply or override `sla_dag` / `execute_query` — the helper does both.
+- ✗ Do NOT write your own SQL after the helper returns. It already ran every query \
+  the plan needs (in-flight fetch, capacity run-rate, crew capacity).
+- ✗ Do NOT post-process with pandas date-vs-timestamp comparisons. Dates are already \
+  normalized internally.
 - ✓ DO pass user-named scoping filters (`rgn_region`, `m_market`, `construction_gc`, \
-  …) via the `filters` param. Without them, the plan covers the whole portfolio, which \
-  is wrong when the user asked about a slice.
-
-This is the ONE case where `kpi_python_function` is meant to be exec'd verbatim (as \
-inlined source code) rather than treated as a SQL reference; the rule at STEP 2b "do \
-not copy verbatim" does NOT apply here.
+  …) via the `filters` param. Without them, the plan covers the whole portfolio.
 
 **Site Identifier Override — ALWAYS use `s_site_id`, NEVER `pj_project_id`** — \
 When writing any SQL/Python in `run_sql_python`, you MUST count, group by, join on, \

@@ -375,6 +375,78 @@ class PythonSandbox:
                 df = df.head(max_rows)
             return df.to_dict(orient="records")
 
+        def _run_construction_plan_forecast(
+            target_sites,
+            window_days=60,
+            prereq_threshold=0.80,
+            project_type="NTM",
+            filters=None,
+            split_on_gate=None,
+            mobilization_buffer_days=10,
+            pull_forward_lookup_days=None,
+            include_crew_analysis=False,
+            sites_per_crew_per_week=None,
+            node_id="cpf-001-construction-plan-forecast",
+        ):
+            """Pre-injected helper for the Construction Plan Forecast KPI.
+
+            Pulls `kpi_python_function` (full `build_plan` source) and
+            `kpi_sla_dag` (per-project-type DAG, JSON) from Neo4j, exec's
+            the function in an isolated namespace, then calls `build_plan`
+            with the same `execute_query` this sandbox exposes. Returns the
+            full plan dict — summary, weekly_buckets, committed_sites,
+            pull_forward_sites, per_gc_weekly_demand, capacity, config (and
+            crew_gap when include_crew_analysis=True).
+
+            Use this INSTEAD of pasting `kpi_python_function` source into
+            the sandbox. Pasting a ~40 KB function body has repeatedly
+            produced indentation / null-byte / return→result corruption
+            from the LLM render path. The helper sidesteps that entirely.
+            """
+            from tools.neo4j_tool import Neo4jTool
+            out = Neo4jTool().run_cypher_safe(
+                "MATCH (n:BKGNode {node_id: $nid}) "
+                "RETURN coalesce(n.kpi_python_function, '') AS fn, "
+                "       coalesce(n.kpi_sla_dag, '{}')      AS dag",
+                {"nid": node_id},
+            )
+            records = (out.get("records") or out.get("results") or []) if isinstance(out, dict) else []
+            if not records:
+                raise RuntimeError(
+                    f"Construction Plan Forecast node '{node_id}' not found in Neo4j. "
+                    "Load the cypher append via: python3 -m scripts.load_cpf_node"
+                )
+            row = records[0]
+            fn_src = row.get("fn") or ""
+            dag_str = row.get("dag") or "{}"
+            if len(fn_src) < 1000:
+                raise RuntimeError(
+                    f"kpi_python_function on '{node_id}' is suspiciously short ({len(fn_src)} chars). "
+                    "Node may have loaded partially — re-run scripts.load_cpf_node --force."
+                )
+            sla_dag = json.loads(dag_str)
+            local_ns = {}
+            exec(fn_src, local_ns)
+            build_plan = local_ns.get("build_plan")
+            if build_plan is None:
+                raise RuntimeError(
+                    "build_plan was not defined after exec — the node may have a broken function body."
+                )
+            return build_plan(
+                target_sites=target_sites,
+                window_days=window_days,
+                prereq_threshold=prereq_threshold,
+                project_type=project_type,
+                sla_dag=sla_dag,
+                execute_query=_execute_query,
+                filters=filters,
+                split_on_gate=split_on_gate,
+                mobilization_buffer_days=mobilization_buffer_days,
+                pull_forward_lookup_days=pull_forward_lookup_days,
+                include_crew_analysis=include_crew_analysis,
+                sites_per_crew_per_week=sites_per_crew_per_week,
+            )
+
         namespace = {
             "conn": self.conn,
             "pd": pd,
@@ -384,6 +456,7 @@ class PythonSandbox:
             "json": json,
             "session": self.session_vars,
             "execute_query": _execute_query,
+            "run_construction_plan_forecast": _run_construction_plan_forecast,
             "result": None,
         }
 
