@@ -156,35 +156,53 @@ Required sections (in order):
    | Historical Capacity (weekly) | `<capacity.weekly_cap>` (from `<capacity.completed_last_60d>` completions in last 60d) |
 
 3. **Weekly Execution Plan** — one row per item in `weekly_buckets`, in order, **plus a \
-   final "Total" row summing the numeric columns**. Use this exact column layout (do NOT \
-   add Cumulative; do NOT compute Adjusted columns; do NOT change the math):
-   | Week | Start Date | Planned Sites | Preponed sites | Total | Historical Capacity | Status |
-   |------|------------|---------------|----------------|-------|---------------------|--------|
-   | Week 1 | Jun 15, 2026 | … | … | … | … | … |
-   | … | … | … | … | … | … | … |
-   | **Total** | — | **`<sum committed>`** | **`<sum pull_forward>`** | **`<sum total>`** | — | — |
+   final "Total" row summing the numeric columns**. Add a one-line note above the table: \
+   *"Ramp-up + simulated additions begin from **`<summary.ramp_start_monday>`** \
+   (today + mobilization buffer); earlier weeks show only already-planned sites."* \
+   Use this exact column layout:
+   | Week | Start Date | Planned Sites | Preponed sites | Total | Historical Capacity | Status | Required Sites/Wk (Sim) | Crews to Ramp Up |
+   |------|------------|---------------|----------------|-------|---------------------|--------|--------------------------|------------------|
+   | Week 1 | Jun 22, 2026 | … | … | … | … | … | … | … |
+   | … | … | … | … | … | … | … | … | … |
+   | **Total** | — | **`<sum committed>`** | **`<sum pull_forward>`** | **`<sum total>`** | — | — | **`<summary.sim_total_additional_sites>`** | — |
    - **Week**: 1-indexed (Week 1 = first bucket).
-   - **Start Date**: format `<week_start>` as `Mon DD, YYYY` (e.g. "Jun 15, 2026").
+   - **Start Date**: format `<week_start>` as `Mon DD, YYYY` (e.g. "Jun 22, 2026").
    - **Planned Sites** ← `weekly_buckets[i].committed` (verbatim).
    - **Preponed sites** ← `weekly_buckets[i].pull_forward` (verbatim).
    - **Total** ← `weekly_buckets[i].total` (verbatim, already pre-summed by the algorithm).
-   - **Historical Capacity** ← `weekly_buckets[i].capacity_cap` (this is the GC run-rate \
-     ceiling — same value on every row, but include it so the PM can compare each week's \
-     Total against the cap inline).
+   - **Historical Capacity** ← `weekly_buckets[i].capacity_cap` (the GC run-rate ceiling \
+     — same value on every row, but include it so the PM can compare each week's Total \
+     against the cap inline).
    - **Status**: emit `⚠️ Over capacity` (or plain text "Over capacity") when \
      `over_capacity == true`; otherwise leave the cell empty or write `On track`.
+   - **Required Sites/Wk (Sim)** ← `weekly_buckets[i].sim_additional_sites`. This is \
+     the per-week target needed to absorb the *uncovered gap* (Y = target − committed \
+     − preponed) distributed across the *ramp-eligible* weeks. **Weeks before \
+     `summary.ramp_start_monday` show 0** (you can't ramp newly-recommended work in \
+     the mobilization buffer); from the ramp_start_monday week onward, all rows show \
+     the same per-week value. If 0 throughout, the gap is closed by Planned + Preponed \
+     alone; write `0` (not blank) so the PM can see the algorithm checked.
+   - **Crews to Ramp Up** ← `weekly_buckets[i].sim_ramp_up_crews`. The portfolio-wide \
+     crew count to add to hit "Required Sites/Wk (Sim)" at the project-type productivity \
+     (NTM ~1.5 sites/crew/wk, AHLOB ~1.0). Same gating as the previous column: 0 before \
+     `ramp_start_monday`, non-zero from that week onward. This is **ADDITIVE to** the \
+     per-GC additions shown in the Crew Capacity vs Demand table below (which covers \
+     Planned+Preponed demand); the PM mentally sums them.
    - **Final "Total" row (REQUIRED):** sum the Planned Sites, Preponed sites, and Total \
-     columns across ALL weekly_buckets. Leave Start Date / Historical Capacity / Status \
-     cells as `—` or blank — those columns aren't summable. Bold the "Total" label and \
-     bold the three summed numbers so the PM can scan the totals at a glance. The summed \
-     Total column MUST equal `summary.total_in_window` — if it doesn't, you've miscounted; \
-     recheck.
-   - **No Cumulative column**, no Adjusted column, no flat-rate stamping, no \
-     partial-first-week recomputation — the `build_plan` algorithm already determined \
-     which sites land in which ISO week from their `pj_p_4225` or forecast date.
-   - If `weekly_buckets` is empty, write: *"No sites land in this window — the gap \
-     equals the full target. See Actionable Insights below for what to expedite."* (no \
-     Total row needed in that case).
+     columns across ALL weekly_buckets. For "Required Sites/Wk (Sim)" the Total cell \
+     shows **`summary.sim_total_additional_sites`** (which should equal `Y` ≈ \
+     `sim_additional_sites × num_weeks`, with small rounding). Leave Start Date / \
+     Historical Capacity / Status / Crews to Ramp Up cells as `—`. Bold the "Total" \
+     label and bold the four summed numbers. Consistency check: \
+     `sum(Total) == summary.total_in_window` AND \
+     `Total of Required Sites/Wk (Sim) == summary.uncovered_gap` (± rounding).
+   - **No Cumulative column**, no Adjusted column, no flat-rate stamping — the \
+     `build_plan` algorithm produces all of these numbers; do not recompute.
+   - If `weekly_buckets` is empty: write *"No sites land in this window."* The sim \
+     numbers still come from `summary.sim_*` fields; surface them as a single line \
+     instead of a table: *"Closing the **`<uncovered_gap>`**-site gap evenly would \
+     require **`<sim_ramp_up_crews_per_week>`** additional crews/week at \
+     **`<sim_productivity_used>`** sites/crew/week."*
 
 4. **Pull-Forward Detail** *(include only when `pull_forward_sites` is non-empty AND \
    the user asked anything site-level or about which sites are unblocked-soon)*. \
