@@ -156,25 +156,39 @@ Required sections (in order):
    | Historical Capacity (weekly) | `<capacity.weekly_cap>` (from `<capacity.completed_last_60d>` completions in last 60d) |
 
 3. **Weekly Execution Plan** — one row per item in `weekly_buckets`, in order, **plus a \
-   final "Total" row summing the numeric columns**. Add a one-line note above the table: \
+   final "Total" row**. Add a one-line note above the table: \
    *"Ramp-up + simulated additions begin from **`<summary.ramp_start_monday>`** \
-   (today + mobilization buffer); earlier weeks show only already-planned sites."* \
-   Use this exact column layout:
-   | Week | Start Date | Planned Sites | Preponed sites | Total | Historical Capacity | Status | Required Sites/Wk (Sim) | Crews to Ramp Up |
-   |------|------------|---------------|----------------|-------|---------------------|--------|--------------------------|------------------|
-   | Week 1 | Jun 22, 2026 | … | … | … | … | … | … | … |
-   | … | … | … | … | … | … | … | … | … |
-   | **Total** | — | **`<sum committed>`** | **`<sum pull_forward>`** | **`<sum total>`** | — | — | **`<summary.sim_total_additional_sites>`** | — |
+   (today + mobilization buffer); earlier weeks show only already-planned sites."*
+
+   **Conditional column — Preponed sites:** Check `sum(b.pull_forward for b in \
+   weekly_buckets)`. If it is **zero across every week**, OMIT the "Preponed sites" \
+   column entirely. If any week has a non-zero `pull_forward`, include the column. \
+   This matches the client's table standard — irrelevant columns are noise.
+
+   **Column layout — without Preponed (the common case):**
+   | Week | Start Date | Planned Sites | Required Sites/Wk (Sim) | Total Planned Sites | Historical Capacity | Historical Crew Count | Capacity Gap | Crews to Ramp Up | Status |
+   |------|------------|---------------|--------------------------|---------------------|---------------------|-----------------------|--------------|------------------|--------|
+   | Week 1 | Jun 22 | … | … | … | … | … | … | … | … |
+   | **Total** | — | **`<sum committed>`** | **`<summary.uncovered_gap>`** | **`<sum committed + uncovered_gap>`** | — | — | **`<sum capacity_gap>`** | **`<max(crews_to_ramp_up_total)>` (peak)** | — |
+
+   **Column layout — with Preponed (when at least one week has pull_forward > 0):**
+   | Week | Start Date | Planned Sites | Preponed sites | Required Sites/Wk (Sim) | Total Planned Sites | Historical Capacity | Historical Crew Count | Capacity Gap | Crews to Ramp Up | Status |
+
    - **Week**: 1-indexed (Week 1 = first bucket).
    - **Start Date**: format `<week_start>` as `Mon DD, YYYY` (e.g. "Jun 22, 2026").
    - **Planned Sites** ← `weekly_buckets[i].committed` (verbatim).
-   - **Preponed sites** ← `weekly_buckets[i].pull_forward` (verbatim).
-   - **Total** ← `weekly_buckets[i].total` (verbatim, already pre-summed by the algorithm).
+   - **Preponed sites** *(only when column is shown)* ← `weekly_buckets[i].pull_forward`.
+   - **Total Planned Sites** ← `weekly_buckets[i].total_planned_sites` (already \
+     pre-computed by the algorithm as committed + pull_forward + sim_additional_sites).
    - **Historical Capacity** ← `weekly_buckets[i].capacity_cap` (the GC run-rate ceiling \
-     — same value on every row, but include it so the PM can compare each week's Total \
-     against the cap inline).
+     — same value on every row).
+   - **Historical Crew Count** ← `summary.portfolio_total_crews` (same value on every \
+     row; this is the current total crews in the filter-scoped portfolio derived from \
+     the HSE tracker).
+   - **Capacity Gap** ← `weekly_buckets[i].capacity_gap` (= max(0, Total Planned Sites \
+     − Historical Capacity); 0 when Total Planned ≤ Capacity).
    - **Status**: emit `⚠️ Over capacity` (or plain text "Over capacity") when \
-     `over_capacity == true`; otherwise leave the cell empty or write `On track`.
+     `over_capacity == true` or `capacity_gap > 0`; otherwise write `On track`.
    - **Required Sites/Wk (Sim)** ← `weekly_buckets[i].sim_additional_sites`. This is \
      the per-week target needed to absorb the *uncovered gap* (Y = target − committed \
      − preponed) distributed across the *ramp-eligible* weeks. **Weeks before \
@@ -238,7 +252,7 @@ Required sections (in order):
    | GC | Current Crews | Sites/Crew/Week | Current Weekly Capacity | Peak Weekly Demand | Crews to Add |
    |----|---------------|-----------------|-------------------------|--------------------|--------------|
    - **Current Crews** ← `current_crews` (distinct crew leads from HSE tracker — NTM uses 4-batch 39-day avg; AHLOB uses last 7 days)
-   - **Sites/Crew/Week** ← `sites_per_crew_per_week` (derived per-GC from historical completions; falls back to project-type default: NTM 1.5, AHLOB 1.0)
+   - **Sites/Crew/Week** ← `sites_per_crew_per_week` (derived per-GC from historical completions; falls back to project-type default: NTM 1.5, AHLOB 4.0)
    - **Current Weekly Capacity** ← `current_weekly_capacity`
    - **Peak Weekly Demand** ← `peak_weekly_demand`
    - **Crews to Add** ← `crews_to_add` (BOLD this column; this is the action the PM needs)
