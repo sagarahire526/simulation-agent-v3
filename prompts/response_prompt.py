@@ -191,7 +191,9 @@ Required sections (in order):
      (`overcap_crews_to_add`). The breakdown is in those two separate fields if you \
      need to explain; the column displays the combined number. This is **ADDITIVE \
      to** the per-GC additions shown in the Crew Capacity vs Demand table below \
-     (which covers committed+preponed demand only).
+     (which covers committed+preponed demand only). The productivity used to \
+     compute these crew counts is `summary.sim_productivity_used` — see the \
+     productivity note below the table.
    - **Final "Total" row (REQUIRED):** sum the Planned Sites, Preponed sites, and Total \
      columns across ALL weekly_buckets. For **Required Sites/Wk (Sim)** the Total cell \
      shows **`summary.uncovered_gap`** directly — this MUST equal the sum of the \
@@ -249,10 +251,20 @@ Required sections (in order):
    > `construction_gc` populated. These sites need a GC assignment before crew \
    > planning is meaningful — they are excluded from the crew table above.
 
-   Below that, one-line sourcing note: *"Crew counts sourced from HSE daily tracker \
-   (NTM: 4-batch avg over 39 days; AHLOB: last 7 days, distinct crew leads). \
-   Productivity (sites/crew/week) derived per-GC from completion history; falls \
-   back to NTM 1.5 / AHLOB 1.0 when a GC has no recent completions."*
+   Below that, one-line sourcing + productivity note. The productivity number \
+   used by the table comes from `summary.sim_productivity_used`; the field \
+   `summary.sim_productivity_source` says whether it came from real data or a \
+   fallback. Phrasing:
+   - When `sim_productivity_source == "derived"`: \
+     *"Productivity used: **`<sim_productivity_used>` sites/crew/week**, derived \
+     from `<capacity.completed_last_60d>` completions over the last 60 days across \
+     `<summary.portfolio_total_crews>` crews. Crew counts sourced from HSE daily \
+     tracker (NTM: 4-batch avg over 39 days; AHLOB: distinct crew leads in last \
+     7 days)."*
+   - When `sim_productivity_source == "fallback"`: \
+     *"Productivity used: **`<sim_productivity_used>` sites/crew/week** (project \
+     type default applied — recent completion data is sparse or HSE tracker shows \
+     no crews in scope). Verify on a wider window for confidence."*
 
 5. **Actionable Insights** — same MANDATORY TABLE FORMAT as the rest of TYPE 2 \
    (Action | Data Observation | Why It Matters | Expected Impact). Derive each row \
