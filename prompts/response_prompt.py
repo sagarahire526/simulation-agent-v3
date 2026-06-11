@@ -179,23 +179,29 @@ Required sections (in order):
      the per-week target needed to absorb the *uncovered gap* (Y = target − committed \
      − preponed) distributed across the *ramp-eligible* weeks. **Weeks before \
      `summary.ramp_start_monday` show 0** (you can't ramp newly-recommended work in \
-     the mobilization buffer); from the ramp_start_monday week onward, all rows show \
-     the same per-week value. If 0 throughout, the gap is closed by Planned + Preponed \
-     alone; write `0` (not blank) so the PM can see the algorithm checked.
-   - **Crews to Ramp Up** ← `weekly_buckets[i].sim_ramp_up_crews`. The portfolio-wide \
-     crew count to add to hit "Required Sites/Wk (Sim)" at the project-type productivity \
-     (NTM ~1.5 sites/crew/wk, AHLOB ~1.0). Same gating as the previous column: 0 before \
-     `ramp_start_monday`, non-zero from that week onward. This is **ADDITIVE to** the \
-     per-GC additions shown in the Crew Capacity vs Demand table below (which covers \
-     Planned+Preponed demand); the PM mentally sums them.
+     the mobilization buffer). The distribution is **variable**: from \
+     `ramp_start_monday` onward, most weeks show `summary.sim_base_per_week` and a \
+     few show `summary.sim_peak_per_week` (= base + 1), so the per-week values sum \
+     to **exactly Y**, not a ceiling overshoot. If 0 throughout, the gap is closed \
+     by Planned + Preponed alone.
+   - **Crews to Ramp Up** ← `weekly_buckets[i].crews_to_ramp_up_total`. The total \
+     portfolio-wide crew count to add for that week. It combines TWO needs: \
+     (a) ramp-up crews for the sim sites (`sim_ramp_up_crews`), and \
+     (b) extra crews to handle over-capacity weeks where Total > Historical Capacity \
+     (`overcap_crews_to_add`). The breakdown is in those two separate fields if you \
+     need to explain; the column displays the combined number. This is **ADDITIVE \
+     to** the per-GC additions shown in the Crew Capacity vs Demand table below \
+     (which covers committed+preponed demand only).
    - **Final "Total" row (REQUIRED):** sum the Planned Sites, Preponed sites, and Total \
-     columns across ALL weekly_buckets. For "Required Sites/Wk (Sim)" the Total cell \
-     shows **`summary.sim_total_additional_sites`** (which should equal `Y` ≈ \
-     `sim_additional_sites × num_weeks`, with small rounding). Leave Start Date / \
-     Historical Capacity / Status / Crews to Ramp Up cells as `—`. Bold the "Total" \
-     label and bold the four summed numbers. Consistency check: \
-     `sum(Total) == summary.total_in_window` AND \
-     `Total of Required Sites/Wk (Sim) == summary.uncovered_gap` (± rounding).
+     columns across ALL weekly_buckets. For **Required Sites/Wk (Sim)** the Total cell \
+     shows **`summary.uncovered_gap`** directly — this MUST equal the sum of the \
+     per-week sim values (the algorithm distributes Y variably so they sum to exactly \
+     Y, no rounding overshoot). For **Crews to Ramp Up** the Total cell can show the \
+     **max** value across the weeks (the peak crew level needed) — DO NOT sum it (crews \
+     are a count, not a flow). Leave Start Date / Historical Capacity / Status cells \
+     as `—`. Bold the "Total" label and the bolded numbers. Consistency checks: \
+     `sum(Total column) == summary.total_in_window` AND \
+     `sum(Required Sites/Wk (Sim)) == summary.uncovered_gap` (exact, not rounded).
    - **No Cumulative column**, no Adjusted column, no flat-rate stamping — the \
      `build_plan` algorithm produces all of these numbers; do not recompute.
    - If `weekly_buckets` is empty: write *"No sites land in this window."* The sim \
@@ -224,18 +230,29 @@ Required sections (in order):
 4.6 **Crew Capacity vs Demand** *(REQUIRED when `crew_gap` is present and non-empty \
    — i.e. user asked about crews / GC capacity addition)*. This is the bottom-line \
    answer for "how many crews do we need to add." One row per GC, **sorted by \
-   crews_to_add desc** (the algorithm already sorted them):
+   crews_to_add desc** (the algorithm already sorted them). **EXCLUDE any row where \
+   `gc` is `"(unknown)"`, empty, or `None`** — those are sites with NULL \
+   `construction_gc` and there is no GC to add crews to:
    | GC | Current Crews | Sites/Crew/Week | Current Weekly Capacity | Peak Weekly Demand | Crews to Add |
    |----|---------------|-----------------|-------------------------|--------------------|--------------|
-   - **Current Crews** ← `current_crews` (distinct crew leads in last 30 days from HSE tracker)
-   - **Sites/Crew/Week** ← `sites_per_crew_per_week` (derived from this GC's historical completions, or portfolio default if data sparse)
+   - **Current Crews** ← `current_crews` (distinct crew leads from HSE tracker — NTM uses 4-batch 39-day avg; AHLOB uses last 7 days)
+   - **Sites/Crew/Week** ← `sites_per_crew_per_week` (derived per-GC from historical completions; falls back to project-type default: NTM 1.5, AHLOB 1.0)
    - **Current Weekly Capacity** ← `current_weekly_capacity`
    - **Peak Weekly Demand** ← `peak_weekly_demand`
    - **Crews to Add** ← `crews_to_add` (BOLD this column; this is the action the PM needs)
 
-   Below the table, one-line note: *"Crew counts sourced from HSE daily tracker, \
-   last 30 days. Productivity (sites/crew/week) derived per-GC from completion \
-   history; falls back to <portfolio_avg> when a GC has no recent completions."*
+   **REQUIRED note immediately below the table** when \
+   `summary.unassigned_gc_committed + summary.unassigned_gc_pull_forward > 0`:
+   > **Unassigned-GC sites:** `<unassigned_gc_committed>` committed + \
+   > `<unassigned_gc_pull_forward>` preponed (total \
+   > `<unassigned_gc_committed + unassigned_gc_pull_forward>`) have no \
+   > `construction_gc` populated. These sites need a GC assignment before crew \
+   > planning is meaningful — they are excluded from the crew table above.
+
+   Below that, one-line sourcing note: *"Crew counts sourced from HSE daily tracker \
+   (NTM: 4-batch avg over 39 days; AHLOB: last 7 days, distinct crew leads). \
+   Productivity (sites/crew/week) derived per-GC from completion history; falls \
+   back to NTM 1.5 / AHLOB 1.0 when a GC has no recent completions."*
 
 5. **Actionable Insights** — same MANDATORY TABLE FORMAT as the rest of TYPE 2 \
    (Action | Data Observation | Why It Matters | Expected Impact). Derive each row \
