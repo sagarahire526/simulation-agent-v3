@@ -49,7 +49,13 @@ class SimulationState(TypedDict):
     # ── Planner Agent ──
     planning_rationale: str                                     # Business-intent rationale for the plan
     planner_steps: list[str]                                    # Ordered steps created by planner
-    planner_step_results: Annotated[list[dict], operator.add]  # Results from parallel traversals
+    # NOTE: plain list (NOT operator.add). The planner runs its sub-traversals in
+    # its own executor and returns the COMPLETE results list in a single node
+    # write, so there is no graph-level fan-out to reduce. Using a reducer here
+    # caused results to ACCUMULATE across queries on a reused thread_id (the
+    # initial-state `[]` is a no-op under operator.add), leaking the previous
+    # query's results into the next one. A plain field is replaced each query.
+    planner_step_results: list[dict]                            # Results from parallel traversals (replaced per query)
 
     # ── Knowledge Graph Schema (discovered once) ──
     kg_schema: str  # Node labels, relationships, properties
