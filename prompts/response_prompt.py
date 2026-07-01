@@ -122,8 +122,23 @@ top-level keys:
   driven by a user-named missing pre-req. Render via **section 2-A-Cohort**.
 
 **Optional add-on fields** (may appear in either shape):
-- `per_gc_weekly_demand` — dict keyed by GC name. Always emitted by build_plan; render \
-  as the "Per-GC Weekly Demand" section if non-empty.
+- `per_dimension_weekly_demand` — dict keyed by the value of the dimension chosen by \
+  the `breakdown_by` filter (default `construction_gc`; also `rgn_region`, `m_area`, \
+  `m_market`, or `none` to skip). Always emitted by build_plan; render as the \
+  "Per-`<Dimension>` Weekly Demand" section (Section 4.5) when non-empty.
+- `breakdown_dimension` — string naming which dim `per_dimension_weekly_demand` is \
+  keyed by. One of `construction_gc` / `rgn_region` / `m_area` / `m_market` / `none`. \
+  Use it to pick the human column label ("GC" / "Region" / "Area" / "Market") \
+  everywhere the per-dim section refers to the dimension.
+- `weekly_buckets[i].committed_pj_project_ids` and \
+  `weekly_buckets[i].pull_forward_pj_project_ids` — arrays of `pj_project_id` strings \
+  populating each week × source bucket. Do NOT surface these inline in the headline \
+  Weekly Execution Plan table (would clutter it). Render them in the collapsible \
+  **Project IDs (Reference)** section (Section 4.7) so the PM can drill into the \
+  exact projects on demand without paying the visual cost by default.
+- Each entry inside `per_dimension_weekly_demand[<value>].weekly[i]` carries the same \
+  `committed_pj_project_ids` / `pull_forward_pj_project_ids` arrays for per-dim-value \
+  drill-down.
 - `crew_gap` — list of per-GC crew-addition recommendations. Emitted ONLY when the \
   user asked about crews / capacity addition. **REQUIRED to render** as the "Crew \
   Capacity vs Demand" section when present.
@@ -234,14 +249,21 @@ Required sections (in order):
    |---------|-----------|-------------------|-----------|----------------|----------|
    Cite total count below the table: *"Showing 10 of `<total>` pull-forward candidates."*
 
-4.5 **Per-GC Weekly Demand** *(include only when `per_gc_weekly_demand` is present \
-   and non-empty)*. One row per GC summarizing demand allocation across the window:
-   | GC | Sites in plan | Peak weekly demand | Total demand |
-   |----|---------------|--------------------|--------------|
-   `Sites in plan` = `total_demand` per GC. `Peak weekly demand` = `peak_weekly_demand` \
-   per GC. Order rows by Total demand desc. Skip the GC `"(unknown)"` row if it has \
-   zero demand. Limit to top 10 GCs by Total demand; if more exist, add one line: \
-   *"Plus N more GCs with smaller demand (total: M sites)."*
+4.5 **Per-`<Dimension>` Weekly Demand** *(include only when \
+   `per_dimension_weekly_demand` is present and non-empty)*. `<Dimension>` is derived \
+   from `breakdown_dimension`: `construction_gc` → "GC", `rgn_region` → "Region", \
+   `m_area` → "Area", `m_market` → "Market". If `breakdown_dimension == "none"`, \
+   `per_dimension_weekly_demand` will be empty — SKIP this section entirely.
+
+   One row per dim-value summarizing demand allocation across the window:
+   | `<Dimension>` | Sites in plan | Peak weekly demand | Total demand |
+   |---------------|---------------|--------------------|--------------|
+   `Sites in plan` = `total_demand` per dim-value. `Peak weekly demand` = \
+   `peak_weekly_demand` per dim-value. Order rows by Total demand desc. Skip the \
+   dim-value `"(unknown)"` row if it has zero demand. Limit to top 10 by Total demand; \
+   if more exist, add one line: *"Plus N more `<Dimension>` values with smaller demand \
+   (total: M sites)."* Do NOT show project IDs inline here — those live in the \
+   collapsible Section 4.7.
 
 4.6 **Crew Capacity vs Demand** *(REQUIRED when `crew_gap` is present and non-empty \
    — i.e. user asked about crews / GC capacity addition)*. This is the bottom-line \
@@ -279,6 +301,55 @@ Required sections (in order):
      *"Productivity used: **`<sim_productivity_used>` sites/crew/week** (project \
      type default applied — recent completion data is sparse or HSE tracker shows \
      no crews in scope). Verify on a wider window for confidence."*
+
+4.7 **Project IDs (Reference)** *(REQUIRED whenever `weekly_buckets` is non-empty; \
+   collapsed by default so the headline stays scannable)*. Provides drill-down \
+   transparency into which specific projects populate each week × source bucket, \
+   without cluttering the headline Weekly Execution Plan / Per-Dimension tables. \
+   Reads from `weekly_buckets[i].committed_pj_project_ids` and \
+   `weekly_buckets[i].pull_forward_pj_project_ids`.
+
+   Emit the whole block wrapped in a `<details>` disclosure. Exact markup:
+
+   ```
+   <details>
+   <summary>▸ Show all project IDs per week (<N> total)</summary>
+
+   **Week of <Mon DD, YYYY>** — <k> projects
+   - Committed (<c>): PJ-…, PJ-…, PJ-…
+   - Pull-forward (<p>): PJ-…, PJ-…
+
+   **Week of <Mon DD, YYYY>** — <k> projects
+   - Committed (<c>): PJ-…
+   - Pull-forward (<p>): PJ-…
+   … (one block per week in weekly_buckets order) …
+   </details>
+   ```
+
+   Rules:
+   - `<N>` in the summary line = `summary.total_in_window` (verbatim).
+   - Iterate `weekly_buckets` **in the same order used in Section 3** (the Weekly \
+     Execution Plan). Do NOT re-sort.
+   - Per week, `<k>` = `committed + pull_forward` (verbatim from the bucket; do NOT \
+     recount from the id arrays — arrays might be truncated).
+   - Format the `week_start` date as `Mon DD, YYYY` (same format as Section 3).
+   - Emit the **Committed** bullet line only if \
+     `committed_pj_project_ids` is non-empty. Emit the **Pull-forward** bullet only \
+     if `pull_forward_pj_project_ids` is non-empty. Skip the whole week block if \
+     BOTH arrays are empty (a bucket with only sim_additional_sites has no concrete \
+     project IDs yet).
+   - Join IDs with `", "` (comma + space) in the order provided.
+   - **Truncation cap:** each individual bullet line lists at most **50** IDs. When \
+     the underlying array has more than 50 items, print the first 50 then append \
+     ` … and <M> more.` where `<M>` = `len(array) - 50`. Do NOT drop the count in the \
+     bullet header — it still reflects the true `len(array)`.
+   - Preserve project ID strings verbatim (no reformatting, no case change, no prefix \
+     stripping) — they must match the source-of-truth system exactly.
+   - If EVERY week in `weekly_buckets` has both arrays empty (e.g. plan is \
+     sim-only, no concrete sites in window), replace the entire block with one \
+     line — no `<details>` wrapper — reading: \
+     *"No concrete project IDs in the current plan window; simulation covers \
+     `<summary.uncovered_gap>` unspecified future sites."*
 
 5. **Actionable Insights** — same MANDATORY TABLE FORMAT as the rest of TYPE 2 \
    (Action | Data Observation | Why It Matters | Expected Impact). Derive each row \
@@ -359,6 +430,49 @@ Required sections (in order):
    First 5 from each cohort by `forecast_cx_ready` ascending:
    | Cohort | Site ID | Planned Cx | Forecast Cx-Ready | Pre-req % | Last Milestone | Blockers |
    |--------|---------|-----------|-------------------|-----------|----------------|----------|
+
+4.5 **Project IDs (Reference)** *(REQUIRED whenever ANY cohort has non-empty \
+   `weekly_buckets`; collapsed by default so the headline stays scannable)*. \
+   Drill-down transparency into which specific projects populate each cohort's \
+   week × source bucket. Reads from each cohort's \
+   `weekly_buckets[i].committed_pj_project_ids` and \
+   `weekly_buckets[i].pull_forward_pj_project_ids`.
+
+   Emit ONE outer `<details>` block covering both cohorts. Inside, add a subheader \
+   per cohort ("`### <user_gate_term>-Ready Cohort`" / \
+   "`### <user_gate_term>-Blocked Cohort`") then apply the same week-by-source \
+   bullets from 2-A-Flat Section 4.7 inside each. Exact markup:
+
+   ```
+   <details>
+   <summary>▸ Show all project IDs per cohort per week (<N> total)</summary>
+
+   ### <user_gate_term>-Ready Cohort
+   **Week of <Mon DD, YYYY>** — <k> projects
+   - Committed (<c>): PJ-…, PJ-…
+   - Pull-forward (<p>): PJ-…
+
+   ### <user_gate_term>-Blocked Cohort
+   **Week of <Mon DD, YYYY>** — <k> projects
+   - Committed (<c>): PJ-…
+   </details>
+   ```
+
+   Rules:
+   - `<N>` in the summary line = \
+     `done.summary.total_in_window + missing.summary.total_in_window`.
+   - Skip a cohort's subheader entirely (and its whole sub-section) if that cohort's \
+     `weekly_buckets` is empty.
+   - Inside each cohort: iterate `weekly_buckets` in the same order as Section 3's \
+     table for that cohort. Skip weeks where BOTH id arrays are empty.
+   - All other formatting rules follow the 2-A-Flat 4.7 spec: `Mon DD, YYYY` dates, \
+     bullet header `<k> projects` = `committed + pull_forward` verbatim from bucket, \
+     50-item cap per bullet with `… and <M> more.` suffix when exceeded, join IDs \
+     with `", "` in the order provided, verbatim project ID strings (no reformatting).
+   - If BOTH cohorts have every bucket empty of concrete IDs (sim-only plan), replace \
+     the entire block with one line — no `<details>` wrapper — reading: \
+     *"No concrete project IDs in either cohort's window; simulation covers unspecified \
+     future sites."*
 
 5. **Actionable Insights** — same MANDATORY TABLE FORMAT as the rest of TYPE 2. \
    Required rows for the cohort case:
