@@ -17,12 +17,20 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 import services.bkg_admin_service as svc
+from api.v1.auth import require_bkg_admin
 
-router = APIRouter(prefix="/bkg-admin", tags=["BKG Admin"])
+# Router-level dependency: every route below (read + write) requires valid
+# HTTP Basic credentials, so the write endpoints can't be hit directly, bypassing
+# the /bkg-admin login. Credentials are env-configured (see api/v1/auth.py).
+router = APIRouter(
+    prefix="/bkg-admin",
+    tags=["BKG Admin"],
+    dependencies=[Depends(require_bkg_admin)],
+)
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────

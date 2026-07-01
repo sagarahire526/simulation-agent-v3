@@ -50,8 +50,10 @@ ReDoc:       http://localhost:8000/redoc
 """
 from contextlib import asynccontextmanager
 from pathlib import Path
+from fastapi import Depends
 from fastapi.responses import FileResponse
 from api.v1.router import router as v1_router
+from api.v1.auth import require_bkg_admin
 import services.db_service as db_svc
 
 
@@ -89,9 +91,14 @@ async def root():
 app.include_router(v1_router, prefix="/api")
 
 
-@app.get("/bkg-admin", tags=["BKG Admin UI"], include_in_schema=False)
+@app.get(
+    "/bkg-admin",
+    tags=["BKG Admin UI"],
+    include_in_schema=False,
+    dependencies=[Depends(require_bkg_admin)],
+)
 async def bkg_admin_ui():
-    """Serve the single-page BKG admin interface."""
+    """Serve the single-page BKG admin interface (HTTP Basic protected)."""
     html_path = Path(__file__).parent / "static" / "bkg_admin.html"
     return FileResponse(html_path)
 

@@ -36,3 +36,10 @@ SEMANTIC_SEARCH_URL = os.getenv(
     "SEMANTIC_SEARCH_URL",
     "https://pm-copilot-macro-gcl-osdp-gsd-gsd-delivery-staging.aibi-americas-002.dyn.nesc.nokia.net",
 )
+
+# ── BKG Admin UI auth (HTTP Basic) ──────────────────────────────────────────
+# Gates the /bkg-admin page and all /api/v1/bkg-admin/* write endpoints.
+# Fails closed: if BKG_ADMIN_PASSWORD is unset, access is denied for everyone
+# (see api/v1/auth.py) — so a missing config can never leave the admin open.
+BKG_ADMIN_USER     = os.getenv("BKG_ADMIN_USER", "admin")
+BKG_ADMIN_PASSWORD = os.getenv("BKG_ADMIN_PASSWORD", "")

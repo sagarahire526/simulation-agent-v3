@@ -18,7 +18,6 @@ Error at any point emits:  error
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
 import uuid
@@ -31,6 +30,7 @@ from pydantic import BaseModel
 from api.v1.schemas import ProjectType
 import services.db_service as db_svc
 from graph import stream_simulation
+from services.json_utils import safe_dumps
 from services.simulation_service import _build_traces
 from services.sse_manager import sse_manager
 
@@ -166,7 +166,23 @@ async def _event_generator(
             event_name = item["event"]
             if event_name == "__done__":
                 break
-            yield f"event: {event_name}\ndata: {json.dumps(item['data'])}\n\n"
+            try:
+                payload = safe_dumps(item["data"])
+            except Exception:
+                # safe_dumps is already hardened (json_safe + allow_nan=False +
+                # default=str), so reaching here is a last-resort guard. Never let
+                # one unserializable event crash the generator and abort the whole
+                # stream — degrade to an error marker so the client can recover the
+                # result from the messages API instead of losing the connection.
+                logger.exception(
+                    "Failed to serialize SSE event %r [query=%s]", event_name, query_id,
+                )
+                payload = safe_dumps({
+                    "message": f"Could not serialize '{event_name}' event; "
+                               "fetch the final result from the messages API.",
+                })
+                event_name = "error"
+            yield f"event: {event_name}\ndata: {payload}\n\n"
             if event_name == "error":
                 break
     finally:
@@ -213,7 +229,7 @@ async def stream_simulate(
         # First event: communicate the thread_id back to the client
         yield (
             f"event: stream_started\n"
-            f"data: {json.dumps({'query_id': query_id, 'thread_id': thread_id})}\n\n"
+            f"data: {safe_dumps({'query_id': query_id, 'thread_id': thread_id})}\n\n"
         )
         async for chunk in _event_generator(queue, query_id, thread_id):
             yield chunk

@@ -14,9 +14,7 @@ Design rules:
 """
 from __future__ import annotations
 
-import json
 import logging
-import math
 import uuid
 
 import threading
@@ -26,49 +24,11 @@ import psycopg2
 from psycopg2.pool import ThreadedConnectionPool
 
 import config
+# Single hardened serializer shared with the SSE stream path (json_utils) so the
+# DB write and the live stream can never diverge in how they encode graph state.
+from services.json_utils import json_safe as _json_safe, safe_dumps as _safe_dumps
 
 logger = logging.getLogger(__name__)
-
-
-def _json_safe(obj):
-    """
-    Recursively replace JSONB-incompatible scalars (NaN, ±Infinity, pandas NaT,
-    numpy scalars) with JSON-safe equivalents before json.dumps.
-
-    Standard JSON has no NaN/Infinity tokens — Python's json.dumps emits them
-    by default, but PostgreSQL JSONB rejects them with
-    `invalid input syntax for type json: Token "NaN" is invalid`.
-    """
-    if obj is None or isinstance(obj, (str, bool, int)):
-        return obj
-    if isinstance(obj, float):
-        return obj if math.isfinite(obj) else None
-    if isinstance(obj, dict):
-        return {k: _json_safe(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [_json_safe(v) for v in obj]
-    # Lazy pandas/numpy handling — only imported if needed
-    try:
-        import pandas as pd
-        if obj is pd.NaT or (pd.api.types.is_scalar(obj) and pd.isna(obj)):
-            return None
-        if isinstance(obj, pd.Timestamp):
-            return obj.isoformat()
-    except ImportError:
-        pass
-    try:
-        import numpy as np
-        if isinstance(obj, np.generic):
-            val = obj.item()
-            return val if not (isinstance(val, float) and not math.isfinite(val)) else None
-    except ImportError:
-        pass
-    return obj
-
-
-def _safe_dumps(obj) -> str:
-    """json.dumps with NaN/NaT/Infinity sanitised for PostgreSQL JSONB."""
-    return json.dumps(_json_safe(obj), allow_nan=False, default=str)
 
 _SCHEMA = "pwc_agent_utility_schema"
 
