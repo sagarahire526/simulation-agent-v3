@@ -130,15 +130,20 @@ top-level keys:
   keyed by. One of `construction_gc` / `rgn_region` / `m_area` / `m_market` / `none`. \
   Use it to pick the human column label ("GC" / "Region" / "Area" / "Market") \
   everywhere the per-dim section refers to the dimension.
+- `weekly_buckets[i].committed_pj_projects` and \
+  `weekly_buckets[i].pull_forward_pj_projects` — arrays of enriched project dicts \
+  populating each week × source bucket. Each element is a small dict with the fields \
+  needed to render one line: \
+  `{{"pj_project_id", "construction_gc", "rgn_region", "m_area", "m_market", "prereq_pct"}}` \
+  (committed) or the same six plus `{{"forecast_cx_ready", "last_milestone"}}` \
+  (pull_forward). Use these enriched arrays — NOT the raw `_pj_project_ids` arrays — \
+  as the data source for the collapsible **Project IDs (Reference)** section \
+  (Section 4.7). The plain-ID arrays are kept only for programmatic consumers.
 - `weekly_buckets[i].committed_pj_project_ids` and \
-  `weekly_buckets[i].pull_forward_pj_project_ids` — arrays of `pj_project_id` strings \
-  populating each week × source bucket. Do NOT surface these inline in the headline \
-  Weekly Execution Plan table (would clutter it). Render them in the collapsible \
-  **Project IDs (Reference)** section (Section 4.7) so the PM can drill into the \
-  exact projects on demand without paying the visual cost by default.
+  `weekly_buckets[i].pull_forward_pj_project_ids` — raw `pj_project_id` strings (no \
+  enrichment). Not used for rendering; ignore in favor of the enriched arrays above.
 - Each entry inside `per_dimension_weekly_demand[<value>].weekly[i]` carries the same \
-  `committed_pj_project_ids` / `pull_forward_pj_project_ids` arrays for per-dim-value \
-  drill-down.
+  four arrays (enriched + raw IDs) for per-dim-value drill-down.
 - `crew_gap` — list of per-GC crew-addition recommendations. Emitted ONLY when the \
   user asked about crews / capacity addition. **REQUIRED to render** as the "Crew \
   Capacity vs Demand" section when present.
@@ -305,9 +310,10 @@ Required sections (in order):
 4.7 **Project IDs (Reference)** *(REQUIRED whenever `weekly_buckets` is non-empty; \
    collapsed by default so the headline stays scannable)*. Provides drill-down \
    transparency into which specific projects populate each week × source bucket, \
-   without cluttering the headline Weekly Execution Plan / Per-Dimension tables. \
-   Reads from `weekly_buckets[i].committed_pj_project_ids` and \
-   `weekly_buckets[i].pull_forward_pj_project_ids`.
+   with per-project enrichment (GC, geo, prereq%). Reads from the ENRICHED arrays \
+   `weekly_buckets[i].committed_pj_projects` and \
+   `weekly_buckets[i].pull_forward_pj_projects` (each element is a dict — never a \
+   bare string). Ignore the plain-ID arrays for rendering.
 
    Emit the whole block wrapped in a `<details>` disclosure. Exact markup:
 
@@ -316,36 +322,63 @@ Required sections (in order):
    <summary>▸ Show all project IDs per week (<N> total)</summary>
 
    **Week of <Mon DD, YYYY>** — <k> projects
-   - Committed (<c>): PJ-…, PJ-…, PJ-…
-   - Pull-forward (<p>): PJ-…, PJ-…
+   - Committed (<c>):
+     - PJ-1201 · Acme Towers LLC · Central/Chicago · prereq 100%
+     - PJ-1207 · Acme Towers LLC · Central/Chicago · prereq 100%
+     - PJ-1214 · Beacon Build · Central/Detroit · prereq 100%
+   - Pull-forward (<p>):
+     - PJ-1211 · Beacon Build · Central/Detroit · prereq 85% · forecast Jul 13, 2026
+     - PJ-1218 · Crown Field Svcs · Central/Indianapolis · prereq 90% · forecast Jul 20, 2026
 
    **Week of <Mon DD, YYYY>** — <k> projects
-   - Committed (<c>): PJ-…
-   - Pull-forward (<p>): PJ-…
+   - Committed (<c>):
+     - PJ-… · … · …/… · prereq NN%
    … (one block per week in weekly_buckets order) …
    </details>
    ```
 
-   Rules:
+   **Per-project line format** (this is what the LLM must render for every enriched \
+   entry — do NOT deviate):
+
+   - **Committed** line: \
+     `<pj_project_id> · <construction_gc> · <rgn_region>/<m_market> · prereq NN%`
+   - **Pull-forward** line: same as Committed, plus \
+     ` · forecast <Mon DD, YYYY>` at the end (from `forecast_cx_ready`).
+
+   **Field fallback rules** (apply per line):
+   - Missing `construction_gc` (null or empty) → show `<no GC>` in that slot. Never \
+     fabricate a GC name.
+   - Missing BOTH `rgn_region` and `m_market` → drop the whole `<region>/<market>` \
+     segment (skip that dot-separator too).
+   - Missing only `rgn_region` → show just the market: `… · <m_market> · …`.
+   - Missing only `m_market` → show just the region: `… · <rgn_region> · …`.
+   - `prereq_pct` — render as integer percentage: `round(prereq_pct * 100)%`. If \
+     `prereq_pct` is null, drop the entire `prereq NN%` segment (and its dot).
+   - `forecast_cx_ready` (pull-forward only) — render as `Mon DD, YYYY`. If null, \
+     drop the entire `forecast <date>` segment.
+   - Preserve `pj_project_id` strings verbatim — no reformatting, case change, or \
+     prefix stripping. Must match the source-of-truth system exactly.
+
+   **Block-level rules:**
    - `<N>` in the summary line = `summary.total_in_window` (verbatim).
    - Iterate `weekly_buckets` **in the same order used in Section 3** (the Weekly \
      Execution Plan). Do NOT re-sort.
    - Per week, `<k>` = `committed + pull_forward` (verbatim from the bucket; do NOT \
      recount from the id arrays — arrays might be truncated).
    - Format the `week_start` date as `Mon DD, YYYY` (same format as Section 3).
-   - Emit the **Committed** bullet line only if \
-     `committed_pj_project_ids` is non-empty. Emit the **Pull-forward** bullet only \
-     if `pull_forward_pj_project_ids` is non-empty. Skip the whole week block if \
-     BOTH arrays are empty (a bucket with only sim_additional_sites has no concrete \
-     project IDs yet).
-   - Join IDs with `", "` (comma + space) in the order provided.
-   - **Truncation cap:** each individual bullet line lists at most **50** IDs. When \
-     the underlying array has more than 50 items, print the first 50 then append \
-     ` … and <M> more.` where `<M>` = `len(array) - 50`. Do NOT drop the count in the \
-     bullet header — it still reflects the true `len(array)`.
-   - Preserve project ID strings verbatim (no reformatting, no case change, no prefix \
-     stripping) — they must match the source-of-truth system exactly.
-   - If EVERY week in `weekly_buckets` has both arrays empty (e.g. plan is \
+   - Emit the **Committed** bullet line + its nested lines only if \
+     `committed_pj_projects` is non-empty. Emit the **Pull-forward** bullet + its \
+     nested lines only if `pull_forward_pj_projects` is non-empty. Skip the whole \
+     week block if BOTH arrays are empty (bucket has only sim_additional_sites, no \
+     concrete projects yet).
+   - Preserve the order of projects as given in the array; do NOT re-sort. The \
+     upstream function already ordered them.
+   - **Truncation cap:** each Committed or Pull-forward group lists at most **50** \
+     enriched lines. When the underlying array has more than 50 items, print the \
+     first 50 nested lines then a final nested line reading `- … and <M> more.` \
+     where `<M>` = `len(array) - 50`. Do NOT drop the count in the group header — it \
+     still reflects the true `len(array)`.
+   - If EVERY week in `weekly_buckets` has both enriched arrays empty (e.g. plan is \
      sim-only, no concrete sites in window), replace the entire block with one \
      line — no `<details>` wrapper — reading: \
      *"No concrete project IDs in the current plan window; simulation covers \
@@ -433,15 +466,16 @@ Required sections (in order):
 
 4.5 **Project IDs (Reference)** *(REQUIRED whenever ANY cohort has non-empty \
    `weekly_buckets`; collapsed by default so the headline stays scannable)*. \
-   Drill-down transparency into which specific projects populate each cohort's \
-   week × source bucket. Reads from each cohort's \
-   `weekly_buckets[i].committed_pj_project_ids` and \
-   `weekly_buckets[i].pull_forward_pj_project_ids`.
+   Drill-down transparency with per-project enrichment (GC, geo, prereq%). Reads \
+   from each cohort's ENRICHED arrays \
+   `weekly_buckets[i].committed_pj_projects` and \
+   `weekly_buckets[i].pull_forward_pj_projects` (each element is a dict — never a \
+   bare string). Ignore the plain-ID arrays for rendering.
 
    Emit ONE outer `<details>` block covering both cohorts. Inside, add a subheader \
    per cohort ("`### <user_gate_term>-Ready Cohort`" / \
-   "`### <user_gate_term>-Blocked Cohort`") then apply the same week-by-source \
-   bullets from 2-A-Flat Section 4.7 inside each. Exact markup:
+   "`### <user_gate_term>-Blocked Cohort`") then apply the same enriched \
+   week-by-source bullets from 2-A-Flat Section 4.7 inside each. Exact markup:
 
    ```
    <details>
@@ -449,12 +483,16 @@ Required sections (in order):
 
    ### <user_gate_term>-Ready Cohort
    **Week of <Mon DD, YYYY>** — <k> projects
-   - Committed (<c>): PJ-…, PJ-…
-   - Pull-forward (<p>): PJ-…
+   - Committed (<c>):
+     - PJ-1201 · Acme Towers LLC · Central/Chicago · prereq 100%
+     - PJ-1207 · Acme Towers LLC · Central/Chicago · prereq 100%
+   - Pull-forward (<p>):
+     - PJ-1211 · Beacon Build · Central/Detroit · prereq 85% · forecast Jul 13, 2026
 
    ### <user_gate_term>-Blocked Cohort
    **Week of <Mon DD, YYYY>** — <k> projects
-   - Committed (<c>): PJ-…
+   - Committed (<c>):
+     - PJ-2101 · Crown Field Svcs · Central/Indianapolis · prereq 100%
    </details>
    ```
 
@@ -464,15 +502,19 @@ Required sections (in order):
    - Skip a cohort's subheader entirely (and its whole sub-section) if that cohort's \
      `weekly_buckets` is empty.
    - Inside each cohort: iterate `weekly_buckets` in the same order as Section 3's \
-     table for that cohort. Skip weeks where BOTH id arrays are empty.
-   - All other formatting rules follow the 2-A-Flat 4.7 spec: `Mon DD, YYYY` dates, \
-     bullet header `<k> projects` = `committed + pull_forward` verbatim from bucket, \
-     50-item cap per bullet with `… and <M> more.` suffix when exceeded, join IDs \
-     with `", "` in the order provided, verbatim project ID strings (no reformatting).
-   - If BOTH cohorts have every bucket empty of concrete IDs (sim-only plan), replace \
-     the entire block with one line — no `<details>` wrapper — reading: \
-     *"No concrete project IDs in either cohort's window; simulation covers unspecified \
-     future sites."*
+     table for that cohort. Skip weeks where BOTH enriched arrays are empty.
+   - **Per-project line format is identical to 2-A-Flat Section 4.7** — Committed: \
+     `<pj_project_id> · <construction_gc> · <rgn_region>/<m_market> · prereq NN%`; \
+     Pull-forward: same plus ` · forecast <Mon DD, YYYY>` at the end. All field \
+     fallback rules (missing GC → `<no GC>`, missing geo → drop segment, null \
+     prereq → drop segment, null forecast → drop segment, verbatim project IDs) \
+     apply verbatim.
+   - **Truncation cap:** 50 nested lines per Committed / Pull-forward group with \
+     `- … and <M> more.` suffix when exceeded. Group headers keep the true count.
+   - If BOTH cohorts have every bucket empty of enriched projects (sim-only plan), \
+     replace the entire block with one line — no `<details>` wrapper — reading: \
+     *"No concrete project IDs in either cohort's window; simulation covers \
+     unspecified future sites."*
 
 5. **Actionable Insights** — same MANDATORY TABLE FORMAT as the rest of TYPE 2. \
    Required rows for the cohort case:
