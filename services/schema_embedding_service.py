@@ -98,7 +98,7 @@ def _load_indexes(session_id: str) -> tuple[list[dict], np.ndarray, list[dict], 
         try:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute(
-                    f"SELECT element_id, node_id, label, entity_type, embedding "
+                    f"SELECT element_id, node_id, label, entity_type, scn_agent_type, embedding "
                     f"FROM {_PG_SCHEMA}.nodes WHERE session_id = %s ORDER BY label",
                     (session_id,),
                 )
@@ -350,3 +350,71 @@ def search_schema(
     )
 
     return schema_text
+
+
+def _scenario_threshold(node_id: str, default: float) -> float:
+    """Fetch a scenario node's scn_similarity_threshold from Neo4j (or `default`)."""
+    try:
+        from tools.neo4j_tool import Neo4jTool
+        out = Neo4jTool().run_cypher_safe(
+            "MATCH (n:BKGNode {node_id: $nid}) RETURN n.scn_similarity_threshold AS t",
+            {"nid": node_id},
+        )
+        recs = (out.get("records") or out.get("results") or []) if isinstance(out, dict) else []
+        if recs and recs[0].get("t") is not None:
+            return float(recs[0]["t"])
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("scenario threshold lookup failed for %s (using default): %s", node_id, exc)
+    return default
+
+
+def search_scenarios(
+    query: str,
+    *,
+    project_type: str | None = None,
+    session_id: str | None = None,
+    default_threshold: float = 0.75,
+) -> dict | None:
+    """Match a query against `entity_type='scenario'` nodes ONLY.
+
+    Slices the node index to scenario nodes, computes cosine similarity, and
+    returns the top match `{node_id, label, score, threshold}` when its score
+    clears the node's own `scn_similarity_threshold` (fallback `default_threshold`).
+    Returns None if there are no scenario nodes or none clear the threshold — the
+    caller then falls through to the normal planner/traversal flow.
+    """
+    if session_id is None:
+        session_id = session_id_for_project(project_type or "")
+
+    node_rows, n_mat, _p_rows, _p_mat = _load_indexes(session_id)
+    if not node_rows:
+        return None
+
+    scen_idx = [
+        i for i, r in enumerate(node_rows)
+        if (r.get("entity_type") or "").lower() == "scenario"
+        and (r.get("scn_agent_type") or "").lower() == "simulation"
+    ]
+    if not scen_idx:
+        return None
+
+    q_vec = _embed_query(query)
+    sub = n_mat[scen_idx]              # already L2-normalised in _load_indexes
+    scores = sub @ q_vec
+    best_local = int(np.argmax(scores))
+    best_i = scen_idx[best_local]
+    best_score = float(scores[best_local])
+
+    node_id = node_rows[best_i].get("node_id")
+    label = node_rows[best_i].get("label")
+    threshold = _scenario_threshold(node_id, default_threshold)
+
+    logger.info(
+        "search_scenarios [session_id=%s]: top='%s' score=%.4f threshold=%.2f -> %s",
+        session_id, label, best_score, threshold,
+        "MATCH" if best_score >= threshold else "below",
+    )
+
+    if best_score >= threshold:
+        return {"node_id": node_id, "label": label, "score": round(best_score, 4), "threshold": threshold}
+    return None

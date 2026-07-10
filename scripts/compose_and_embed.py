@@ -99,12 +99,14 @@ CREATE TABLE IF NOT EXISTS {_SCHEMA}.nodes (
     label         TEXT NOT NULL,
     entity_type   TEXT,
     node_type     TEXT,
+    scn_agent_type TEXT,
     composed_text TEXT NOT NULL,
     embedding     FLOAT8[] NOT NULL,
     props         JSONB NOT NULL,
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE {_SCHEMA}.nodes ADD COLUMN IF NOT EXISTS session_id TEXT;
+ALTER TABLE {_SCHEMA}.nodes ADD COLUMN IF NOT EXISTS scn_agent_type TEXT;
 CREATE INDEX IF NOT EXISTS idx_nodes_session_id  ON {_SCHEMA}.nodes(session_id);
 CREATE INDEX IF NOT EXISTS idx_nodes_node_id     ON {_SCHEMA}.nodes(node_id);
 CREATE INDEX IF NOT EXISTS idx_nodes_label       ON {_SCHEMA}.nodes(label);
@@ -182,16 +184,26 @@ def _contract_params(raw: Any) -> list[str]:
 
 
 def compose_text(row: dict[str, Any]) -> str:
+    """Build the text that gets embedded for a node.
+
+    Non-scenario nodes: ENTITY + TYPE + DEFINITION (edges / contract params / business
+    rule are deliberately NOT embedded so the vector reflects what the node IS).
+
+    Scenario nodes: the canonical question ALONE. A scenario is matched by comparing the
+    user's query to this text, so embedding the entity label / type / definition
+    alongside the question only dilutes cosine similarity — enough to push a verbatim or
+    lightly-reworded query below the match threshold. The canonical question IS the
+    match target, so that is all we embed.
+    """
     p = row["props"]
     label = p.get("label") or ""
     entity_type = p.get("entity_type") or ""
     node_type = p.get("node_type") or ""
     definition = (p.get("definition") or p.get("nl_description") or "").strip()
-    business_rule = (p.get("nl_description") or "").strip()
-    params = _contract_params(p.get("map_contract") or p.get("kpi_contract")) 
 
-    out_edges = row.get("out_edges") or []
-    in_edges = row.get("in_edges") or []
+    if (entity_type or "").lower() == "scenario":
+        scn_q = (p.get("scn_canonical_question") or "").strip()
+        return scn_q or definition or label
 
     lines: list[str] = []
     lines.append(f"ENTITY: {label}")
@@ -199,18 +211,6 @@ def compose_text(row: dict[str, Any]) -> str:
         lines.append(f"TYPE: {entity_type} / {node_type}".strip(" /"))
     if definition:
         lines.append(f"DEFINITION: {definition}")
-    if business_rule:
-        lines.append(f"BUSINESS_RULE: {business_rule}")
-    if params:
-        lines.append(f"FILTERABLE_BY: {', '.join(params)}")
-    if out_edges:
-        outs = sorted({f"{e['label']} ({e['rel']})" for e in out_edges if e.get("label") and e.get("rel")})
-        if outs:
-            lines.append(f"CONNECTS_TO: {', '.join(outs)}")
-    if in_edges:
-        ins = sorted({f"{e['label']} ({e['rel']})" for e in in_edges if e.get("label") and e.get("rel")})
-        if ins:
-            lines.append(f"REFERENCED_BY: {', '.join(ins)}")
 
     return "\n".join(lines)
 
@@ -238,13 +238,20 @@ def write_nodes(conn, session_id: str, rows: list[dict[str, Any]]) -> None:
         # Loosen durability for the duration of this transaction — bulk loads
         # don't need fsync per commit.
         cur.execute("SET LOCAL synchronous_commit = OFF")
-        # Only wipe rows for this session — sibling graphs in the same table stay intact.
-        cur.execute(f"DELETE FROM {_SCHEMA}.nodes WHERE session_id = %s", (session_id,))
+        # Wipe rows for this session — sibling graphs in the same table stay intact.
+        # ALSO wipe any row whose element_id is in this batch, even if it is tagged
+        # with a stale session_id (Neo4j reassigns element_ids on graph reload, which
+        # would otherwise collide with the element_id primary key on COPY).
+        element_ids = [r["element_id"] for r in rows]
+        cur.execute(
+            f"DELETE FROM {_SCHEMA}.nodes WHERE session_id = %s OR element_id = ANY(%s)",
+            (session_id, element_ids),
+        )
         _copy_rows(
             cur,
             f"{_SCHEMA}.nodes",
             ["element_id", "session_id", "node_id", "label", "entity_type",
-             "node_type", "composed_text", "embedding", "props"],
+             "node_type", "scn_agent_type", "composed_text", "embedding", "props"],
             (
                 (
                     r["element_id"],
@@ -253,6 +260,7 @@ def write_nodes(conn, session_id: str, rows: list[dict[str, Any]]) -> None:
                     r["label"],
                     r["entity_type"],
                     r["node_type"],
+                    r.get("scn_agent_type"),
                     r["composed_text"],
                     _pg_float_array(r["embedding"]),
                     json.dumps(r["props"]),
@@ -271,9 +279,14 @@ def write_edges(conn, session_id: str, edges: list[dict[str, Any]]) -> None:
     deduped = list(seen.values())
     with conn.cursor() as cur:
         cur.execute("SET LOCAL synchronous_commit = OFF")
-        # Node-side DELETE above cascades to edges, but be explicit in case session_id
-        # has stale edges left over from a partial earlier run.
-        cur.execute(f"DELETE FROM {_SCHEMA}.edges WHERE session_id = %s", (session_id,))
+        # Node-side DELETE above cascades to edges, but be explicit: also wipe any row
+        # whose edge_id is in this batch even under a stale session_id (edge_id is the PK
+        # and is Neo4j's elementId, which is reassigned on graph reload → COPY collision).
+        edge_ids = [e["edge_id"] for e in deduped]
+        cur.execute(
+            f"DELETE FROM {_SCHEMA}.edges WHERE session_id = %s OR edge_id = ANY(%s)",
+            (session_id, edge_ids),
+        )
         _copy_rows(
             cur,
             f"{_SCHEMA}.edges",
@@ -333,6 +346,7 @@ def process_session(
                     "label": p.get("label") or "",
                     "entity_type": p.get("entity_type"),
                     "node_type": p.get("node_type"),
+                    "scn_agent_type": p.get("scn_agent_type"),
                     "composed_text": text,
                     "embedding": vec,
                     "props": p,

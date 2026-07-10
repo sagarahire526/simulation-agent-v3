@@ -232,7 +232,7 @@ def create_node(
     """
     sid = _resolve_session_id(graph_key)
 
-    valid_types = {"core", "context", "transaction", "reference", "kpi"}
+    valid_types = {"core", "context", "transaction", "reference", "kpi", "scenario"}
     if entity_type not in valid_types:
         raise ValueError(f"entity_type must be one of {sorted(valid_types)}")
     if not node_id or not node_id.strip():

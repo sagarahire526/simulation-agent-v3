@@ -447,6 +447,84 @@ class PythonSandbox:
                 sites_per_crew_per_week=sites_per_crew_per_week,
             )
 
+        def _fetch_node_source(node_id, field):
+            """Fetch a stored function string for a node from Neo4j (or '' if absent)."""
+            from tools.neo4j_tool import Neo4jTool
+            out = Neo4jTool().run_cypher_safe(
+                f"MATCH (n:BKGNode {{node_id: $nid}}) RETURN coalesce(n.{field}, '') AS fn",
+                {"nid": node_id},
+            )
+            records = (out.get("records") or out.get("results") or []) if isinstance(out, dict) else []
+            return (records[0].get("fn") if records else "") or ""
+
+        def _pick_callable(ns, prefixes):
+            """Return the first top-level user function in `ns` whose name starts with
+            one of `prefixes`; fall back to the first non-dunder user function."""
+            import types
+            funcs = {k: v for k, v in ns.items()
+                     if isinstance(v, types.FunctionType) and not k.startswith("__")}
+            for p in prefixes:
+                for k, v in funcs.items():
+                    if k.startswith(p):
+                        return v
+            return next(iter(funcs.values())) if funcs else None
+
+        def run_node(node_id, filter=None, group_by=None):
+            """Deterministically execute a KPI/core node's stored function with the
+            SAME execute_query this sandbox exposes — NO LLM, NO GROUP BY stripping.
+
+            Fetches kpi_python_function (or map_python_function for core nodes),
+            exec's it, locates the get_* callable, merges `group_by` into the filter
+            dict, and calls fn(execute_query, filters=<merged>). Returns list[dict].
+            """
+            fn_src = _fetch_node_source(node_id, "kpi_python_function")
+            if not fn_src:
+                fn_src = _fetch_node_source(node_id, "map_python_function")
+            if not fn_src:
+                raise RuntimeError(f"Node '{node_id}' has no kpi_python_function/map_python_function.")
+            local_ns = {}
+            exec(fn_src, local_ns)
+            fn = _pick_callable(local_ns, ("get_",))
+            if fn is None:
+                raise RuntimeError(f"No get_* callable found in node '{node_id}' function body.")
+            merged = dict(filter or {})
+            if group_by is not None:
+                merged["group_by"] = group_by
+            return fn(_execute_query, merged)
+
+        def run_transform(node_id, *args, **kwargs):
+            """Execute a pure-transform node (e.g. a predictor) — calls the node's
+            stored function with the given args/kwargs, WITHOUT execute_query."""
+            fn_src = _fetch_node_source(node_id, "kpi_python_function")
+            if not fn_src:
+                raise RuntimeError(f"Transform node '{node_id}' has no kpi_python_function.")
+            local_ns = {}
+            exec(fn_src, local_ns)
+            fn = _pick_callable(local_ns, ("predict_", "transform_", "compute_"))
+            if fn is None:
+                raise RuntimeError(f"No transform callable found in node '{node_id}' function body.")
+            return fn(*args, **kwargs)
+
+        def run_scenario(scenario_id, filter=None, group_by=None):
+            """Run a scenario node's deterministic orchestrator (scn_python_function),
+            passing the run_node + run_transform helpers so it can chain the
+            contributing nodes with NO LLM in the loop."""
+            fn_src = _fetch_node_source(scenario_id, "scn_python_function")
+            if not fn_src:
+                raise RuntimeError(f"Scenario '{scenario_id}' has no scn_python_function.")
+            local_ns = {}
+            exec(fn_src, local_ns)
+            fn = _pick_callable(local_ns, ("run_", "scenario_"))
+            if fn is None:
+                raise RuntimeError(f"No run_* orchestrator found in scenario '{scenario_id}'.")
+            # Expose the node runners AND the construction-plan-forecast wrapper as
+            # globals so an orchestrator can call any of them directly (cpf-001 can't
+            # go through run_node — build_plan needs the SLA DAG + a bespoke signature).
+            local_ns["run_node"] = run_node
+            local_ns["run_transform"] = run_transform
+            local_ns["run_construction_plan_forecast"] = _run_construction_plan_forecast
+            return fn(run_node, run_transform, filter=filter, group_by=group_by)
+
         namespace = {
             "conn": self.conn,
             "pd": pd,
@@ -457,6 +535,9 @@ class PythonSandbox:
             "session": self.session_vars,
             "execute_query": _execute_query,
             "run_construction_plan_forecast": _run_construction_plan_forecast,
+            "run_node": run_node,
+            "run_transform": run_transform,
+            "run_scenario": run_scenario,
             "result": None,
         }
 

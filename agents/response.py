@@ -90,23 +90,30 @@ def _format_traversal_data(state: SimulationState) -> tuple[str, list]:
     return "\n".join(lines), tool_calls
 
 
-def _compact_output(raw: str, max_len: int = 200) -> str:
-    """Extract a compact summary from a tool output string."""
-    try:
-        parsed = json.loads(raw)
-        if isinstance(parsed, dict):
-            if "records" in parsed:
-                return f"{parsed.get('count', len(parsed['records']))} records"
-            if "error" in parsed:
-                return f"Error: {str(parsed['error'])[:120]}"
-            if "relevant_nodes" in parsed:
-                return f"{len(parsed['relevant_nodes'])} nodes, {len(parsed.get('relevant_metrics', []))} metrics"
-            if "paths" in parsed:
-                return f"{len(parsed['paths'])} paths"
-            if "status" in parsed and parsed["status"] == "success":
-                return f"OK — {str(parsed.get('result', parsed.get('output', '')))[:150]}"
-    except (json.JSONDecodeError, TypeError):
-        pass
+def _compact_output(raw, max_len: int = 200) -> str:
+    """Extract a compact summary from a tool output (dict or JSON string)."""
+    parsed = raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            parsed = None
+    if isinstance(parsed, dict):
+        if "records" in parsed:
+            return f"{parsed.get('count', len(parsed['records']))} records"
+        if "error" in parsed:
+            return f"Error: {str(parsed['error'])[:120]}"
+        if "relevant_nodes" in parsed:
+            return f"{len(parsed['relevant_nodes'])} nodes, {len(parsed.get('relevant_metrics', []))} metrics"
+        if "paths" in parsed:
+            return f"{len(parsed['paths'])} paths"
+        # Generic: summarise list-valued keys by count (covers scenario results,
+        # e.g. "cycle_baseline:2, predictions:31") instead of dumping the raw dict.
+        list_bits = [f"{k}:{len(v)}" for k, v in parsed.items() if isinstance(v, list)]
+        if list_bits:
+            return ", ".join(list_bits)
+        if parsed.get("status") == "success":
+            return f"OK — {str(parsed.get('result', parsed.get('output', '')))[:150]}"
     text = str(raw)
     return text[:max_len] + "…" if len(text) > max_len else text
 

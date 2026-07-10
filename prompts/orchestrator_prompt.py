@@ -47,6 +47,14 @@ Use this when the query involves ANY of the following:
 - **Delay recovery / schedule recovery**: "We are behind — how do we recover by the target date?"
 - **Impact analysis / what-if scenarios**: "What happens if 20% of crews are unavailable?", "What is the impact of material delay?"
 - **Forecasting**: "What will our progress look like for the next 4 weeks?"
+- **Prediction from historical trend**: "Predict the SCOP acceptance date for pending sites based on the \
+last 6 months cycle-time trend", "Estimate when these sites will reach milestone X" — any request to \
+project future dates/outcomes from a historical trend. These map to approved scenarios and MUST route to \
+simulation (never traversal) so the scenario engine can run.
+- **Ramp-up / target-increase planning**: "Increase swap completion by 50% over the next 3 \
+months — suggest a region-wise ramp-up plan based on prerequisite readiness and crew \
+availability", any request to raise delivery to a revised target/run-rate and plan the ramp. \
+These map to an approved scenario and MUST route to simulation.
 - **Vendor performance analysis**: "Which GCs are underperforming and what should we do?"
 - **Resource optimization**: "How should we redistribute crews across markets?"
 - **Multi-market comparison**: "Compare Chicago and Dallas performance and identify gaps"

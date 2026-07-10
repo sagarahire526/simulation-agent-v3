@@ -19,6 +19,8 @@ class BKGTool:
       - transaction → transactional entities
       - reference   → reference/lookup entities
       - kpi         → computed KPI metrics with `kpi_*` calculation properties
+      - scenario    → deterministic multi-step scenarios with `scn_*` properties
+                      (matched by embedding, executed via the scenario orchestrator)
 
     Relationships use `RELATES_TO` edges with `relationship_type` property.
     """

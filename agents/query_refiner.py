@@ -77,7 +77,7 @@ def query_refiner_node(state: SimulationState) -> dict[str, Any]:
     print(f"{'═' * 70}{_RESET}\n", flush=True)
     print(f"  {_DIM}Query: {user_query}{_RESET}\n", flush=True)
 
-    llm = LLMProvider.get_llm("fast", max_tokens=1024)
+    llm = LLMProvider.get_llm("heavy", max_tokens=1024)
 
     # Fetch formal entity names from DB for name normalization
     lookups = get_all_entity_lookups()
@@ -158,13 +158,15 @@ def query_refiner_node(state: SimulationState) -> dict[str, Any]:
             "1. Preserve ALL quantitative facts from the original query verbatim "
             "   (rates, counts, targets, time windows, percentages).\n"
             "2. For every clarification question about geography/scope, expand to ALL "
-            "   valid values at that level. Hierarchy is region → market → area:\n"
+            "   valid values at that level, and KEEP any broader scope the user already "
+            "   gave. Hierarchy is region -> area -> market:\n"
             "   - Asked 'which region?' with no region given → cover ALL regions "
-            "     (WEST, SOUTH, CENTRAL).\n"
-            "   - User said 'SOUTH region' and was asked 'which market within SOUTH?' "
-            "     → cover ALL markets that belong to SOUTH region.\n"
-            "   - User said 'CHICAGO market' and was asked 'which area within CHICAGO?' "
-            "     → cover ALL areas under CHICAGO market.\n"
+            "     (WEST, SOUTH, CENTRAL, NORTHEAST).\n"
+            "   - User said 'CENTRAL region' and was asked 'which market/area within "
+            "     CENTRAL?' → cover ALL markets WITHIN the CENTRAL region (keep CENTRAL; "
+            "     do NOT drop the region).\n"
+            "   - User said 'GREAT LAKES area' and was asked 'which market?' → cover ALL "
+            "     markets that belong to the GREAT LAKES area.\n"
             "   - Asked 'which GC?' → cover ALL GCs in the established scope.\n"
             "3. Resolve entity names to their formal DB values.\n"
             "4. Do NOT add 'will be retrieved from the database' assumptions for values "
@@ -190,12 +192,23 @@ def query_refiner_node(state: SimulationState) -> dict[str, Any]:
             f"User's answer: {user_clarification.strip()}\n\n"
             "Produce the final refined_query. CRITICAL — follow the Preservation Rule "
             "from your system prompt: preserve ALL quantitative facts from the original "
-            "query VERBATIM (ra~tes, counts, targets, time windows, percentages, named "
-            "values the user gave as ground truth). Only add the clarification answer "
-            "(geography) and resolve entity names(market, gc's, regions and areas) to their formal DB values."
-            "Do NOT summarize, condense, or strip the user's stated numbers. Do NOT list "
-            "'will be retrieved from the database' assumptions for any value the user "
-            "already provided. Set is_complete=true."
+            "query VERBATIM (rates, counts, targets, time windows, percentages, named "
+            "values the user gave as ground truth). Do NOT summarize, condense, or strip "
+            "the user's stated numbers.\n\n"
+            "GEOGRAPHY PRESERVATION (CRITICAL — do not drop scope the user already gave):\n"
+            "- If the original query ALREADY named a region / area / market, KEEP it. The "
+            "user's answer NESTS WITHIN that scope — it never replaces it. Hierarchy is "
+            "region -> area -> market.\n"
+            "- Example: original says 'CENTRAL region' and the answer is 'all markets' → "
+            "the scope is ALL markets WITHIN the CENTRAL region. The refined_query MUST "
+            "still say CENTRAL (e.g. 'across all markets in the CENTRAL region'). Do NOT "
+            "output 'all markets' with the region removed.\n"
+            "- Example: original says 'SOUTH region' and the answer names one market → "
+            "that market (which belongs to SOUTH).\n"
+            "- Only add the clarification answer and resolve entity names (market, GCs, "
+            "regions, areas) to their formal DB values.\n"
+            "Do NOT list 'will be retrieved from the database' assumptions for any value "
+            "the user already provided. Set is_complete=true."
         )
         resume_response = llm.invoke([
             SystemMessage(content=system_prompt),

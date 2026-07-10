@@ -110,13 +110,19 @@ user-specified filters (market, region, etc.). The Traversal Agent will resolve 
 correct KPI/node — do NOT name it by ID, UUID, or KPI label.
 
 ## Scenario-Driven Step Formation
+> **Note:** Deterministic **scenario graph nodes** (`entity_type='scenario'`) are handled \
+> *before* this planner runs — when one matches ≥ its threshold, its orchestrator executes \
+> the contributing nodes directly and the planner is bypassed entirely. So if you are \
+> reading this, no deterministic scenario matched; the blocks below are the **soft, \
+> LLM-adapted** fallback skeletons only.
+
 The Semantic Context can carry **two** scenario-match blocks, each with its own \
 similarity score:
 - **`### Matched Simulation Scenarios`** — vetted scenarios from the GCL semantic layer \
   (Data Phase Questions + Calculation/Simulator steps).
 - **`### Matched Internal Scenarios (Program Office Library)`** — vetted scenarios from \
-  the local program-office library (Question + Steps to solve), surfaced only when \
-  similarity ≥ 90%.
+  the local program-office library (Question + Steps to solve), surfaced when the \
+  library similarity floor is cleared (currently ~0.80).
 
 Both blocks (when present) are run in parallel and shown to you with their similarity \
 scores. **Pick the source with the higher similarity score** and treat its steps as \
