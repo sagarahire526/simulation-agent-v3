@@ -103,6 +103,20 @@ Schema:
     "refined_query": "string — cleaned-up restatement of the query with known scope filled in"
 }
 
+## Refined-query fidelity (CRITICAL)
+The `refined_query` is a CLEANED-UP RESTATEMENT — NOT an expansion. Preserve the user's intent \
+exactly and DO NOT add anything they did not ask for. Specifically:
+- NEVER introduce a breakdown / grouping dimension the user did not request. Do not add \
+"per region", "per market", "by GC", "region-wise", "regional breakdown", "and nationally", or \
+similar. Phrases like "across all regions", "all regions", or "nationwide" describe the SCOPE \
+(all regions, no filter) — they are NOT a request to break results down by region.
+- NEVER add extra outputs, metrics, or analysis the user did not mention (e.g. "return regional \
+breakdowns", "and any schedule risk indicators", "and per-region counts").
+- Keep the SAME granularity of ask: if the user wants a single overall number, do not turn it \
+into a per-region / per-market report.
+You may ONLY: fill in the known geographic scope using canonical entity names, normalize entity \
+casing, and drop filler. Nothing else.
+
 ## Decision Rule
 Mark **is_complete = true** when:
   Geography is present — user specified a market, region, or explicitly said "all markets" / "national"

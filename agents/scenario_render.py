@@ -15,31 +15,38 @@ The trimming is applied at the response boundary (agents/response.py), not in th
 """
 from __future__ import annotations
 
-# Per-site object / id lists that scenarios (via cpf-001) embed for the UI but that the
-# response agent does NOT need to narrate a plan. Replaced by a "<key>_count" scalar in the
-# LEAN copy; the full lists stay in the untrimmed result attached to the final payload.
-_HEAVY_DETAIL_KEYS = {
-    "committed_pj_projects", "pull_forward_pj_projects",
-    "committed_pj_project_ids", "pull_forward_pj_project_ids",
-    "per_site", "sites",
-}
-# Safety cap for any other list-of-rows so no single list can flood the prompt. Generous so
+# cpf-001 embeds two flavours of per-site detail inside each week bucket / per-dimension
+# demand entry. Both are SAMPLED for the response agent (the LLM narrates a plan, it doesn't
+# need every site) — the FULL lists live in the untrimmed result attached to the client.
+#   • ID lists (lightweight strings) — a reference sample of the ids + a "<key>_total" count.
+_ID_SAMPLE_KEYS = {"committed_pj_project_ids", "pull_forward_pj_project_ids"}
+_ID_SAMPLE_N = 25
+#   • object lists (heavy per-site detail dicts) — a small sample + a "<key>_total" count.
+_SAMPLE_DETAIL_KEYS = {"committed_pj_projects", "pull_forward_pj_projects", "per_site", "sites"}
+_SAMPLE_N = 5
+# Safety cap for any OTHER list-of-rows so no single list can flood the prompt. Generous so
 # genuine planning outputs (e.g. scn-001 per-site predictions, ~tens of rows) stay intact.
 _MAX_LEAN_LIST_ROWS = 200
 
 
 def lean_scenario_result(obj):
-    """Return a copy of a scenario result trimmed for the RESPONSE AGENT: heavy per-site
-    object/id lists are dropped (replaced by a ``<key>_count`` scalar) and any long list is
-    capped. Keeps everything needed to narrate a plan (summaries, weekly counts, capacity,
-    crew gap, per-group breakdowns). Generic over any scenario's output shape — recurses
-    dicts/lists, makes no scenario assumptions. The FULL, untrimmed result is preserved
-    separately and attached to the final payload after the response agent runs."""
+    """Return a copy of a scenario result trimmed for the RESPONSE AGENT. Per-site ID lists
+    are sampled (25 + a ``<key>_total`` count); heavy per-site object lists are sampled (5 +
+    count); any other long list is capped. Keeps everything needed to narrate a plan
+    (summaries, weekly counts, capacity, crew gap, per-group breakdowns). Generic over any
+    scenario's output shape. The FULL, untrimmed result is preserved separately and attached
+    to the final payload after the response runs — the client still gets every id/row."""
     if isinstance(obj, dict):
         out = {}
         for k, v in obj.items():
-            if k in _HEAVY_DETAIL_KEYS:
-                out[k + "_count"] = len(v) if isinstance(v, (list, dict)) else 0
+            if k in _ID_SAMPLE_KEYS and isinstance(v, list):
+                out[k] = v[:_ID_SAMPLE_N]                    # id reference sample
+                if len(v) > _ID_SAMPLE_N:
+                    out[k + "_total"] = len(v)
+            elif k in _SAMPLE_DETAIL_KEYS and isinstance(v, list):
+                out[k] = [lean_scenario_result(x) for x in v[:_SAMPLE_N]]   # detail sample
+                if len(v) > _SAMPLE_N:
+                    out[k + "_total"] = len(v)
             else:
                 out[k] = lean_scenario_result(v)
         return out

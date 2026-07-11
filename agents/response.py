@@ -31,6 +31,13 @@ from agents.scenario_render import lean_scenario_result, render_scenario_finding
 
 logger = logging.getLogger(__name__)
 
+# Max characters of collected data to feed the response LLM. Sized well below the LLM/proxy
+# request-size limit so the request can never be rejected for size, leaving ample room for
+# the system prompt, query, instructions and JSON envelope. Full per-site detail is preserved
+# in the structured results and attached after the response — nothing is lost, only trimmed
+# from the LLM's input. ~300k chars ≈ 75k tokens.
+_MAX_DATA_CONTEXT_CHARS = 300_000
+
 
 def _scenario_or_findings(result: dict) -> str:
     """Findings text for one planner step. For a deterministic scenario step the planner
@@ -334,6 +341,20 @@ def response_node(state: SimulationState) -> dict[str, Any]:
     user_query = state.get("user_query") or state["refined_query"]
 
     data_context, effective_tool_calls = _format_traversal_data(state)
+
+    # Hard safety cap: no matter how large the underlying data is, the assembled context must
+    # fit the model / proxy request-size limit. Structural trimming (scenario_render) handles
+    # the common case; this guarantees a request can never be rejected for size. Full detail
+    # is always preserved in the structured results attached after the response.
+    if len(data_context) > _MAX_DATA_CONTEXT_CHARS:
+        dropped = len(data_context) - _MAX_DATA_CONTEXT_CHARS
+        data_context = (
+            data_context[:_MAX_DATA_CONTEXT_CHARS]
+            + f"\n\n… [truncated to fit the model request limit — {dropped:,} more characters "
+              f"omitted; the full per-site detail is attached in the structured results]"
+        )
+        logger.warning("Response data_context truncated by %d chars to fit request limit.", dropped)
+
     errors = state.get("errors", [])
 
     user_message_parts = [
