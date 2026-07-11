@@ -26,9 +26,26 @@ from prompts.response_prompt import RESPONSE_SYSTEM
 from prompts.chart_prompt import CHART_SYSTEM
 from prompts.algorithm_prompt import ALGORITHM_SYSTEM
 from services.date_context import today_date_context
+from agents.scenario_render import lean_scenario_result, render_scenario_findings
 
 
 logger = logging.getLogger(__name__)
+
+
+def _scenario_or_findings(result: dict) -> str:
+    """Findings text for one planner step. For a deterministic scenario step the planner
+    passes the FULL structured result through (`scenario_full_result`); render a LEAN view
+    here — at the response boundary — so heavy per-site detail never enters the LLM prompt
+    (the full detail is attached to the final payload separately). Non-scenario steps use
+    the traversal agent's own findings string."""
+    full = result.get("scenario_full_result")
+    if full is not None:
+        return render_scenario_findings(
+            result.get("scenario_label", "scenario"),
+            result.get("scenario_resolved", {}),
+            lean_scenario_result(full),
+        )
+    return result.get("traversal_findings", "No findings.")
 
 
 def _format_traversal_data(state: SimulationState) -> tuple[str, list]:
@@ -49,7 +66,7 @@ def _format_traversal_data(state: SimulationState) -> tuple[str, list]:
         all_tool_calls: list = []
 
         for idx, (step, result) in enumerate(zip(planner_steps, planner_results), 1):
-            findings = result.get("traversal_findings", "No findings.")
+            findings = _scenario_or_findings(result)
             tool_calls = result.get("traversal_tool_calls", [])
             steps_taken = result.get("traversal_steps_taken", 0)
             step_errors = result.get("errors", [])
