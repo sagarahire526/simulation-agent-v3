@@ -15,37 +15,39 @@ The trimming is applied at the response boundary (agents/response.py), not in th
 """
 from __future__ import annotations
 
-# cpf-001 embeds two flavours of per-site detail inside each week bucket / per-dimension
-# demand entry. Both are SAMPLED for the response agent (the LLM narrates a plan, it doesn't
-# need every site) — the FULL lists live in the untrimmed result attached to the client.
-#   • ID lists (lightweight strings) — a reference sample of the ids + a "<key>_total" count.
-_ID_SAMPLE_KEYS = {"committed_pj_project_ids", "pull_forward_pj_project_ids"}
-_ID_SAMPLE_N = 25
-#   • object lists (heavy per-site detail dicts) — a small sample + a "<key>_total" count.
-_SAMPLE_DETAIL_KEYS = {"committed_pj_projects", "pull_forward_pj_projects", "per_site", "sites"}
-_SAMPLE_N = 5
+# cpf-001 embeds per-site detail inside each week bucket / per-dimension demand entry. The
+# response agent narrates a plan — it does NOT need per-site detail — so this is trimmed HARD:
+#   • ID lists  → only the top 10 ids per week + a "<key>_total" count.
+#   • object lists → only the top 10 sites, each reduced to MARKET ONLY (no other detail).
+# The FULL, untrimmed lists live in the untrimmed result attached to the client.
+_SITE_ID_KEYS = {"committed_pj_project_ids", "pull_forward_pj_project_ids"}
+_SITE_DETAIL_KEYS = {"committed_pj_projects", "pull_forward_pj_projects", "per_site", "sites"}
+_SITE_SAMPLE_N = 10
+_SITE_KEEP_FIELDS = ("m_market",)   # the only per-site field kept in the object sample
 # Safety cap for any OTHER list-of-rows so no single list can flood the prompt. Generous so
 # genuine planning outputs (e.g. scn-001 per-site predictions, ~tens of rows) stay intact.
 _MAX_LEAN_LIST_ROWS = 200
 
 
 def lean_scenario_result(obj):
-    """Return a copy of a scenario result trimmed for the RESPONSE AGENT. Per-site ID lists
-    are sampled (25 + a ``<key>_total`` count); heavy per-site object lists are sampled (5 +
-    count); any other long list is capped. Keeps everything needed to narrate a plan
-    (summaries, weekly counts, capacity, crew gap, per-group breakdowns). Generic over any
-    scenario's output shape. The FULL, untrimmed result is preserved separately and attached
-    to the final payload after the response runs — the client still gets every id/row."""
+    """Return a copy of a scenario result trimmed HARD for the RESPONSE AGENT: per week, keep
+    only the top 10 site ids + a ``<key>_total`` count, and reduce per-site object lists to
+    the top 10 sites carrying MARKET ONLY (no other detail). Keeps everything needed to
+    narrate a plan (summaries, weekly counts, capacity, crew gap, per-group breakdowns).
+    Generic over any scenario's output shape. The FULL, untrimmed result is preserved
+    separately and attached to the final payload after the response runs — the client still
+    gets every id/row."""
     if isinstance(obj, dict):
         out = {}
         for k, v in obj.items():
-            if k in _ID_SAMPLE_KEYS and isinstance(v, list):
-                out[k] = v[:_ID_SAMPLE_N]                    # id reference sample
-                if len(v) > _ID_SAMPLE_N:
+            if k in _SITE_ID_KEYS and isinstance(v, list):
+                out[k] = v[:_SITE_SAMPLE_N]                  # top 10 ids
+                if len(v) > _SITE_SAMPLE_N:
                     out[k + "_total"] = len(v)
-            elif k in _SAMPLE_DETAIL_KEYS and isinstance(v, list):
-                out[k] = [lean_scenario_result(x) for x in v[:_SAMPLE_N]]   # detail sample
-                if len(v) > _SAMPLE_N:
+            elif k in _SITE_DETAIL_KEYS and isinstance(v, list):
+                out[k] = [{f: r.get(f) for f in _SITE_KEEP_FIELDS}          # market only
+                          for r in v[:_SITE_SAMPLE_N] if isinstance(r, dict)]
+                if len(v) > _SITE_SAMPLE_N:
                     out[k + "_total"] = len(v)
             else:
                 out[k] = lean_scenario_result(v)
