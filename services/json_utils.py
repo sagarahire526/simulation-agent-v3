@@ -18,6 +18,16 @@ import json
 import math
 
 
+def _safe_key(k):
+    """Make a dict key JSON-safe. json_safe() maps a non-finite float (NaN/±Inf) key to
+    None (rendered as "null"); other JSON-native key types pass through; anything else
+    (tuple, custom object, …) is stringified so json.dumps never raises on the key."""
+    sk = json_safe(k)
+    if sk is None or isinstance(sk, (str, int, float, bool)):
+        return sk
+    return str(sk)
+
+
 def json_safe(obj):
     """
     Recursively replace JSON-incompatible scalars (NaN, ±Infinity, pandas NaT,
@@ -33,7 +43,11 @@ def json_safe(obj):
     if isinstance(obj, float):
         return obj if math.isfinite(obj) else None
     if isinstance(obj, dict):
-        return {k: json_safe(v) for k, v in obj.items()}
+        # Sanitize KEYS too, not just values: JSON object keys must be JSON-safe, and a
+        # non-finite float key (e.g. a NaN construction_gc/market grouping key from pandas)
+        # makes json.dumps(allow_nan=False) raise. json_safe() maps such a key to None, which
+        # json.dumps renders as the string "null".
+        return {_safe_key(k): json_safe(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
         return [json_safe(v) for v in obj]
     # Lazy pandas/numpy handling — only imported if needed
