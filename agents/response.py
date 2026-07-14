@@ -14,6 +14,7 @@ import json
 import logging
 import re
 import threading
+import unicodedata
 from datetime import date
 from typing import Any
 
@@ -31,12 +32,51 @@ from agents.scenario_render import lean_scenario_result, render_scenario_finding
 
 logger = logging.getLogger(__name__)
 
-# Max characters of collected data to feed the response LLM. Sized well below the LLM/proxy
-# request-size limit so the request can never be rejected for size, leaving ample room for
-# the system prompt, query, instructions and JSON envelope. Full per-site detail is preserved
+# Max characters of collected data to feed the response LLM. The LLM proxy rejects/ OOMs on
+# large request bodies (~130 KB observed hard limit), and the system prompt alone is ~40 KB,
+# so the data budget is small. 50 KB keeps the total request (system + query + data +
+# instructions + JSON envelope) comfortably under the limit. Full per-site detail is preserved
 # in the structured results and attached after the response — nothing is lost, only trimmed
-# from the LLM's input. ~300k chars ≈ 75k tokens.
-_MAX_DATA_CONTEXT_CHARS = 300_000
+# from the LLM's input. ~50k chars ~= 12k tokens.
+_MAX_DATA_CONTEXT_CHARS = 45_000
+# Backstop on the whole user message: with the ~40 KB system prompt and JSON escaping inflating
+# the body, keeping the user message under ~75 KB keeps the total request under the ~130 KB
+# proxy limit with margin.
+_MAX_USER_MESSAGE_CHARS = 75_000
+
+# Common non-ASCII punctuation -> ASCII. Some LLM proxies mis-decode raw multi-byte UTF-8 in
+# the request body (their JSON parser reads it byte-wise, miscounts, and 400s with "Unexpected
+# character encountered while parsing value"). Mapping these to ASCII + dropping any remaining
+# non-ASCII/control chars makes every request body pure single-byte ASCII and proxy-safe.
+_UNICODE_TO_ASCII = {
+    "—": "-", "–": "-", "‒": "-", "―": "-", "−": "-",   # dashes/minus
+    "‘": "'", "’": "'", "‚": "'", "‛": "'",                   # single quotes
+    "“": '"', "”": '"', "„": '"',                                 # double quotes
+    "…": "...", "•": "*", " ": " ", "·": "*",                 # ellipsis/bullet/nbsp
+}
+
+
+def _sanitize_for_llm(text: str) -> str:
+    """Coerce message content to plain ASCII (+ newline/tab). Decomposes accents so base
+    letters survive (México -> Mexico), maps common punctuation to ASCII, turns other control
+    chars into spaces, and drops any remaining non-ASCII so the serialized request body is pure
+    single-byte ASCII — robust against proxies that mis-decode UTF-8."""
+    if not text:
+        return text
+    text = unicodedata.normalize("NFKD", text)   # é -> e + combining mark (mark dropped below)
+    out = []
+    for ch in text:
+        mapped = _UNICODE_TO_ASCII.get(ch)
+        if mapped is not None:
+            out.append(mapped)
+            continue
+        o = ord(ch)
+        if ch in "\n\t" or 0x20 <= o <= 0x7e:
+            out.append(ch)
+        elif o < 0x20:
+            out.append(" ")
+        # else: non-ASCII with no mapping -> drop
+    return "".join(out)
 
 
 def _scenario_or_findings(result: dict) -> str:
@@ -255,8 +295,8 @@ def _generate_chart(llm, user_query: str, data_context: str) -> dict[str, Any]:
             "Based on the data above, produce the chart JSON."
         )
         chart_resp = llm.invoke([
-            SystemMessage(content=CHART_SYSTEM),
-            HumanMessage(content=chart_user_msg),
+            SystemMessage(content=_sanitize_for_llm(CHART_SYSTEM)),
+            HumanMessage(content=_sanitize_for_llm(chart_user_msg)),
         ])
 
         raw = chart_resp.content.strip()
@@ -310,8 +350,8 @@ def _generate_algorithm(llm, user_query: str, data_context: str) -> str:
     """
     try:
         resp = llm.invoke([
-            SystemMessage(content=ALGORITHM_SYSTEM),
-            HumanMessage(content=(
+            SystemMessage(content=_sanitize_for_llm(ALGORITHM_SYSTEM)),
+            HumanMessage(content=_sanitize_for_llm(
                 f"## User Query\n{user_query}\n\n"
                 f"## Tool Trace\n{data_context}\n\n"
                 "Write the numbered algorithm now."
@@ -354,6 +394,11 @@ def response_node(state: SimulationState) -> dict[str, Any]:
               f"omitted; the full per-site detail is attached in the structured results]"
         )
         logger.warning("Response data_context truncated by %d chars to fit request limit.", dropped)
+
+    # ASCII-sanitize the data (feeds the main response + the parallel algorithm/chart calls)
+    # so no non-ASCII from real data (accented GC/market names, smart punctuation) can make a
+    # proxy reject the request body.
+    data_context = _sanitize_for_llm(data_context)
 
     errors = state.get("errors", [])
 
@@ -416,9 +461,14 @@ def response_node(state: SimulationState) -> dict[str, Any]:
         "\n- If data is missing or queries failed, acknowledge it in one line and move on."
     )
 
-    user_message = "\n".join(user_message_parts)
-    print(f"DATE HANDLER RETURNS WITH THE RESPONSES AS FOLLOWS: {today_date_context()}")
-    system_prompt = RESPONSE_SYSTEM.format(today_date=today_date_context())
+    user_message = _sanitize_for_llm("\n".join(user_message_parts))
+    # Final backstop on the WHOLE user message (not just data_context): guarantees the request
+    # body stays under the proxy limit even if extra sections are added. data_context is already
+    # capped above, so this normally never triggers.
+    if len(user_message) > _MAX_USER_MESSAGE_CHARS:
+        user_message = user_message[:_MAX_USER_MESSAGE_CHARS] + "\n\n[truncated to fit request limit]"
+        logger.warning("Response user_message truncated to %d chars to fit request limit.", _MAX_USER_MESSAGE_CHARS)
+    system_prompt = _sanitize_for_llm(RESPONSE_SYSTEM.format(today_date=today_date_context()))
 
     # Fire the algorithm-narrative LLM in a background thread so it runs in
     # parallel with the main response call. Total latency stays at
