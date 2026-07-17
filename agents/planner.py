@@ -93,13 +93,20 @@ def _fetch_internal_scenarios(query: str) -> list[dict]:
 
 def _fetch_scenario_node_match(query: str, project_type: str) -> dict | None:
     """
-    Look up a matching entity_type='scenario' GRAPH node (embedding search sliced
-    to scenario nodes, gated on the node's own scn_similarity_threshold). Returns
-    {node_id, label, score, threshold} or None. Non-fatal on any error.
+    Two-stage scenario match:
+      1. Embedding RECALL — every simulation scenario with cosine >= SCENARIO_RECALL_FLOOR.
+      2. LLM RE-RANK — a light LLM (gpt-5-mini, low effort) picks the ONE scenario that
+         truly answers the query from the candidates' canonical question + definition
+         (no scores shown), or 'none' → return None so the planner handles it.
+    Returns the picked candidate {node_id, label, score, ...} or None. Non-fatal on error.
     """
     try:
-        from services.schema_embedding_service import search_scenarios
-        return search_scenarios(query, project_type=project_type)
+        from services.schema_embedding_service import search_scenario_candidates
+        from services.scenario_selector import select_scenario
+        candidates = search_scenario_candidates(query, project_type=project_type)
+        if not candidates:
+            return None
+        return select_scenario(query, candidates)
     except Exception as e:
         logger.warning("Scenario-node match failed (non-fatal): %s", e)
         return None
@@ -393,17 +400,27 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
         bypass = _run_scenario_bypass(scenario_node, refined_query, state.get("project_type", ""))
         if bypass is not None:
             print(
-                f"  {_GREEN}⚡ Deterministic scenario bypass: '{scenario_node.get('label')}' "
-                f"(sim {scenario_node.get('score')}) — skipping LLM planner + traversal{_RESET}",
+                f"  {_GREEN}⚡ Scenario bypass: '{scenario_node.get('label')}' "
+                f"(recall {scenario_node.get('score')}, LLM-picked) — skipping LLM planner + traversal{_RESET}",
                 flush=True,
             )
             emit_sse("planner_plan_ready", {
                 "step_total": 1,
-                "steps": [f"Deterministic scenario: {scenario_node.get('label')}"],
-                "rationale": "Matched an approved scenario node; executed deterministically.",
+                "steps": [f"Scenario: {scenario_node.get('label')}"],
+                "rationale": "Matched an approved scenario node.",
+            })
+            # Mirror the normal per-step SSE so the bypass stream matches the traversal path:
+            # emit the SAME planner_step_complete event the parallel loop emits, so the client
+            # sees the single scenario step finish (not just plan_ready then a jump to done).
+            emit_sse("planner_step_complete", {
+                "step_index": 0,
+                "step_total": 1,
+                "step_query": f"Scenario: {scenario_node.get('label')}",
+                "status": "complete",
+                "error": None,
             })
             return {
-                "planning_rationale": f"Deterministic scenario bypass: {scenario_node.get('label')}",
+                "planning_rationale": f"Scenario bypass: {scenario_node.get('label')}",
                 "planner_steps": [f"Scenario: {scenario_node.get('label')}"],
                 "planner_step_results": [bypass["step_result"]],
                 "scenario_simulation_guidance": "",
@@ -414,7 +431,7 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
                 "messages": [{
                     "agent": "planner",
                     "content": (
-                        f"Deterministic scenario '{scenario_node.get('label')}' executed "
+                        f"Scenario '{scenario_node.get('label')}' executed "
                         f"({bypass['row_count']} rows); LLM planning + traversal bypassed. "
                         f"Resolved scope: {bypass['resolved_params']['resolved']}."
                     ),

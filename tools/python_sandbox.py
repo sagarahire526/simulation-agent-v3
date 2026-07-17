@@ -520,9 +520,13 @@ class PythonSandbox:
             # Expose the node runners AND the construction-plan-forecast wrapper as
             # globals so an orchestrator can call any of them directly (cpf-001 can't
             # go through run_node — build_plan needs the SLA DAG + a bespoke signature).
+            # Also expose execute_query: some scenario orchestrators (e.g. the recommendation
+            # nodes) build their own SQL and call execute_query directly rather than via a
+            # contributing KPI node.
             local_ns["run_node"] = run_node
             local_ns["run_transform"] = run_transform
             local_ns["run_construction_plan_forecast"] = _run_construction_plan_forecast
+            local_ns["execute_query"] = _execute_query
             return fn(run_node, run_transform, filter=filter, group_by=group_by)
 
         namespace = {

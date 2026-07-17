@@ -34,6 +34,9 @@ EMBED_DIM = 1536  # text-embedding-3-small output dim
 DEFAULT_TOP_K = 5
 MIN_SCORE = 0.0  # no floor — caller can override
 
+# Recall floor for the two-stage scenario match; an LLM re-ranker makes the final pick.
+SCENARIO_RECALL_FLOOR = 0.60
+
 _PG_SCHEMA = "pwc_agent_utility_schema"
 
 # ── Project type → session_id mapping ────────────────────────────────────────
@@ -418,3 +421,103 @@ def search_scenarios(
     if best_score >= threshold:
         return {"node_id": node_id, "label": label, "score": round(best_score, 4), "threshold": threshold}
     return None
+
+
+def _fetch_scenario_texts(node_ids: list[str], session_id: str) -> dict[str, dict[str, str]]:
+    """Fetch scn_canonical_question / definition / nl_description (from props) per node_id."""
+    if not node_ids:
+        return {}
+    conn = _pg_emb_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                f"SELECT node_id, props FROM {_PG_SCHEMA}.nodes "
+                "WHERE session_id = %s AND node_id = ANY(%s)",
+                (session_id, node_ids),
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    out: dict[str, dict[str, str]] = {}
+    for r in rows:
+        props = r["props"] or {}
+        out[r["node_id"]] = {
+            "scn_canonical_question": (props.get("scn_canonical_question") or "").strip(),
+            "definition": (props.get("definition") or "").strip(),
+            "nl_description": (props.get("nl_description") or "").strip(),
+        }
+    return out
+
+
+def search_scenario_candidates(
+    query: str,
+    *,
+    project_type: str | None = None,
+    session_id: str | None = None,
+    floor: float = SCENARIO_RECALL_FLOOR,
+    top_k: int = 8,
+) -> list[dict]:
+    """Recall stage of the two-stage scenario match.
+
+    Return every `entity_type='scenario'` / `scn_agent_type='simulation'` node whose
+    cosine similarity to the query clears `floor`, sorted by score desc and capped at
+    `top_k`. Each candidate carries {node_id, label, score, scn_canonical_question,
+    definition, nl_description}. The `score` is for logging/ordering only — the final
+    pick is delegated to an LLM re-ranker (services.scenario_selector). Returns [] if
+    no scenario clears the floor.
+    """
+    if session_id is None:
+        session_id = session_id_for_project(project_type or "")
+
+    node_rows, n_mat, _p_rows, _p_mat = _load_indexes(session_id)
+    if not node_rows:
+        return []
+
+    scen_idx = [
+        i for i, r in enumerate(node_rows)
+        if (r.get("entity_type") or "").lower() == "scenario"
+        and (r.get("scn_agent_type") or "").lower() == "simulation"
+    ]
+    if not scen_idx:
+        return []
+
+    q_vec = _embed_query(query)
+    scores = n_mat[scen_idx] @ q_vec
+    ranked = sorted(
+        ((float(scores[k]), scen_idx[k]) for k in range(len(scen_idx))),
+        key=lambda t: -t[0],
+    )
+    picked = [(s, i) for s, i in ranked if s >= floor][:top_k]
+
+    if not picked:
+        if ranked:
+            bs, bi = ranked[0]
+            logger.info(
+                "search_scenario_candidates [session_id=%s]: no candidate >= %.2f "
+                "(best '%s'=%.4f)", session_id, floor, node_rows[bi].get("node_id"), bs,
+            )
+        return []
+
+    node_ids = [node_rows[i].get("node_id") for _s, i in picked]
+    texts = _fetch_scenario_texts(node_ids, session_id)
+
+    candidates: list[dict] = []
+    for s, i in picked:
+        nid = node_rows[i].get("node_id")
+        t = texts.get(nid, {})
+        candidates.append({
+            "node_id": nid,
+            "label": node_rows[i].get("label"),
+            "score": round(s, 4),
+            "scn_canonical_question": t.get("scn_canonical_question", ""),
+            "definition": t.get("definition", ""),
+            "nl_description": t.get("nl_description", ""),
+        })
+
+    logger.info(
+        "search_scenario_candidates [session_id=%s]: %d candidate(s) >= %.2f: %s",
+        session_id, len(candidates), floor,
+        ", ".join(f"{c['node_id']}={c['score']}" for c in candidates),
+    )
+    return candidates
