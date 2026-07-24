@@ -394,9 +394,10 @@ class PythonSandbox:
             `kpi_sla_dag` (per-project-type DAG, JSON) from Neo4j, exec's
             the function in an isolated namespace, then calls `build_plan`
             with the same `execute_query` this sandbox exposes. Returns the
-            full plan dict — summary, weekly_buckets, committed_sites,
-            pull_forward_sites, per_gc_weekly_demand, capacity, config (and
-            crew_gap when include_crew_analysis=True).
+            plan dict — summary, weekly_buckets, per_dimension_weekly_demand,
+            capacity, config (and crew_gap when include_crew_analysis=True).
+            Weekly buckets carry per-project id lists (committed_pj_project_ids /
+            pull_forward_pj_project_ids); per-project object detail is not emitted.
 
             Use this INSTEAD of pasting `kpi_python_function` source into
             the sandbox. Pasting a ~40 KB function body has repeatedly

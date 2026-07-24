@@ -1,65 +1,12 @@
 """
-Scenario result rendering + response-facing trimming.
+Scenario result rendering.
 
-Deterministic scenario nodes (esp. the cpf-001–wrapping ones) return rich results that can
-embed per-site object lists for the UI. Those are great for the client but explode the
-RESPONSE AGENT's prompt on large real datasets. This module keeps two concerns together and
-OUT of the planner (which should just execute the scenario):
-
-  - ``lean_scenario_result``  — trim a result to planning-level aggregates for the LLM,
-                                dropping heavy per-site object/id lists (replaced by counts)
-                                and capping long lists. The FULL result is kept elsewhere.
-  - ``render_scenario_findings`` — render ANY scenario result to markdown, generically.
-
-The trimming is applied at the response boundary (agents/response.py), not in the planner.
+Deterministic scenario nodes (esp. the cpf-001–wrapping ones) return planning-level
+aggregates. ``render_scenario_findings`` renders ANY scenario result to markdown generically,
+at the response boundary (agents/response.py) and OUT of the planner (which just executes the
+scenario).
 """
 from __future__ import annotations
-
-# cpf-001 embeds per-site detail inside each week bucket / per-dimension demand entry. The
-# response agent narrates a plan — it does NOT need per-site detail — so this is trimmed HARD:
-#   • ID lists  → only the top 10 ids per week + a "<key>_total" count.
-#   • object lists → only the top 10 sites, each reduced to MARKET ONLY (no other detail).
-# The FULL, untrimmed lists live in the untrimmed result attached to the client.
-_SITE_ID_KEYS = {"committed_pj_project_ids", "pull_forward_pj_project_ids"}
-_SITE_DETAIL_KEYS = {"committed_pj_projects", "pull_forward_pj_projects", "per_site", "sites"}
-_SITE_SAMPLE_N = 10
-_SITE_KEEP_FIELDS = ("m_market",)   # the only per-site field kept in the object sample
-# Safety cap for any OTHER list-of-rows so no single list can flood the prompt. Generous so
-# genuine planning outputs (e.g. scn-001 per-site predictions, ~tens of rows) stay intact.
-_MAX_LEAN_LIST_ROWS = 200
-
-
-def lean_scenario_result(obj):
-    """Return a copy of a scenario result trimmed HARD for the RESPONSE AGENT: per week, keep
-    only the top 10 site ids + a ``<key>_total`` count, and reduce per-site object lists to
-    the top 10 sites carrying MARKET ONLY (no other detail). Keeps everything needed to
-    narrate a plan (summaries, weekly counts, capacity, crew gap, per-group breakdowns).
-    Generic over any scenario's output shape. The FULL, untrimmed result is preserved
-    separately and attached to the final payload after the response runs — the client still
-    gets every id/row."""
-    if isinstance(obj, dict):
-        out = {}
-        for k, v in obj.items():
-            if k in _SITE_ID_KEYS and isinstance(v, list):
-                out[k] = v[:_SITE_SAMPLE_N]                  # top 10 ids
-                if len(v) > _SITE_SAMPLE_N:
-                    out[k + "_total"] = len(v)
-            elif k in _SITE_DETAIL_KEYS and isinstance(v, list):
-                out[k] = [{f: r.get(f) for f in _SITE_KEEP_FIELDS}          # market only
-                          for r in v[:_SITE_SAMPLE_N] if isinstance(r, dict)]
-                if len(v) > _SITE_SAMPLE_N:
-                    out[k + "_total"] = len(v)
-            else:
-                out[k] = lean_scenario_result(v)
-        return out
-    if isinstance(obj, list):
-        lean = [lean_scenario_result(x) for x in obj[:_MAX_LEAN_LIST_ROWS]]
-        if len(obj) > _MAX_LEAN_LIST_ROWS:
-            lean.append({"_note": f"{len(obj) - _MAX_LEAN_LIST_ROWS} more row(s) omitted from "
-                                  f"this view; full detail attached separately."})
-        return lean
-    return obj
-
 
 def _union_columns(rows: list[dict]) -> list[str]:
     """First-seen-order union of keys across a list of row dicts."""
@@ -123,8 +70,7 @@ def render_scenario_findings(label: str, resolved: dict, result) -> str:
     lines = [
         f"DETERMINISTIC SCENARIO RESULT — '{label}'. Already computed by the graph "
         f"nodes (no LLM grouping/filtering). RENDER THE DATA BELOW VERBATIM — do NOT "
-        f"recompute, summarise away, drop rows, or claim any data is missing. (Per-site "
-        f"detail lists are trimmed here for brevity and attached separately in full.)",
+        f"recompute, summarise away, drop rows, or claim any data is missing.",
         "",
         f"Resolved scope: {resolved or {}}",
         "",

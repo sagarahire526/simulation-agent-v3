@@ -27,22 +27,10 @@ from prompts.response_prompt import RESPONSE_SYSTEM
 from prompts.chart_prompt import CHART_SYSTEM
 from prompts.algorithm_prompt import ALGORITHM_SYSTEM
 from services.date_context import today_date_context
-from agents.scenario_render import lean_scenario_result, render_scenario_findings
+from agents.scenario_render import render_scenario_findings
 
 
 logger = logging.getLogger(__name__)
-
-# Max characters of collected data to feed the response LLM. The LLM proxy rejects/ OOMs on
-# large request bodies (~130 KB observed hard limit), and the system prompt alone is ~40 KB,
-# so the data budget is small. 50 KB keeps the total request (system + query + data +
-# instructions + JSON envelope) comfortably under the limit. Full per-site detail is preserved
-# in the structured results and attached after the response — nothing is lost, only trimmed
-# from the LLM's input. ~50k chars ~= 12k tokens.
-_MAX_DATA_CONTEXT_CHARS = 45_000
-# Backstop on the whole user message: with the ~40 KB system prompt and JSON escaping inflating
-# the body, keeping the user message under ~75 KB keeps the total request under the ~130 KB
-# proxy limit with margin.
-_MAX_USER_MESSAGE_CHARS = 75_000
 
 # Common non-ASCII punctuation -> ASCII. Some LLM proxies mis-decode raw multi-byte UTF-8 in
 # the request body (their JSON parser reads it byte-wise, miscounts, and 400s with "Unexpected
@@ -81,16 +69,15 @@ def _sanitize_for_llm(text: str) -> str:
 
 def _scenario_or_findings(result: dict) -> str:
     """Findings text for one planner step. For a deterministic scenario step the planner
-    passes the FULL structured result through (`scenario_full_result`); render a LEAN view
-    here — at the response boundary — so heavy per-site detail never enters the LLM prompt
-    (the full detail is attached to the final payload separately). Non-scenario steps use
-    the traversal agent's own findings string."""
+    passes the FULL structured result through (`scenario_full_result`); render it to markdown
+    here — at the response boundary. Non-scenario steps use the traversal agent's own findings
+    string."""
     full = result.get("scenario_full_result")
     if full is not None:
         return render_scenario_findings(
             result.get("scenario_label", "scenario"),
             result.get("scenario_resolved", {}),
-            lean_scenario_result(full),
+            full,
         )
     return result.get("traversal_findings", "No findings.")
 
@@ -382,19 +369,6 @@ def response_node(state: SimulationState) -> dict[str, Any]:
 
     data_context, effective_tool_calls = _format_traversal_data(state)
 
-    # Hard safety cap: no matter how large the underlying data is, the assembled context must
-    # fit the model / proxy request-size limit. Structural trimming (scenario_render) handles
-    # the common case; this guarantees a request can never be rejected for size. Full detail
-    # is always preserved in the structured results attached after the response.
-    if len(data_context) > _MAX_DATA_CONTEXT_CHARS:
-        dropped = len(data_context) - _MAX_DATA_CONTEXT_CHARS
-        data_context = (
-            data_context[:_MAX_DATA_CONTEXT_CHARS]
-            + f"\n\n… [truncated to fit the model request limit — {dropped:,} more characters "
-              f"omitted; the full per-site detail is attached in the structured results]"
-        )
-        logger.warning("Response data_context truncated by %d chars to fit request limit.", dropped)
-
     # ASCII-sanitize the data (feeds the main response + the parallel algorithm/chart calls)
     # so no non-ASCII from real data (accented GC/market names, smart punctuation) can make a
     # proxy reject the request body.
@@ -462,12 +436,6 @@ def response_node(state: SimulationState) -> dict[str, Any]:
     )
 
     user_message = _sanitize_for_llm("\n".join(user_message_parts))
-    # Final backstop on the WHOLE user message (not just data_context): guarantees the request
-    # body stays under the proxy limit even if extra sections are added. data_context is already
-    # capped above, so this normally never triggers.
-    if len(user_message) > _MAX_USER_MESSAGE_CHARS:
-        user_message = user_message[:_MAX_USER_MESSAGE_CHARS] + "\n\n[truncated to fit request limit]"
-        logger.warning("Response user_message truncated to %d chars to fit request limit.", _MAX_USER_MESSAGE_CHARS)
     system_prompt = _sanitize_for_llm(RESPONSE_SYSTEM.format(today_date=today_date_context()))
 
     # Fire the algorithm-narrative LLM in a background thread so it runs in
