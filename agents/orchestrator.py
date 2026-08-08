@@ -20,6 +20,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 
 from models.state import SimulationState
 from services.llm_provider import LLMProvider
+from services.langfuse_observability import handler_for, ORCHESTRATOR
 from prompts.orchestrator_prompt import ORCHESTRATOR_SYSTEM
 
 logger = logging.getLogger(__name__)
@@ -72,10 +73,13 @@ def orchestrator_node(state: SimulationState) -> dict[str, Any]:
 
     llm = LLMProvider.get_llm("fast", max_tokens=512)
 
-    response = llm.invoke([
-        SystemMessage(content=ORCHESTRATOR_SYSTEM),
-        HumanMessage(content=refined_query),
-    ])
+    response = llm.invoke(
+        [
+            SystemMessage(content=ORCHESTRATOR_SYSTEM),
+            HumanMessage(content=refined_query),
+        ],
+        config=handler_for(ORCHESTRATOR),
+    )
 
     parsed = _parse_orchestrator_response(response.content)
     routing_decision: str = parsed.get("routing_decision", "simulation")

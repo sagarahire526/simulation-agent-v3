@@ -106,6 +106,7 @@ simulation-agent-v1/
 │   ├── sse_manager.py             # asyncio.Queue + threading.Event for SSE
 │   ├── db_service.py              # PostgreSQL persistence (threads, queries, HITL records)
 │   ├── semantic_service.py        # Nokia semantic search API client
+│   ├── langfuse_observability.py  # Langfuse tracing config for every LLM call
 │   ├── bkg_service.py             # Neo4j BKG service
 │   └── sandbox_service.py        # Python sandbox service
 │
@@ -171,6 +172,11 @@ PG_PASSWORD=your-password
 
 # Nokia Semantic Search API
 SEMANTIC_SEARCH_URL=http://localhost:8001
+
+# Langfuse (LLM observability) — optional; leave blank to disable tracing
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_HOST=https://cloud.langfuse.com
 ```
 
 ### 3. Run the backend
@@ -193,6 +199,48 @@ Enter your User ID in the sidebar before chatting.
 ```bash
 python mock_semantic_server.py   # starts on port 8001
 ```
+
+---
+
+## Observability (Langfuse)
+
+Every LLM call is traced to Langfuse via `services/langfuse_observability.py`,
+which mirrors the reporting-agent's module of the same name so both services
+share one project and one tag convention.
+
+**How it works**
+
+1. The request entrypoint binds the tracing context once:
+   `set_request_context(thread_id, user_id, query_id)` —
+   `services/simulation_service.py` (REST) and
+   `api/v1/endpoints/sse_simulate.py` (SSE stream).
+2. Each LLM call site passes the config down:
+   ```python
+   from services.langfuse_observability import handler_for, PLANNER
+   llm.invoke(messages, config=handler_for(PLANNER))
+   ```
+   Call sites that already build a config (the ReAct traversal agent) merge instead:
+   ```python
+   config=merge_handler({"recursion_limit": n, "callbacks": [cb]}, TRAVERSAL_AGENT)
+   ```
+
+**Trace layout** — one trace per call site, named after the agent
+(`query-refiner`, `orchestrator`, `planner`, `traversal-agent`, `response-agent`,
+`algorithm-narrator`, `chart-generator`, `scenario-selector`, `scenario-params`),
+tagged `["simulation-agent", "<agent>"]`. Traces are grouped into a Langfuse
+**session** by `thread_id`, so every turn of a conversation — including HITL
+resumes — lands together. `user_id` is set for per-user filtering and `query_id`
+rides along as metadata to join a trace back to its `pwc_simulation_agent_schema` row.
+
+**Disabled by default** — with any of `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` /
+`LANGFUSE_HOST` missing, `handler_for` returns `None`, `merge_handler` returns the
+caller's config untouched, and the agent behaves exactly as before. A startup log
+line states which mode is active. Scripts under `scripts/` set no request context
+and are therefore never traced.
+
+> New threads that make LLM calls must run inside `contextvars.copy_context()`
+> (as `agents/planner.py` and `agents/response.py` do) or their calls lose the
+> tracing context and go unrecorded.
 
 ---
 

@@ -18,6 +18,7 @@ import uuid
 
 from graph import run_simulation, resume_simulation, get_pending_interrupt
 import services.db_service as db_svc
+from services.langfuse_observability import set_request_context
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +158,11 @@ def run_query(
     query_id = str(uuid.uuid4())
     t0 = time.perf_counter()
 
+    # Bind tracing context for every LLM call this query makes. Set here (not in
+    # the endpoint) because the whole run happens on this executor thread —
+    # loop.run_in_executor does not copy the caller's contextvars.
+    set_request_context(thread_id, user_id, query_id)
+
     db_svc.upsert_thread(thread_id, user_id)
     db_svc.auto_name_thread(thread_id, query)
     db_svc.create_query(query_id, thread_id, user_id, query)
@@ -226,6 +232,15 @@ def resume_query(clarification: str, thread_id: str) -> dict:
     query_id = db_svc.get_paused_query_id(thread_id)
     if query_id:
         db_svc.update_hitl_answered(query_id, clarification, was_skipped)
+
+    # Resume arrives on a fresh request/thread, so rebind the tracing context.
+    # ResumeRequest carries no user_id — recover it from the thread so the
+    # post-clarification traces stay attributed to the same user.
+    try:
+        thread_row = db_svc.get_thread(thread_id) or {}
+    except Exception:  # noqa: BLE001 — tracing metadata must never break a resume
+        thread_row = {}
+    set_request_context(thread_id, thread_row.get("user_id"), query_id)
 
     db_svc.touch_thread(thread_id)
 

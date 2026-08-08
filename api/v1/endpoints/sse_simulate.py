@@ -31,6 +31,7 @@ from api.v1.schemas import ProjectType
 import services.db_service as db_svc
 from graph import stream_simulation
 from services.json_utils import safe_dumps
+from services.langfuse_observability import set_request_context
 from services.simulation_service import _build_traces
 from services.sse_manager import sse_manager
 
@@ -79,6 +80,10 @@ def _run_stream_thread(
       - update_query_complete on success  /  update_query_error on exception
     """
     t0 = time.perf_counter()
+
+    # Bind tracing context on this executor thread — everything the graph does
+    # (including the HITL resume, which continues on this same thread) runs here.
+    set_request_context(thread_id, user_id, query_id)
 
     db_svc.upsert_thread(thread_id, user_id)
     db_svc.auto_name_thread(thread_id, query)

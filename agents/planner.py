@@ -23,6 +23,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 
 from models.state import SimulationState
 from services.llm_provider import LLMProvider
+from services.langfuse_observability import handler_for, PLANNER
 from agents.traversal import atraversal_node
 from services.semantic_service import SemanticService
 from services import internal_scenarios as scenario_lib
@@ -460,10 +461,13 @@ def planner_node(state: SimulationState) -> dict[str, Any]:
         semantic_context=safe_semantic,
     )
 
-    llm_response = llm.invoke([
-        SystemMessage(content=planning_prompt),
-        HumanMessage(content=refined_query),
-    ])
+    llm_response = llm.invoke(
+        [
+            SystemMessage(content=planning_prompt),
+            HumanMessage(content=refined_query),
+        ],
+        config=handler_for(PLANNER),
+    )
 
     rationale, steps = _parse_planner_response(llm_response.content)
 

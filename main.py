@@ -55,12 +55,16 @@ from fastapi.responses import FileResponse
 from api.v1.router import router as v1_router
 from api.v1.auth import require_bkg_admin
 import services.db_service as db_svc
+import services.langfuse_observability as langfuse_obs
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db_svc.ensure_tables()
     yield
+    # Langfuse batches spans in a background thread — flush before the process
+    # exits so the last few traces aren't lost on shutdown/reload. No-op when off.
+    langfuse_obs.flush()
     db_svc.close_pool()
 
 

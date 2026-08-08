@@ -10,6 +10,7 @@ Handles two upstream paths:
 """
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import re
@@ -22,6 +23,12 @@ from langchain_core.messages import SystemMessage, HumanMessage
 
 from models.state import SimulationState
 from services.llm_provider import LLMProvider
+from services.langfuse_observability import (
+    handler_for,
+    ALGORITHM_NARRATOR,
+    CHART_GENERATOR,
+    RESPONSE_AGENT,
+)
 from tools.python_sandbox import execute_python
 from prompts.response_prompt import RESPONSE_SYSTEM
 from prompts.chart_prompt import CHART_SYSTEM
@@ -281,10 +288,13 @@ def _generate_chart(llm, user_query: str, data_context: str) -> dict[str, Any]:
             f"## Collected Data\n{data_context}\n\n"
             "Based on the data above, produce the chart JSON."
         )
-        chart_resp = llm.invoke([
-            SystemMessage(content=_sanitize_for_llm(CHART_SYSTEM)),
-            HumanMessage(content=_sanitize_for_llm(chart_user_msg)),
-        ])
+        chart_resp = llm.invoke(
+            [
+                SystemMessage(content=_sanitize_for_llm(CHART_SYSTEM)),
+                HumanMessage(content=_sanitize_for_llm(chart_user_msg)),
+            ],
+            config=handler_for(CHART_GENERATOR),
+        )
 
         raw = chart_resp.content.strip()
 
@@ -336,14 +346,17 @@ def _generate_algorithm(llm, user_query: str, data_context: str) -> str:
     by problems here.
     """
     try:
-        resp = llm.invoke([
-            SystemMessage(content=_sanitize_for_llm(ALGORITHM_SYSTEM)),
-            HumanMessage(content=_sanitize_for_llm(
-                f"## User Query\n{user_query}\n\n"
-                f"## Tool Trace\n{data_context}\n\n"
-                "Write the numbered algorithm now."
-            )),
-        ])
+        resp = llm.invoke(
+            [
+                SystemMessage(content=_sanitize_for_llm(ALGORITHM_SYSTEM)),
+                HumanMessage(content=_sanitize_for_llm(
+                    f"## User Query\n{user_query}\n\n"
+                    f"## Tool Trace\n{data_context}\n\n"
+                    "Write the numbered algorithm now."
+                )),
+            ],
+            config=handler_for(ALGORITHM_NARRATOR),
+        )
         return (resp.content or "").strip()
     except Exception as exc:  # noqa: BLE001
         logger.warning("Algorithm generation failed: %s", exc)
@@ -448,13 +461,22 @@ def response_node(state: SimulationState) -> dict[str, Any]:
         fast_llm = LLMProvider.get_llm("gpt-5.4-mini", reasoning_effort="low", max_tokens=1024)
         algorithm_result["value"] = _generate_algorithm(fast_llm, user_query, data_context)
 
-    algorithm_thread = threading.Thread(target=_algorithm_worker, daemon=True)
+    # A raw Thread starts with an EMPTY contextvars context, so the Langfuse
+    # request context (thread_id / user_id / query_id) would be invisible here and
+    # this call would go untraced. Run the worker inside a copy of the node's context.
+    algorithm_ctx = contextvars.copy_context()
+    algorithm_thread = threading.Thread(
+        target=algorithm_ctx.run, args=(_algorithm_worker,), daemon=True,
+    )
     algorithm_thread.start()
 
-    response = llm.invoke([
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=user_message),
-    ])
+    response = llm.invoke(
+        [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_message),
+        ],
+        config=handler_for(RESPONSE_AGENT),
+    )
 
     final_response = response.content
 

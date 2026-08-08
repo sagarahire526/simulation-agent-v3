@@ -18,6 +18,7 @@ from langgraph.prebuilt import create_react_agent
 
 from models.state import SimulationState, ToolCallRecord
 from services.llm_provider import LLMProvider
+from services.langfuse_observability import merge_handler, TRAVERSAL_AGENT
 from services.schema_embedding_service import search_schema
 from tools.langchain_tools import get_fast_tools
 from prompts.traversal_prompt import TRAVERSAL_SYSTEM
@@ -651,10 +652,13 @@ def traversal_node(state: SimulationState) -> dict[str, Any]:
     try:
         result = agent.invoke(
             {"messages": [("human", traversal_query)]},
-            config={
-                "recursion_limit": max_steps * 3 + 10,
-                "callbacks": [llm_capture],
-            },
+            config=merge_handler(
+                {
+                    "recursion_limit": max_steps * 3 + 10,
+                    "callbacks": [llm_capture],
+                },
+                TRAVERSAL_AGENT,
+            ),
         )
 
         elapsed = time.perf_counter() - start_time
@@ -804,10 +808,13 @@ async def atraversal_node(state: SimulationState) -> dict[str, Any]:
     try:
         result = await agent.ainvoke(
             {"messages": [("human", query)]},
-            config={
-                "recursion_limit": max_steps * 3 + 10,
-                "callbacks": [llm_capture],
-            },
+            config=merge_handler(
+                {
+                    "recursion_limit": max_steps * 3 + 10,
+                    "callbacks": [llm_capture],
+                },
+                TRAVERSAL_AGENT,
+            ),
         )
 
         elapsed = time.perf_counter() - start_time

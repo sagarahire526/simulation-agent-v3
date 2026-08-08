@@ -2,6 +2,12 @@
 langgraph>=0.2.0
 langchain-core>=0.3.0
 langchain-openai>=0.2.0
+# langfuse's LangChain integration imports the `langchain` meta-package for a
+# version check, so it is required even though the agent only uses langchain-core.
+langchain>=1.1.0
+
+# Observability
+langfuse>=3.0.0
 
 # Neo4j
 neo4j>=5.0.0

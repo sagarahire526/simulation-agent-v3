@@ -25,6 +25,7 @@ from langgraph.types import interrupt
 
 from models.state import SimulationState
 from services.llm_provider import LLMProvider
+from services.langfuse_observability import handler_for, QUERY_REFINER
 from services.entity_lookup_service import get_all_entity_lookups
 from prompts.query_refiner_prompt import QUERY_REFINER_SYSTEM
 
@@ -90,10 +91,13 @@ def query_refiner_node(state: SimulationState) -> dict[str, Any]:
         "{{region_names}}", ", ".join(lookups["regions"]) if lookups["regions"] else "(not available)"
     )
 
-    response = llm.invoke([
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=user_query),
-    ])
+    response = llm.invoke(
+        [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_query),
+        ],
+        config=handler_for(QUERY_REFINER),
+    )
 
     parsed = _parse_refiner_response(response.content)
     is_complete: bool = parsed.get("is_complete", True)
@@ -173,10 +177,13 @@ def query_refiner_node(state: SimulationState) -> dict[str, Any]:
             "   the user already provided.\n"
             "5. Set is_complete=true."
         )
-        resume_response = llm.invoke([
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=broaden_prompt),
-        ])
+        resume_response = llm.invoke(
+            [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=broaden_prompt),
+            ],
+            config=handler_for(QUERY_REFINER),
+        )
         resume_parsed = _parse_refiner_response(resume_response.content)
         refined_query = resume_parsed.get("refined_query", "") or (
             refined_query or user_query
@@ -210,10 +217,13 @@ def query_refiner_node(state: SimulationState) -> dict[str, Any]:
             "Do NOT list 'will be retrieved from the database' assumptions for any value "
             "the user already provided. Set is_complete=true."
         )
-        resume_response = llm.invoke([
-            SystemMessage(content=system_prompt),
-            HumanMessage(content=merge_prompt),
-        ])
+        resume_response = llm.invoke(
+            [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=merge_prompt),
+            ],
+            config=handler_for(QUERY_REFINER),
+        )
         resume_parsed = _parse_refiner_response(resume_response.content)
         refined_query = resume_parsed.get("refined_query", "") or (
             f"{user_query} — Additional context: {user_clarification.strip()}"

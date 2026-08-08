@@ -178,6 +178,7 @@ def extract_params_by_schema(
     try:
         from langchain_core.messages import SystemMessage, HumanMessage
         from services.llm_provider import LLMProvider
+        from services.langfuse_observability import handler_for, SCENARIO_PARAMS
         from prompts.scenario_param_prompt import SCENARIO_PARAM_SCHEMA_SYSTEM
 
         # Only the fields the model needs to reason about (name/type/allowed/description).
@@ -188,10 +189,13 @@ def extract_params_by_schema(
             ]
         }
         llm = LLMProvider.get_llm("heavy")
-        resp = llm.invoke([
-            SystemMessage(content=SCENARIO_PARAM_SCHEMA_SYSTEM),
-            HumanMessage(content=json.dumps({"schema": schema_for_llm, "question": query or ""})),
-        ])
+        resp = llm.invoke(
+            [
+                SystemMessage(content=SCENARIO_PARAM_SCHEMA_SYSTEM),
+                HumanMessage(content=json.dumps({"schema": schema_for_llm, "question": query or ""})),
+            ],
+            config=handler_for(SCENARIO_PARAMS),
+        )
         data = _parse_json(resp.content)
         for f in fields:
             if f.get("name"):
@@ -241,13 +245,17 @@ def extract_scenario_params(
     try:
         from langchain_core.messages import SystemMessage, HumanMessage
         from services.llm_provider import LLMProvider
+        from services.langfuse_observability import handler_for, SCENARIO_PARAMS
         from prompts.scenario_param_prompt import SCENARIO_PARAM_SYSTEM
 
         llm = LLMProvider.get_llm("heavy")
-        resp = llm.invoke([
-            SystemMessage(content=SCENARIO_PARAM_SYSTEM),
-            HumanMessage(content=query or ""),
-        ])
+        resp = llm.invoke(
+            [
+                SystemMessage(content=SCENARIO_PARAM_SYSTEM),
+                HumanMessage(content=query or ""),
+            ],
+            config=handler_for(SCENARIO_PARAMS),
+        )
         data = _parse_json(resp.content)
 
         dv, du = data.get("duration_value"), (data.get("duration_unit") or "")
